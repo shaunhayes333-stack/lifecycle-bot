@@ -143,7 +143,9 @@ class Aate8290PredictiveAuditTest {
         assertTrue(adapter.contains("suspect8290 = r.getOrNull(4) == 1.0"))
         assertTrue(adapter.contains("suspect8290 = it.outlierSuspect8185"))
         assertTrue(adapter.contains("ForwardReturnLabeler7731.executable8187(it, lane)"))   // the live fresh cell is read executable
-        assertTrue(a.contains("LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.liveShortfall8290)"))
+        // superseded by V5.0.9001: the Cortex cohort is pooled over every age, so it is read past the shortfall plus the age gap
+        assertTrue(a.contains("LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.pooledShortfall9001)"))
+        assertTrue(a.contains("val pooledShortfall9001: Double get() = liveShortfall8290 + ageGap9001"))
         assertTrue(adapter.contains("liveShortfall8290 = extra8290"))
         val pb = src("engine/cortex/LanePlaybook7907.kt")
         assertTrue(pb.substringAfter("fun provenSetup8056(").substringBefore("fun matchedSetups8083(").contains("!setupSurvives8290(lane, setup, st, extra8290)"))
