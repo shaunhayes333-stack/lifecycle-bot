@@ -426,6 +426,7 @@ object ForwardReturnLabeler7731 {
         @Volatile var pred8855 = Double.NaN
         /** V5.0.8877 — the V3 score at the decision, for the hour's research row (not checkpointed: NaN after a restart). */
         @Volatile var v38877 = Double.NaN
+        @Volatile var age9002 = Double.NaN   // V5.0.9002 — the coin's age (minutes) at the decision, for the research row
         @Volatile var flow8924 = ""   // V5.0.8924 — the buyer flow at the decision (BuyerFlow8666.View), for the research row
         @Volatile var pathNet8855 = Double.NaN
         @Volatile var pathStopped8855 = false
@@ -1447,6 +1448,7 @@ object ForwardReturnLabeler7731 {
                 it.trajectoryVenueEpoch8851 = it.edge8537?.modelEpoch
                 it.pred8855 = it.edge8537?.pred ?: Double.NaN   // V5.0.8855 — kept after the label consumes the snapshot
                 it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN   // V5.0.8877 — for the hour's research row
+                it.age9002 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
                 it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)) } catch (_: Throwable) { "" }
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
@@ -2299,7 +2301,7 @@ object ForwardReturnLabeler7731 {
         if (ResearchFollow8884.tradeable8923(o.liqUsd8539)) try {
             ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
                 o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967,
-                diag8891(o, System.currentTimeMillis()), o.flow8924))
+                diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002))
             // V5.0.8891 — measurement: an hour booked on a last accepted mark older than this labeler's own price age bar
             if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)
                 ResearchRows8877.noteStale8891(o.lastSkip8891.ifBlank { "NONE_REFUSED" })

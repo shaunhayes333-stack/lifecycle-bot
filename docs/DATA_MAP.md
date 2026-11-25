@@ -3841,3 +3841,65 @@ their own age and are not shifted; loss tests read raw records; nothing is added
 is added: a record that no longer clears its bar is not proof for that coin, and the candidate continues to the lane's
 ordinary checks. Built from EdgeModel8537.appendDataset and the dataset replay at start; memory only.
 Report: ageProof9001{...} in the brief; entryReceipts8500 byAge9001{...}; label AGE_PROOF_GAP_9001_<band>.
+
+## 187. Every lane mines where its winners form (9002)
+
+Owner, 25 Nov 15:55: "this shouldn't just be a meme coin thing. this should be a whole aate stack thing. the big winners in
+every trader lane specialist etc are what make this worth while". Sources: every aate_edge_research_8877 export in the
+chat merged (190,369 rows, 9,241 coins, 20-25 Nov; hour rows 91,861) and every aate_edge_dataset_8537 export merged
+(80,375 graded decisions, 9,691 coins, 12-13 and 22-25 Nov). A lane's read of a coin is counted once, at its first read.
+
+Correction to section 186: "a coin under 15 minutes pays" holds on 22-25 Nov only. Admitted decisions on such coins, capped
++300 %: 12 Nov -13.5 % (n 1,262), 13 Nov -12.5 % (n 632), 22 Nov +13.5 %, 23 Nov +17.5 %, 24 Nov +18.4 %, 25 Nov +19.7 %.
+Coins an hour old or more are negative on all six days (n 4,851). 9001 uses only the second fact.
+
+Per lane, hour rows, each coin once (net after cost at the hour; "doubles" = peak +100 % inside the hour):
+
+| lane | coins | net 1 h | doubles | peak +400 % |
+|---|---|---|---|---|
+| CORE | 5,090 | -8.6 % | 6.5 % | 1.3 % |
+| MOONSHOT | 4,896 | -10.2 % | 6.6 % | 1.4 % |
+| SHITCOIN | 4,812 | -10.6 % | 6.3 % | 1.6 % |
+| EXPRESS | 4,806 | -11.3 % | 6.7 % | 1.5 % |
+| MANIPULATED | 4,486 | -10.3 % | 7.2 % | 1.6 % |
+| QUALITY | 3,724 | -11.7 % | 6.2 % | 1.2 % |
+| BLUECHIP | 3,287 | -10.7 % | 5.8 % | 1.2 % |
+| CYCLIC | 1,494 | -4.7 % | 8.9 % | 1.5 % |
+| TREASURY | 1,367 | -14.0 % | 7.0 % | 1.5 % |
+| CASHGEN | 741 | -13.7 % | 9.9 % | 1.8 % |
+| CRYPTO_CORE | 2,203 | -6.8 % | 2.0 % | 0.3 % |
+| CRYPTO_MOONSHOT | 1,410 | -9.6 % | 2.4 % | 0.1 % |
+| CRYPTO_EXPRESS | 1,317 | -8.5 % | 3.1 % | 0.6 % |
+| CRYPTO_QUALITY | 996 | -1.2 % | 2.0 % | 0.2 % |
+| CRYPTO_BLUECHIP | 432 | -4.4 % | 2.1 % | 0.0 % |
+
+Every lane is shown doublers at 2-10 % of its coins and nets a loss on the set: the winners are in the feed, the selection
+and the hold are what lose. Where they form (13,366 lane reads joined to the decision row within 120 s, 2,402 coins,
+22-25 Nov; meme lanes n 10,852):
+
+- age: under 5 min 10.7 % double (n 6,213); 5-15 min 9.3 %; 15-60 min 6.1 %; 1-24 h 3.6 %; over 24 h 0.0 % (0 of 1,357).
+- cap: under $6k 6.8 %; $6k-$30k 11.8 %; $30k-$150k 5.7 %; $150k-$1M 2.4 %; $1M+ 0.3 %. At 4 h a $1M+ meme coin doubles
+  0.8 % of the time and at 24 h 0.9 %; CRYPTO_* reads of $1M+ coins 1.6 % at 4 h and 1.0 % at 24 h.
+- holders 1,000+: 0.8 % double.
+- stage: BASE_START n 1,572 / 352 coins +28.3 % +- 2.6 (14.0 % double). Outside the LP-unlocked cohort and under 15
+  minutes: n 1,022 / 220 coins +21.2 % +- 3.2, halves -1.8 / +38.8 (second half only - not proven). Every lane's
+  BASE_START read is positive (CORE +17.3, MOONSHOT +31.8, SHITCOIN +24.5, EXPRESS +18.6, CYCLIC +34.4, QUALITY +15.5,
+  BLUECHIP +12.3, TREASURY +19.9), each with a first half at or below zero. CRYPTO_* BASE_START n 64 / 25 coins +57.0.
+  Every other stage loses at every age: FRESH_LAUNCH -22.5, DUMPING -30.2, PEAK_EXHAUSTION -28.8 (under 15 minutes).
+- the doublers' own low inside the hour (808 outside the LP-unlocked cohort): 63.2 % never traded 10 % under the entry
+  read, 66.0 % never 15 % under, 72.8 % never 25 % under, 81.4 % never 50 % under. The order of low and peak is not in the
+  row, so a stop at -15 % costs at most a third of them.
+
+What this says about the lanes that hunt old or large coins (BLUECHIP $1M+, TREASURY / CASHGEN $1M-$5M, QUALITY, every
+CRYPTO_* lane on established coins): inside a day their band holds almost no doubling coin. Their large wins are not
+visible at the horizons the research rows hold (1 h, 4 h, 24 h); nothing here says where they form.
+
+Change. The research hour row now carries the coin's age at the decision ("age", minutes, written only when known; the
+labeler's observation holds it as age9002). LanePocket8934.features8934 takes that age (AgeProof9001's bands) and the 60 s
+distinct-buyer count the row has carried since 8924 (buyers: <10, 10-30, 30-80, 80+) as two more features, alone and
+paired with origin, stage, setup, V3, forecast, pool and cap - 45 cells a coin instead of 28 - for every lane the miner
+reads, meme and CRYPTO_*, under the miner's unchanged proof (30+ coins, both time halves positive, the mean without the
+best three > z SE). An unread value adds no feature, so the seed and the rows written before 9002 mine as before. A
+candidate is matched on its own age (EdgeModel8537 raw) and current buyer count. No lane is handed a cell: each proves
+its own from its own rows, and a cell needs rows written from 9002 on, so the first can appear after about a day of them.
+The 4 h and 24 h follow rows do not carry the age yet.

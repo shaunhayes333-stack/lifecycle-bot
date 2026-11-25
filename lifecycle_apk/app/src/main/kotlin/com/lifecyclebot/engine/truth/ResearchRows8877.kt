@@ -119,13 +119,16 @@ object ResearchRows8877 {
     /** Pure: one research row (JSON, NaN as null). */
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
-                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = ""): String {
+                 peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = "",
+                 ageMin: Double = Double.NaN): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
             "\"stage\":\"${s(stage, 32)}\",\"setup\":\"${s(setup, 40)}\",\"pred\":${n(pred)},\"v3\":${n(v3)},\"mcap\":${n(mcapUsd)}," +
             "\"liq\":${n(liqUsd)},\"cost\":${n(costPct)},\"net\":${n(net)},\"gross\":${n(gross)},\"peakPct\":${n(peakPct)}," +
             "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
+            // V5.0.9002 — the coin's age at the decision, when it was known (LanePocket8934 mines it per lane)
+            (if (ageMin.isFinite() && ageMin >= 0.0) ",\"age\":${n(ageMin)}" else "") +
             // V5.0.8891 — the hour read's path diagnostics (ForwardReturnLabeler7731.diagJson8891), when the labeler gives them
             (if (diag.startsWith("{") && diag.endsWith("}")) ",\"diag8891\":$diag" else "") +
             // V5.0.8924 — the buyer flow at the decision, when it was read

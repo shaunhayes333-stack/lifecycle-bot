@@ -46,7 +46,7 @@ class Aate8891LabelStallTest {
                 "SKIP_CURVE_HELD_8891", "SKIP_JUMP_8891", "SKIP_INELIGIBLE_8891"))
             assertTrue(k, lab.contains("skip8891(o, $k,"))
         assertTrue(lab.contains("o.accepted8891++"))
-        assertTrue(lab.contains("diag8891(o, System.currentTimeMillis()), o.flow8924))"))   // V5.0.8924 — the row also carries the decision's buyer flow
+        assertTrue(lab.contains("diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002))"))   // superseded by V5.0.9002: the row also carries the coin's age   // V5.0.8924 — the row also carries the decision's buyer flow
         assertTrue(lab.contains("if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)"))
         ResearchRows8877.noteStale8891("OBSERVED_ONLY_VENUE_MISMATCH_8783")
         // V5.0.8893 — other tests in the same run may have counted stale reads first: the reason is listed, wherever it sorts

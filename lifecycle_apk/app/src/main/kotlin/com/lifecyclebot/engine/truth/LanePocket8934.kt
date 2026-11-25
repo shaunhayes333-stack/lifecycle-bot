@@ -60,7 +60,8 @@ object LanePocket8934 {
     }
 
     /** Pure: the seven features of a decision, as the research row records them (each feature word held once, 8945). */
-    internal fun features8934(mint: String, stage: String, setup: String, v3: Double, pred: Double, liq: Double, mcap: Double): List<String> = listOf(
+    internal fun features8934(mint: String, stage: String, setup: String, v3: Double, pred: Double, liq: Double, mcap: Double,
+                              ageMin: Double = Double.NaN, buyers60: Double = Double.NaN): List<String> = (listOf(
         "origin=" + MarketCohort8701.origin8701(mint),
         "stage=" + stage.ifBlank { "NA" },
         "setup=" + setup.ifBlank { "NA" },
@@ -68,7 +69,35 @@ object LanePocket8934 {
         "pred=" + bucket(pred, doubleArrayOf(-5.0, 0.0, 5.0, 10.0), arrayOf("<-5", "-5-0", "0-5", "5-10", "10+")),
         "liq=" + bucket(liq, doubleArrayOf(5e3, 2e4, 1e5, 5e5), arrayOf("<5k", "5-20k", "20-100k", "100-500k", "500k+")),
         "mcap=" + bucket(mcap, doubleArrayOf(1e4, 2e4, 1e5, 1e6), arrayOf("<10k", "10-20k", "20-100k", "100k-1M", "1M+")),
-    ).map { word8945(it) }
+    ) + moreFeatures9002(ageMin, buyers60)).map { word8945(it) }
+
+    /**
+     * V5.0.9002 §EVERY_LANE_MINES_WHERE_ITS_WINNERS_FORM — owner, 25 Nov 15:55: "this shouldn't just be a meme coin thing.
+     * this should be a whole aate stack thing. the big winners in every trader lane specialist etc are what make this worth
+     * while". Measured on the 20-25 Nov research rows joined to the decision dataset (13,366 first reads of a coin by a
+     * lane, 2,402 coins, graded at the hour): a coin over a day old doubled inside the hour 0 times in 1,357 reads, a coin
+     * under 15 minutes old 10.7 % of the time (n 6,213); $1M+ caps 0.3 %; and the one stage that pays is BASE_START on a
+     * coin under 15 minutes old (n 1,022 outside the LP-unlocked cohort, +21.2 % +- 3.2, 14.7 % doubling; first half -1.8 %,
+     * second +38.8 %, so not yet proven by this miner's own rule). The research row never carried the coin's age, and the
+     * buyer count it has carried since 8924 was not a pocket feature, so no lane could mine either. Both are features now,
+     * alone and paired with the seven above, for every lane the miner reads (meme and CRYPTO_*), under the same proof
+     * (30+ coins, both time halves positive, the mean without its best three > z SE). A value that was not read adds no
+     * feature (never an "NA" cell), so rows written before 9002 and the shipped seed mine exactly as they did.
+     */
+    internal fun moreFeatures9002(ageMin: Double, buyers60: Double): List<String> {
+        val out = ArrayList<String>(2)
+        if (ageMin.isFinite() && ageMin >= 0.0) out += "age=" + AgeProof9001.band9001(ageMin)
+        if (buyers60.isFinite() && buyers60 >= 0.0) out += "buyers=" + bucket(buyers60, doubleArrayOf(10.0, 30.0, 80.0), arrayOf("<10", "10-30", "30-80", "80+"))
+        return out
+    }
+
+    /** Pure: the age and 60 s distinct-buyer count a research row carries (NaN when it carries none). */
+    internal fun rowExtras9002(o: JSONObject): Pair<Double, Double> {
+        val age = if (o.isNull("age")) Double.NaN else o.optDouble("age", Double.NaN)
+        val f = o.optJSONObject("flow8924")
+        val buyers = if (f == null || f.isNull("buyers60")) Double.NaN else f.optDouble("buyers60", Double.NaN)
+        return age to buyers
+    }
 
     // V5.0.8945 — the 19:34 heap map: this pocket's books held 7.0 MB for 15,878 coins, nearly all of it seven freshly built
     // feature strings per coin, though the features take a few hundred distinct values; each is now held once (bounded).
@@ -160,7 +189,7 @@ object LanePocket8934 {
         if (!inBand8934(mcap, lo, hi)) return
         val mint = o.optString("mint")
         if (mint.isBlank()) return
-        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap), net)
+        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap, rowExtras9002(o).first, rowExtras9002(o).second), net)
         val book = extBooks8991.getOrPut(extKey8991(lane, horizonMs)) { LinkedHashMap() }
         synchronized(book) {
             if (book.containsKey(mint)) return
@@ -212,7 +241,7 @@ object LanePocket8934 {
         val graded = if (lane.startsWith("CRYPTO_")) net
             else BasePocket8904.doctrineNet8910(lane, d("gross"), d("minPct"), d("heldPeakPct"), d("cost"), net)
         if (graded != net) exitsGraded8971.incrementAndGet()
-        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap), graded)
+        val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap, rowExtras9002(o).first, rowExtras9002(o).second), graded)
         val book = books.getOrPut(lane) { LinkedHashMap() }
         synchronized(book) {
             if (book.containsKey(mint)) return
@@ -311,7 +340,8 @@ object LanePocket8934 {
             val stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
             val setup = try { com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
             val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
-            val feats = features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap).toSet()
+            val buyers9002 = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)?.distinctBuyers60s?.toDouble() ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+            val feats = features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap, raw.ageMin, buyers9002).toSet()
             val c = cells.orEmpty().firstOrNull { feats.containsAll(it.conds) } ?: run {
                 // V5.0.8991 — in no cell of the lane's own hold: a cell proven at a longer horizon is its evidence, named with it
                 val (e, h) = ext.firstOrNull { feats.containsAll(it.first.conds) } ?: return null
