@@ -495,6 +495,8 @@ class DexscreenerApi {
                 val json = list.firstOrNull { it.first.pairAddress == pick.pairAddress }?.second ?: continue
                 // V5.0.8169 — the same pair's flow (txns / priceChange / liquidity) was dropped after the price.
                 try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(json, batchAtMs8169)) } catch (_: Throwable) {}
+                // V5.0.9016 — and so was the pool's type tag ("labels": CPMM / CLMM / DLMM / v2 ...).
+                try { DexExtras9016.noteLabels9016(mint, json.optJSONArray("labels")) } catch (_: Throwable) {}
             }
         } catch (_: Exception) {
             // return whatever we have; a body that parsed to nothing is UNPARSEABLE, not "no such token"
@@ -561,6 +563,7 @@ class DexscreenerApi {
             DexPools8285.markChosen8285(mint, pick.pairAddress)
             // V5.0.8285 FEATURE_ARRIVED_POOL_FLOW(mint)
             try { com.lifecyclebot.engine.truth.PairFlow8169.note8169(mint, com.lifecyclebot.engine.truth.PairFlow8169.fromJson8169(o, nowMs)) } catch (_: Throwable) {}
+            try { DexExtras9016.noteLabels9016(mint, o.optJSONArray("labels")) } catch (_: Throwable) {}   // V5.0.9016
             if (pick.liquidityUsd.isFinite() && pick.liquidityUsd > 0.0) {
                 // V5.0.8285 FEATURE_ARRIVED_LIQUIDITY(mint)
                 DexPools8285.liquidityRows8285.incrementAndGet()

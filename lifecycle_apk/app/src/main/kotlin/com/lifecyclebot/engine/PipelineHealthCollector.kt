@@ -1631,6 +1631,7 @@ object PipelineHealthCollector {
         sb.append("  Config store (§8864): ").append(try { com.lifecyclebot.data.ConfigStore.statusLine8864() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Dataset seed (§8863): ").append(try { com.lifecyclebot.engine.truth.DatasetReplay8863.statusLine8863() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Header context (§8809): ").append(try { com.lifecyclebot.network.DexScreenerSocialSource.statusLine8809() } catch (_: Throwable) { "unavailable" }).append("\n")
+        sb.append("  DexScreener extras (§9016): ").append(try { com.lifecyclebot.network.DexExtras9016.statusLine9016() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Colour and shape (§8807): ").append(try { com.lifecyclebot.engine.chart.ColourShape8807.statusLine8807() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  xStocks spot (§8802): ").append(try { com.lifecyclebot.xstocks.XsDesk.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")
         sb.append("  Desk trade book (§8802): ").append(try { com.lifecyclebot.desks.DeskJournal8802.statusLine() } catch (_: Throwable) { "unavailable" }).append("\n")

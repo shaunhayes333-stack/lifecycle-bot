@@ -4297,3 +4297,38 @@ re-read (8993) are unchanged. Status: `dexSecondPrice9015[asked= priced= thinPoo
 in each), `/ads/latest/v1` (paid ads: type, duration, impressions),
 `/token-profiles/recent-updates/v1`, the pair object's `labels`, and the websocket feed.
 
+
+## §201 — V5.0.9016: DexExtras9016, the rest of what DexScreener gives for free
+
+**Why.** Owner, 25 Nov 20:17: "go on all of them". The dataset has carried `narrHeat` / `narrExhaust` since 8798 and 685 of
+108,069 rows hold a value: their source keys a narrative by symbol from the bot's own trades. DexScreener groups coins into
+narratives by mint and publishes each narrative's cap change.
+
+**What it reads** (`network/DexExtras9016.kt`, its own daemon thread, the shared DexScreener pacer, health label
+`dexscreener_extras`; `HostCircuitInterceptor` already cools each of these endpoints down apart from the pair lookups):
+
+| Source | Pace | Kept |
+|---|---|---|
+| `/metas/trending/v1` | every 5 min | every narrative: cap change 1 h / 6 h (%), coins in it |
+| `/metas/meta/v1/{slug}` | every 5 min, for the 8 fastest-rising and 4 fastest-falling narratives over the hour | Solana mint -> the hottest narrative it sits in |
+| `/ads/latest/v1` | every 2 min, or as pushed | mint -> ad type, duration (h), impressions, date |
+| `/token-profiles/recent-updates/v1` | every 2 min, or as pushed | mint -> when it was first seen in the feed |
+| pair `labels` | no call: noted from pair answers already received (`DexscreenerApi`, both readers) | mint -> its data pool's type tag |
+| `wss://api.dexscreener.com` `/ads/latest/v1`, `/token-profiles/recent-updates/v1` | 2 sockets, 30 s ping; re-opened after 1, 2, 4 ... 30 min while no message has ever arrived | the same lists, pushed; the poll skips a list pushed in the last 2 min and otherwise carries on |
+
+**Where it goes.** Seven columns appended after every older one in `LearnerColumns8798.NAMES` (older columns keep their
+positions; the saved tree is refit on the first pass, as on every build that adds a column): `metaHeat1h`, `metaHeat6h`,
+`metaTokens`, `dexAd` (1 = seen in the latest-ads list since the app started and still running, 0 = not seen there, NaN while
+that list is unread), `dexAdImpr`, `profileUpdAgeMin`, `poolLabel` (CPMM 1, CLMM 2, DLMM 3, DYN 4, v2 5, v3 6, wp 7, v4 8,
+other 9). They are written to the decision dataset by name, offered to the tree and counted in the coverage report. Nothing
+here refuses, sizes or sells; unobserved is NaN.
+
+**Not confirmed from here.** The parsers follow the field names on docs.dexscreener.com (read 25 Nov); the live answers could
+not be fetched from the build machine. The phone's status line is the check:
+`dexExtras9016[metas= mintsMapped= hottest1h{} ads= profileUpdates= poolLabels= calls= failed= pushes= sockets{} socketOpensUnanswered= answered{}]`
+(Pipeline health, "DexScreener extras (§9016)"). `metas=0` with `failed` rising means the narrative endpoint does not answer
+as documented; `pushes=0` with `socketOpensUnanswered` rising means the push feed is not open to an unauthenticated client and
+the poll is doing the work.
+
+**Not changed.** `narrHeat` / `narrExhaust` and `NarrativeFlowAI` (a different scale and source), every gate, every lane, the
+older `DexScreenerWebSocket` (io.dexscreener.com price socket, off since 7381).

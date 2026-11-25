@@ -42,6 +42,11 @@ object LearnerColumns8798 {
         // V5.0.8840 — who is behind the launch, from the decoded pump.fun create and trade events (LaunchFacts8840)
         "creatorKnown", "devInitPct", "devHeldPct", "devSoldFrac", "devSold10mFrac", "bundleBuyers", "bundlePct", "sniperBuyers",
         "sniperPct", "top1Pct", "top5Pct", "uniqueBuyers", "devPriorLaunches", "devPriorRunnerRate", "devPriorDumpRate",
+        // V5.0.9016 — the rest of what DexScreener gives for free (DexExtras9016): the hottest trending narrative the coin
+        // sits in (its cap change over 1 h / 6 h, %, and how many coins are in it), a paid ad (1 = seen in the latest-ads
+        // list since the app started and still running, 0 = not seen there, NaN while that list is unread) and its
+        // impressions, minutes since its profile was last edited, and its data pool's type tag
+        "metaHeat1h", "metaHeat6h", "metaTokens", "dexAd", "dexAdImpr", "profileUpdAgeMin", "poolLabel",
     )
     val SIZE: Int = NAMES.size
     private val INDEX: Map<String, Int> = NAMES.withIndex().associate { it.value to it.index }
@@ -154,6 +159,15 @@ object LearnerColumns8798 {
                     put("devPriorDumpRate", if (prior.first > 0) prior.third.toDouble() / prior.first else Double.NaN)
                 }
             }
+        } catch (_: Throwable) {}
+        // V5.0.9016 — narratives, ads, profile edits and the pool's type: refreshed off this thread, read from memory here
+        try {
+            val dx = com.lifecyclebot.network.DexExtras9016
+            dx.tick9016(nowMs)
+            dx.metaOf9016(mint, nowMs)?.let { m -> put("metaHeat1h", m.capChgH1); put("metaHeat6h", m.capChgH6); put("metaTokens", m.tokens.toDouble()) }
+            val ad = dx.adOf9016(mint, nowMs)
+            if (ad != null) { put("dexAd", 1.0); put("dexAdImpr", ad.impressions) } else if (dx.adsFresh9016(nowMs)) put("dexAd", 0.0)
+            put("profileUpdAgeMin", dx.profileUpdAgeMin9016(mint, nowMs)); put("poolLabel", dx.labelOf9016(mint))
         } catch (_: Throwable) {}
         note(x)
         return x
