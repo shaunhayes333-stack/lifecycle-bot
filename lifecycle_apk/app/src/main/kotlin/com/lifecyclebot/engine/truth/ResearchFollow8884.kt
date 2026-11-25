@@ -233,13 +233,16 @@ object ResearchFollow8884 {
                 val mints = batch.filter { nowMs - it.atMs <= horizonOf8983(it) + LATE_GRACE_MS_8884 }.map { it.mint }.distinct()
                 // Expired horizons advance even during an outage, so they cannot monopolise every batch forever.
                 val body = if (mints.isEmpty()) JSONObject() else fetch8884(mints)
+                // V5.0.9015 — what Jupiter did not price (or did not answer for) is asked of DexScreener, in a pool a holder could sell into
+                val dex9015 = try { dexPrices9015(mints.filter { priceOf8884(body, it) == null }) } catch (_: Throwable) { emptyMap() }
                 val done = HashSet<Wait8884>()
                 val again = ArrayList<Wait8884>()
                 for (w in batch) {
                     val horizon = horizonOf8983(w)
                     val tooLate = nowMs - w.atMs > horizon + LATE_GRACE_MS_8884
-                    if (!tooLate && body == null) continue   // a timely unanswered read stays pending
-                    val usd = priceOf8884(body, w.mint)
+                    if (!tooLate && body == null && w.mint !in dex9015) continue   // a timely unanswered read stays pending
+                    val jup9015 = priceOf8884(body, w.mint)
+                    val usd = jup9015 ?: dex9015[w.mint]
                     val implausible = usd != null && !plausible8923(w.entryUsd, usd)   // V5.0.8923
                     if (implausible) implausible8923.incrementAndGet()
                     // A late mark is not a return at the requested horizon. Never feed it to a horizon learner.
@@ -251,7 +254,7 @@ object ResearchFollow8884 {
                         tooLate -> "LATE_READ_8884:" + w.reason
                         implausible -> "IMPLAUSIBLE_RATIO_8923:" + w.reason
                         r == null -> "NO_PRICE_JUP_8884:" + w.reason
-                        else -> "JUP_8884:" + w.reason
+                        else -> (if (jup9015 != null) "JUP_8884:" else DEX_PREFIX_9015) + w.reason
                     }
                     if (tooLate) late.incrementAndGet() else if (r == null) unpriced.incrementAndGet()
                     if (w.hour8983 && !tooLate) (if (r == null) lostHourUnpriced8983 else lostHourPriced8983).incrementAndGet()
@@ -332,6 +335,47 @@ object ResearchFollow8884 {
     private val keylessOk8934 = AtomicLong(0L)
     private val notSolana8934 = AtomicLong(0L)
 
+    /**
+     * V5.0.9015 §A_SECOND_FREE_PRICE_FOR_THE_READS_JUPITER_CANNOT_GIVE — owner, 25 Nov 20:13: "we can read prices for free
+     * from multiple other sources tho. dex is great barely ever fails and covers millions." The 4 h and 24 h reads (and an
+     * hour read the labeler lost) asked ONE source, Jupiter's price API: the 22-25 Nov research export has 21.0 % of 4 h
+     * rows and 14.7 % of 24 h rows unpriced (NO_PRICE_JUP_8884 3,974 + 2,537), and the 18:23 capture shows that source
+     * failing outright (HTTP 599 x12, 503 x10, 429 x2), which left timely reads pending until they went late (LATE_READ
+     * 2,865 + 1,641). The labeler's own 15-minute marks already read DexScreener's batch endpoint (/tokens/v1/solana, 30
+     * mints a call, keyless); this follow never did.
+     *
+     * A coin Jupiter did not price, or did not answer for, is now asked of that same endpoint. Its price counts only when
+     * the pool it came from holds [MIN_POOL_USD_8923]+ of liquidity (the row's own tradeable bar): 8884 wrote an unroutable
+     * coin as unpriced because it is usually a dead one, and a last print in an empty pool is not a price a holder gets, so
+     * that stays unpriced. A row priced this way says so (reason [DEX_PREFIX_9015]); the plausibility check (8923), the
+     * late rule and the chain re-read of what is still unpriced (8993) are unchanged. Solana mints only.
+     */
+    internal const val DEX_PREFIX_9015 = "DEX_9015:"
+    private const val DEX_SLOT_WAIT_MS_9015 = 1_500L
+    private val dexAsked9015 = AtomicLong(); private val dexPriced9015 = AtomicLong(); private val dexThin9015 = AtomicLong()
+
+    /** Pure: does a DexScreener price from a pool of [poolLiqUsd] count as the read? */
+    internal fun dexUsable9015(priceUsd: Double?, poolLiqUsd: Double?): Boolean =
+        priceUsd != null && priceUsd.isFinite() && priceUsd > 0.0 && poolLiqUsd != null && poolLiqUsd.isFinite() && poolLiqUsd >= MIN_POOL_USD_8923
+
+    private fun dexPrices9015(missing: List<String>): Map<String, Double> {
+        val ids = (try { com.lifecyclebot.network.JupiterPriceIds8418.ids8418(missing, Int.MAX_VALUE) } catch (_: Throwable) { missing }).distinct()
+        if (ids.isEmpty()) return emptyMap()
+        val out = HashMap<String, Double>()
+        for (chunk in ids.chunked(30)) {
+            dexAsked9015.addAndGet(chunk.size.toLong())
+            val r = (try { com.lifecyclebot.network.DexscreenerApi().batchPriceFetchTyped8087(chunk, DEX_SLOT_WAIT_MS_9015, heldMarkTraffic = false) } catch (_: Throwable) { null }) ?: continue
+            for ((m, px) in r.prices) {
+                // the liquidity of the very pool the price came from (the same answer's rows)
+                val liq = try { com.lifecyclebot.network.DexPools8285.poolsOf8285(m).filter { it.priceUsd == px }.maxOfOrNull { it.liquidityUsd } } catch (_: Throwable) { null }
+                if (dexUsable9015(px, liq)) out[m] = px else dexThin9015.incrementAndGet()
+            }
+        }
+        dexPriced9015.addAndGet(out.size.toLong())
+        return out
+    }
+    fun dexLine9015(): String = "dexSecondPrice9015[asked=${dexAsked9015.get()} priced=${dexPriced9015.get()} thinPool=${dexThin9015.get()}]"
+
     private fun fetch8884(mints: List<String>): JSONObject? {
         val ids = try { com.lifecyclebot.network.JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE) } catch (_: Throwable) { mints }
         notSolana8934.addAndGet((mints.size - ids.size).coerceAtLeast(0).toLong())
@@ -378,7 +422,7 @@ object ResearchFollow8884 {
         return "researchFollow8884[waiting4h=$h4 waiting24h=$h24 written=${written.get()} unpriced=${unpriced.get()} late=${late.get()} " +
             "failed=${failed.get()} dropped=${dropped.get()} untradeable8923=${untradeable8923.get()} implausible8923=${implausible8923.get()} " +
             "calls8934{keyed=${keyedOk8934.get()} keyless=${keylessOk8934.get()} notSolanaIds=${notSolana8934.get()}} " +
-            "pathSampled8973=${sampled8973.get()} ${lostHourLine8983()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
+            "pathSampled8973=${sampled8973.get()} ${lostHourLine8983()} ${dexLine9015()} readFailed8945{${why8945.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} rule=each hour row's decision read again at 4 h and 24 h (Jupiter price v3, USD per token), its path sampled every 15 min (8973), same file]"
     }
 
     // ── V5.0.8978 §THE_FOLLOW_RUNS_IN_THE_LAB ──

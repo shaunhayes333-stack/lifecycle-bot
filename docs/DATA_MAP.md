@@ -4279,3 +4279,21 @@ A read that exists and disagrees is not asked again. 8766's rule is unchanged. S
 | Why none | its backing record changed on 21 Nov from the crypto paper book (CRYPTO_ALT n666, +2.8 % a trade) to the twin graded on the live exits (CRYPTO_ALT n400, 112 wins / 184 losses, -2.2 % a trade; CRYPTO_SPOT n400, -0.2 %), which backs nothing |
 | Normal crypto lanes, research rows | every CRYPTO_* lane negative at 1 h (-1.8..-9.7 %); at 4 h CRYPTO_EXPRESS +5.3 %, CRYPTO_SHITCOIN +2.8 %, CRYPTO_CORE +0.5 % |
 
+## §200 — V5.0.9015: DexScreener as the second price for the 4 h / 24 h reads
+
+**Why.** Owner, 25 Nov 20:13: prices can be read free from other sources; DexScreener rarely fails. The 15-minute label marks
+already read DexScreener's batch endpoint; the 4 h / 24 h research reads asked Jupiter only: 21.0 % of 4 h rows and 14.7 % of
+24 h rows unpriced (NO_PRICE_JUP_8884 3,974 + 2,537; LATE_READ_8884 2,865 + 1,641), and the 18:23 capture shows Jupiter's
+price read failing (HTTP 599 x12, 503 x10, 429 x2).
+
+**What changed.** `ResearchFollow8884.pass8884`: a mint Jupiter did not price, or did not answer for, is asked of
+`/tokens/v1/solana` (30 a call, the shared DexScreener limiter). The price counts only when its own pool holds $100 or more
+(`dexUsable9015`, the row's tradeable bar); the row's reason starts `DEX_9015:`; `AuthorityTable8887` reads that prefix. A read
+Jupiter did not answer is no longer left pending when DexScreener priced it. Plausibility (8923), the late rule and the chain
+re-read (8993) are unchanged. Status: `dexSecondPrice9015[asked= priced= thinPool=]`.
+
+**DexScreener data the bot does not read yet** (docs.dexscreener.com/api/reference, 25 Nov): `/metas/trending/v1` and
+`/metas/meta/v1/{slug}` (narratives: cap, liquidity, volume, token count and their 5 m / 1 h / 6 h / 24 h change, with the pairs
+in each), `/ads/latest/v1` (paid ads: type, duration, impressions),
+`/token-profiles/recent-updates/v1`, the pair object's `labels`, and the websocket feed.
+
