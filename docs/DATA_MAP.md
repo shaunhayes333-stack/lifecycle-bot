@@ -4619,3 +4619,44 @@ releasedUnbought9024=]`, label `LANE_REALISED_PROBE_RELEASED_9024`. One probe at
 0.0434-0.0446 SOL (21 % of a 0.2070 SOL wallet) and the per-trade loss cap for a wallet at or under 0.25 SOL is 8 %
 (`LiveRiskPolicy7807.hardPerTradeRiskCapFrac`), so a plan whose stop plus cost exceeds ~37 % cannot be sized. Under
 ~0.245 SOL the 40 % runner stop no longer fits.
+
+## §210 — V5.0.9025: a launch is bought in the seconds it pays
+
+**Measured (owner's launch-hour export, 26 Nov 03:49: 2,590 pump.fun launches, 48 h, 10-second bars; filled at a later
+bar's open +3 %, every sale -6 %, 35 % stop, the doctrine line from a 2x peak).** Entry time after birth, any launch still
+printing: 0 s +21.3 +-5.3 % · 10 s +16.0 +-4.6 · 20 s +7.0 +-3.8 · 30 s +7.2 +-3.7 · 60 s +3.6 +-4.8 · 120 s -0.3 +-4.9 ·
+180 s -7.3 +-3.7 · 300 s -10.3 +-4.4 · 900 s -13.9 +-4.3. Split on the launch's first ten seconds (second bar printed):
+under 10 buys and close <= 1.5x the first print: filled one bar on n782 +35.1 +-9.1 % (ex-top-3 +23.7, halves +32/+38), two
+bars on n709 +22.2 +-8.4 (+10.2, halves +15/+29), three bars on n572 +7.5 +-7.6 (-3.8); 10+ buys n450 -2.5 +-7.7; over 1.5x
+n235 -12.1 +-8.2. Stop width 20..70 %: +21.9..+24.8 % (no effect); no line from 2x: +15.5 vs +22.9 with it. Creator's first
+launch +19.1 +-5.3 (n1519) against a creator with earlier launches +0.5 +-7.6 (n294; earlier dumps -16.9 +-6.8, n71).
+
+**Live (5.0.9023, 16.5 min).** `sniper8748[launch:ARMED on cap$5k buys>=3 tp5x stop35% DOCTRINE +20s ... armedLanded{n1
+p50=88s} fires{armed=12} admitted8949=126]`; `evidenceFunnel8876 LAUNCH_RULE_8748{COINS=23 ADMIT=16 FDG_ALLOW=2 INTENT=2}`,
+endings: safety 9 (holder rule), EXECUTION_ECONOMICS 5, TIMING_RECORD_NEGATIVE 2, CHASING_SPIKE 2, probe slot 2,
+NO_PLAN_WAIT 1, LIVE_SOURCE_PROVEN_LOSING 1. One buy, 88 s after its trigger, on a rule proven at +20 s.
+
+**Changes.**
+- `LaneAuthority8577.fireDecision9025` / `firePassesAtGate9025`: a LIVE candidate inside an armed fire's graded window
+  (`LaunchSniper8748.fireRecord9025`) is carried past the learned short-term refusals at the admission and the gate (the
+  9022 list plus `NO_PLAN_WAIT_7739`, `CANONICAL_V3_SCORE_FLOOR_7243`); admit reason `SPECIFIC_EDGE_PROVEN_8136`, trace
+  `launchFire9025`. Never advisory: SAFETY, MEME_BUYS_THE_HIGH, DATA_INCOMPLETE, RUGCHECK, RUG_DRAIN, HONEYPOT, LP_, HOLDER,
+  KILL_SWITCH. Status `launchFires9025[...]`.
+- `LaunchSniper8748` fire clock: per armed fire, seconds from the trigger print to the first admission verdict, the first
+  ADMIT, the gate verdict and the landed buy; `fireClock9025[fires= admittedInWindow= gateAllowInWindow= landed=
+  landedInWindow= firstVerdict{p50} admit{p50} gate{p50} ended{...} last{...}]`. Hooks: `noteAdmission9025`
+  (CandidateAdmission8136, LIVE), `noteGate9025` (SpecialistOwnership7951.onFdgVerdict7951), `noteBuyConfirmed8749`.
+- `SignalTape8828.QUIET_OPEN_9025` ("O9025A"): the first 10-second bar closed with under 10 buys at no more than 1.5x the
+  first print. Graded by `SignalReplay8828` on the phone's stored launch hours at the bot's latency; armed only when PROVEN
+  (n>=100, ex-top-3 mean - SE > 0, both halves positive). `FAST_IDS_9025`: its fire is evidence for the graded delay plus
+  10 s (`SignalReplay8828.windowFor9025`), not 120 s. `signals=24`.
+- `DegenHarvest9011`: one close booked once across restarts (`LearnerAttribution8418`, learner `DegenHarvest9011.close`,
+  the close's trade id); new persisted key `degen_harvest_ledger_9025`; `recent9025{MMdd-HH peak banked exit hold}` (12).
+  The finalized bus replays every stored close at each start; the old ledger re-booked them: 45 -> 63 between two captures
+  with identical means, every count 5:7. Nine closes, not 63.
+
+**Not changed.** Stops and the doctrine line (measured above: no gain from either). The LP rule, RugCheck, the holder rule.
+The per-trade loss cap.
+
+**Read next run.** `fireClock9025[...]` (where the seconds from fire to buy go, how each fire ended), `launchFires9025[...]`,
+`signalReplay8828[... O9025A ...]` (the phone's own grade of the quiet open), `degenHarvest9011[reached+200%= ... recent9025{}]`.

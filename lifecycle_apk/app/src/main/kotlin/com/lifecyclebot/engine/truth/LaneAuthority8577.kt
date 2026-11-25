@@ -466,10 +466,69 @@ object LaneAuthority8577 {
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "} last{" + lastPicks9022.joinToString(" ").ifBlank { "-" } +
             "} rule=a LIVE model pick is not stopped by a learned short-term refusal at the admission or the gate; safety, structure, the high, critical data, the door's proofs and sizing bind; counted per decision, not per coin]"
 
+    // ── V5.0.9025 §AN_ARMED_FIRE_IS_TRADED_AS_IT_WAS_GRADED ─────────────────────────────────────────────
+    // The 03:49 capture's LAUNCH_RULE_8748 funnel (23 coins carrying an armed fire of the proven rule, forward n5913
+    // +7.7 +-2.2 %): admitted 16, the gate allowed 2, bought 0. Apart from safety (9 — the holder rule, unchanged) the
+    // endings were the learned short-term records: EXECUTION_ECONOMICS 5, TIMING_RECORD_NEGATIVE 2, CHASING_SPIKE 2, the
+    // lane's probe slot 2, NO_PLAN_WAIT 1, LIVE_SOURCE_PROVEN_LOSING 1. The replay graded the rule on every fire of its
+    // trigger, the ones those records refuse included, and every pass through them is seconds the launch-hour export
+    // prices at about 13 points per ten (LaunchSniper8748.fireRecord9025). Inside the fire's own graded window a LIVE
+    // candidate is a pick exactly as the model's is (9022): the same advisory list, plus the two plan / score judgements
+    // the replay never applied ([FIRE_ADVISORY_9025]); the same never-list binds (safety, the high, critical data,
+    // RugCheck / LP / holder proofs, the kill switch), and sizing and the wallet after it. Outside the window nothing
+    // changes: the coin is judged on its own record like any other (8968).
+    const val FIRE_TRACE_9025 = "launchFire9025"
+    private val FIRE_ADVISORY_9025 = listOf("NO_PLAN_WAIT_7739", "CANONICAL_V3_SCORE_FLOOR_7243")
+
+    /** Pure: is [reason] a learned short-term refusal an armed fire inside its window is not stopped by? */
+    fun fireAdvisory9025(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        val r = reason.uppercase()
+        return PICK_NEVER_9022.none { r.contains(it) } && (PICK_ADVISORY_9022.any { r.contains(it) } || FIRE_ADVISORY_9025.any { r.contains(it) })
+    }
+
+    private val fires9025 = ConcurrentHashMap<String, AtomicLong>()
+    private fun noteFire9025(outcome: String, reason: String?) {
+        val why = (reason ?: "").removePrefix("CANDIDATE_ADMISSION_8136_").substringBefore(':').take(44)
+        fires9025.computeIfAbsent(if (why.isBlank()) outcome else "$outcome:$why") { AtomicLong() }.incrementAndGet()
+    }
+
+    /** The decision a LIVE candidate carrying an armed fire's record ([fireNetPct], net of cost; null = no live fire) leaves the admission with. */
+    internal fun fireDecision9025(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
+                                  fireNetPct: Double? = try { LaunchSniper8748.fireRecord9025(c.mint, System.currentTimeMillis()) } catch (_: Throwable) { null },
+    ): CandidateAdmission8136.Decision8136 {
+        if (!c.live || fireNetPct == null || !fireNetPct.isFinite() || fireNetPct <= 0.0) return d
+        if (d.trace.any { it.startsWith(PICK_TRACE_9022) }) return d   // already carried as the model's pick
+        val net = if (d.expectedNetPct.isFinite()) maxOf(d.expectedNetPct, fireNetPct) else fireNetPct
+        return when {
+            d.admitted -> { noteFire9025("ADMITTED", null); d.copy(trace = d.trace + "$FIRE_TRACE_9025 rec=$fireNetPct") }
+            fireAdvisory9025(d.reason) -> {
+                noteFire9025("ADMITTED_PAST", d.reason)
+                d.copy(terminal = CandidateAdmission8136.Terminal8136.ADMIT, reason = "SPECIFIC_EDGE_PROVEN_8136",
+                    specific = true, expectedNetPct = net, trace = d.trace + "$FIRE_TRACE_9025 rec=$fireNetPct advisory=${d.reason}")
+            }
+            else -> { noteFire9025("STOPPED", d.reason); d }
+        }
+    }
+
+    /** LiveEdgeGate7877: the gate's learned refusal [reason] does not stop an admitted armed fire; counted either way. */
+    fun firePassesAtGate9025(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean {
+        if (admission == null || admission.trace.none { it.startsWith(FIRE_TRACE_9025) }) return false
+        val pass = fireAdvisory9025(reason)
+        noteFire9025(if (pass) "GATE_PASSED" else "GATE_STOPPED", reason)
+        return pass
+    }
+
+    /** Brief: what happened to the armed fires' decisions this session, by outcome and refusal. */
+    fun fireLine9025(): String =
+        "launchFires9025[{" + fires9025.entries.sortedByDescending { it.value.get() }.take(14)
+            .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+            "} rule=a LIVE candidate inside an armed fire's graded window is not stopped by a learned short-term refusal at the admission or the gate; safety, the high, critical data, the door's proofs and sizing bind; counted per decision, not per coin]"
+
     private fun applyLane8577(c: CandidateAdmission8136.Candidate8136, d0: CandidateAdmission8136.Decision8136,
                               highRefusal8582: String?): CandidateAdmission8136.Decision8136 {
         if (!enabled8577 || !c.live) return d0
-        val d = pickDecision9022(c, d0)   // V5.0.9022
+        val d = fireDecision9025(c, pickDecision9022(c, d0))   // V5.0.9022, V5.0.9025
         val qualified = CandidateAdmission8136.specialistQualified8539(c)
         val costKnown = c.costPct.isFinite() && c.costPct >= 0.0
         if (!d.admitted && bindingAdmission8577(d, costKnown)) return d.copy(laneQualified8577 = qualified)
@@ -505,7 +564,8 @@ object LaneAuthority8577 {
     // one: the paper book buys generic-prior admits too, and the gate's learned doors are the layer it never had.
     fun advisoryAtGate8577(reason: String?, admission: CandidateAdmission8136.Decision8136?): Boolean =
         enabled8577 && admission?.admitted == true && !reason.isNullOrBlank() &&
-            (!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission) || pickPassesAtGate9022(reason, admission))   // V5.0.8757, V5.0.9022
+            (!binding8577(reason) || PaperMirror8757.passesAtGate8757(reason, admission) || pickPassesAtGate9022(reason, admission) ||
+                firePassesAtGate9025(reason, admission))   // V5.0.8757, V5.0.9022, V5.0.9025
 
     private val advisory8577 = ConcurrentHashMap<String, AtomicLong>()
     private val admittedByLane8577 = ConcurrentHashMap<String, AtomicLong>()

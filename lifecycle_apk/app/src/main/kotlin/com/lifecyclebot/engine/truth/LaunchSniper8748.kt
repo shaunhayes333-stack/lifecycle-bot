@@ -142,6 +142,7 @@ object LaunchSniper8748 {
         val ms = nowMs - f.triggerEventMs
         if (ms !in 0L..600_000L) return
         synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
+        clocks9025[mint]?.let { c -> if (c.landMs < 0L) c.landMs = (nowMs - c.t0).coerceAtLeast(0L) }   // V5.0.9025
         try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_BUY_LANDED_8749") } catch (_: Throwable) {}
     }
 
@@ -250,7 +251,9 @@ object LaunchSniper8748 {
         if (rec.id !in on) return
         signalFires.incrementAndGet(); if (armed) signalArmed.incrementAndGet()
         onFire(Fire(mint, recvMs, eventMs - st.bornMs, cap, "SIGNAL8828:${rec.key}", rec.n, rec.exTop3, rec.exTop3Se, rec.tenX,
-            armed = armed, triggerEventMs = eventMs))
+            armed = armed, triggerEventMs = eventMs,
+            // V5.0.9025 — a first-seconds signal is evidence for the delay it was graded at plus one bar, not for 120 s
+            gradedDelayMs8968 = SignalReplay8828.windowMs9025(rec.id)))
     }
 
     /** V5.0.8825 — a crosser meeting the attention trigger: on the watchlist to be decided on and labelled (no evidence). */
@@ -286,6 +289,7 @@ object LaunchSniper8748 {
         armedFires.incrementAndGet()
         if (fires.size > 5_000) fires.entries.removeIf { f.atMs - it.value.atMs > EVIDENCE_TTL_MS }
         fires[f.mint] = f
+        try { openClock9025(f) } catch (_: Throwable) {}   // V5.0.9025 — the fire's clock starts at its trigger print
         try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_ARMED_FIRE_8748") } catch (_: Throwable) {}
         try { com.lifecyclebot.network.HeliusCurveTape8354.ask8354(f.mint, f.atMs) } catch (_: Throwable) {}
         try {
@@ -335,6 +339,94 @@ object LaunchSniper8748 {
             runnerRate = f.tenX, netOfCost = true)
     }
 
+    /**
+     * V5.0.9025 §AN_ARMED_FIRE_IS_BOUGHT_IN_THE_SECONDS_IT_WAS_PROVEN_IN — owner, 26 Nov: "runners being missed left and
+     * right ... the rest of the runner work completed properly". The 03:49 capture (5.0.9023, 16.5 min): the launch rule
+     * was ARMED (cap$5k buys>=3 +20s, forward n5913 +7.7 +-2.2 %), fired armed 12 times, its coins were admitted, and ONE
+     * buy landed, 88 s after its trigger. The owner's launch-hour export of the same morning (2,590 pump.fun launches,
+     * 48 h, 10-second bars, filled at the next bar's open +3 %, sold -6 %, 35 % stop, the doctrine line from a 2x peak)
+     * dates the edge: a launch still printing bought at 0 s +21.3 +-5.3 %, at 10 s +16.0 +-4.6, at 20-30 s +7, at 60 s
+     * +3.6 +-4.8, at 120 s -0.3, at 180 s -7.3 +-3.7, at 300 s -10.3, at 900 s -13.9. The runners are bought in their first
+     * half minute or not at all; a buy 88 s after the trigger is a buy of the same coins at a loss.
+     *  - [fireRecord9025]: the live armed fire's own record, for LaneAuthority8577.fireDecision9025 — inside the fire's
+     *    graded window the learned short-term refusals are advisory (the replay graded every fire of the trigger, the
+     *    ones those records refuse included); safety, the door's proofs, the high, critical data and sizing bind.
+     *  - the clock ([clockLine9025]): every armed fire's seconds from its trigger to its first admission verdict, its
+     *    gate verdict and its landed buy, and how each fire ended, so a capture states where the seconds go.
+     */
+    fun fireRecord9025(mint: String, nowMs: Long): Double? =
+        fires[mint]?.takeIf { liveFire8959(it, nowMs) }?.exTop3?.takeIf { it.isFinite() }
+
+    private const val MAX_CLOCKS_9025 = 300
+    private class Clock9025(val mint: String, val t0: Long, val ageMs: Long, val capUsd: Double, val windowMs: Long) {
+        @Volatile var firstAdm = ""; @Volatile var firstAdmMs = -1L; @Volatile var lastAdm = ""
+        @Volatile var admitMs = -1L
+        @Volatile var fdg = ""; @Volatile var fdgMs = -1L; @Volatile var allowMs = -1L
+        @Volatile var landMs = -1L
+
+        /** How this fire ended: landed, allowed and not landed, the gate's refusal, the admission's, or never judged. */
+        fun ending(): String = when {
+            landMs >= 0L -> if (landMs <= windowMs) "LANDED_IN_WINDOW" else "LANDED_LATE"
+            allowMs >= 0L -> "GATE_ALLOWED_NOT_LANDED"
+            fdg.isNotBlank() -> "GATE:$fdg"
+            admitMs >= 0L -> "ADMITTED_NO_GATE_VERDICT"
+            lastAdm.isNotBlank() -> "ADM:$lastAdm"
+            else -> "NEVER_JUDGED"
+        }
+        fun row(): String = "${mint.take(6)} age${ageMs / 1000}s \$${"%.0f".format(capUsd)} win${windowMs / 1000}s" +
+            (if (firstAdmMs >= 0L) " adm+${firstAdmMs / 1000}s:${firstAdm.take(34)}" else " adm-") +
+            (if (admitMs >= 0L) " admit+${admitMs / 1000}s" else "") +
+            (if (fdgMs >= 0L) " gate+${fdgMs / 1000}s:${if (allowMs >= 0L) "ALLOW" else fdg.take(34)}" else "") +
+            (if (landMs >= 0L) " land+${landMs / 1000}s" else "")
+    }
+    private val clocks9025 = ConcurrentHashMap<String, Clock9025>()
+
+    /** Pure: the short name a verdict is counted under (the admission's prefix and any figures after ':' dropped). */
+    internal fun clockWhy9025(reason: String?): String =
+        (reason ?: "").removePrefix("CANDIDATE_ADMISSION_8136_").substringBefore(':').trim().take(44).ifBlank { "UNNAMED" }
+
+    private fun openClock9025(f: Fire) {
+        if (clocks9025.size >= MAX_CLOCKS_9025) clocks9025.entries.sortedBy { it.value.t0 }.take(MAX_CLOCKS_9025 / 5).forEach { clocks9025.remove(it.key) }
+        clocks9025[f.mint] = Clock9025(f.mint, minOf(f.triggerEventMs, f.atMs), f.ageMs, f.capUsd, window8968(f.gradedDelayMs8968))
+    }
+
+    /** CandidateAdmission8136 (LIVE): an admission terminal for [mint]; counted when the coin carries an armed fire's clock. */
+    fun noteAdmission9025(mint: String, terminal: String, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+        val c = clocks9025[mint] ?: return
+        val ms = nowMs - c.t0
+        if (ms !in 0L..600_000L) return
+        val v = "$terminal:${clockWhy9025(reason)}"
+        if (c.firstAdmMs < 0L) { c.firstAdmMs = ms; c.firstAdm = v }
+        c.lastAdm = v
+        if (terminal == "ADMIT" && c.admitMs < 0L) c.admitMs = ms
+    }
+
+    /** SpecialistOwnership7951.onFdgVerdict7951: the final gate's verdict on [mint]. */
+    fun noteGate9025(mint: String, allow: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
+        val c = clocks9025[mint] ?: return
+        val ms = nowMs - c.t0
+        if (ms !in 0L..600_000L) return
+        if (c.fdgMs < 0L) c.fdgMs = ms
+        if (allow) { if (c.allowMs < 0L) c.allowMs = ms } else if (c.allowMs < 0L) c.fdg = clockWhy9025(reason)
+    }
+
+    /** The armed fires of this session by how they ended, and the last eight with their seconds. */
+    fun clockLine9025(nowMs: Long = System.currentTimeMillis()): String {
+        val all = clocks9025.values.sortedBy { it.t0 }
+        val done = all.filter { it.landMs >= 0L || nowMs - it.t0 > EVIDENCE_TTL_MS }
+        val ends = done.groupingBy { it.ending() }.eachCount().entries.sortedByDescending { it.value }.take(10).joinToString(",") { "${it.key}=${it.value}" }
+        fun p50(xs: List<Long>) = if (xs.isEmpty()) "-" else "${xs.sorted()[xs.size / 2] / 1000}s"
+        return "fireClock9025[fires=${all.size} admittedInWindow=${all.count { it.admitMs in 0L..it.windowMs }} gateAllowInWindow=${all.count { it.allowMs in 0L..it.windowMs }} " +
+            "landed=${all.count { it.landMs >= 0L }} landedInWindow=${all.count { it.landMs in 0L..it.windowMs }} " +
+            "firstVerdict{p50=${p50(all.mapNotNull { c -> c.firstAdmMs.takeIf { it >= 0L } })}} admit{p50=${p50(all.mapNotNull { c -> c.admitMs.takeIf { it >= 0L } })}} " +
+            "gate{p50=${p50(all.mapNotNull { c -> c.fdgMs.takeIf { it >= 0L } })}} ended{${ends.ifBlank { "-" }}} " +
+            "last{${all.takeLast(8).joinToString(" | ") { it.row() }.ifBlank { "-" }}} " +
+            "rule=seconds from the fire's trigger print; window = the delay the rule was proven at]"
+    }
+
+    internal fun resetClocksForTest9025() { clocks9025.clear() }
+    internal fun openClockForTest9025(mint: String, t0: Long, windowMs: Long) { clocks9025[mint] = Clock9025(mint, t0, 0L, 5_000.0, windowMs) }
+
     fun statusLine8748(): String {
         val p = LaunchReplay8744.proven8748(); val sh = LaunchReplay8744.shadow8748()
         val mode = when { p != null -> "ARMED on ${p.rule.id}"; sh != null -> "SHADOW on ${sh.rule.id}"; else -> "IDLE (no replay rule with n>=50 yet)" }
@@ -350,6 +442,7 @@ object LaunchSniper8748 {
             "attention8825{on=${LaunchReplay8744.attention8825()?.rule?.id ?: "none"} fires=${attentionFires.get()} watchlistAdds=${attentionAdds.get()}} " +
             "signals8828{${SignalReplay8828.proven8828()?.let { "ARMED ${it.key}" } ?: SignalReplay8828.shadow8828()?.let { "SHADOW ${it.key}" } ?: "none"} " +
             "tapes=${sigTapes.size}/$MAX_SIGNAL_TAPES_8828 fires=${signalFires.get()} armed=${signalArmed.get()} tapeFull=${signalTapeFull.get()}} " +
-            "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door]"
+            "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door] " +
+            clockLine9025()
     }
 }

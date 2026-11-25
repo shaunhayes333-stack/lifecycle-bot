@@ -57,7 +57,8 @@ class Aate9022ModelPickTest {
         val notPick = LaneAuthority8577.pickDecision9022(cand(3.0), refused("EXECUTION_ECONOMICS_8136"))
         assertFalse("not a pick: the refusal stands", notPick.admitted)
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaneAuthority8577.kt").readText()
-        assertTrue("the high still refuses whatever admitted it", src.indexOf("val d = pickDecision9022(c, d0)") in 0 until src.indexOf("if (highRefusal8582 != null) {"))
+        // superseded by V5.0.9025 — the pick is wrapped by the armed fire's decision on the same line
+        assertTrue("the high still refuses whatever admitted it", src.indexOf("pickDecision9022(c, d0)") in 0 until src.indexOf("if (highRefusal8582 != null) {"))
     }
 
     @Test fun anAdmittedPickIsMarkedForTheGateAndCounted() {

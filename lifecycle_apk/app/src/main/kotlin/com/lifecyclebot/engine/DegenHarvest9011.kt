@@ -69,15 +69,24 @@ object DegenHarvest9011 {
         return r.replace(Regex("[-+]?\\d+(\\.\\d+)?(PCT|%)?"), "").replace(Regex("[^A-Z]+"), "_").trim('_').take(36).ifBlank { "UNNAMED" }
     }
 
+    /** Pure (V5.0.9025): one booked close as a row — UTC "MMdd-HH", peak, banked, exit family, minutes held. */
+    internal fun row9025(atMs: Long, peakPct: Double, bankedPct: Double, reason: String?, holdMs: Long): String {
+        val at = if (atMs > 0L) java.text.SimpleDateFormat("MMdd-HH", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(atMs)) else "-"
+        return "$at peak${"%+.0f".format(peakPct)}% banked${"%+.0f".format(bankedPct)}% ${family9011(reason).take(24)} ${if (holdMs > 0L) "${holdMs / 60_000L}m" else "-"}"
+    }
+
     internal class Book9011 {
         var reached = 0L; var kept = 0L; var roundTrips = 0L; var riders = 0L
         var sumBanked = 0.0; var sumPeak = 0.0; var sumShare = 0.0
         var sumHoldMin = 0.0; var holds = 0L   // V5.0.9012 — how long the big wins were held
         val byExit = LinkedHashMap<String, LongArray>()   // family -> [closes, round trips]
+        val recent = ArrayDeque<String>()   // V5.0.9025 — "MMdd-HH peak banked exit holdMin", newest last
 
         /** Books one closed position; false when it never reached the big-win peak (nothing booked). */
-        fun add(peakPct: Double, bankedPct: Double, reason: String?, rider: Boolean, holdMs: Long = 0L): Boolean {
+        fun add(peakPct: Double, bankedPct: Double, reason: String?, rider: Boolean, holdMs: Long = 0L, atMs: Long = 0L): Boolean {
             if (!peakPct.isFinite() || !bankedPct.isFinite() || peakPct < BIG_WIN_PCT_9011) return false
+            recent.addLast(row9025(atMs, peakPct, bankedPct, reason, holdMs)); while (recent.size > RECENT_MAX_9025) recent.removeFirst()
             reached++
             if (bankedPct >= BIG_WIN_PCT_9011) kept++
             val trip = bankedPct < ROUND_TRIP_PCT_9011
@@ -97,11 +106,13 @@ object DegenHarvest9011 {
             return "reached+200%=$reached kept>=+200%=$kept roundTrips(<+50%)=$roundTrips riders=$riders " +
                 "meanPeak=${"%+.0f".format(sumPeak / n)}% meanBanked=${"%+.0f".format(sumBanked / n)}% shareOfPeak=${"%.0f".format(100.0 * sumShare / n)}% " +
                 (if (holds > 0L) "meanHoldMin=${"%.0f".format(sumHoldMin / holds)} " else "") +
-                "byExit{" + byExit.entries.sortedByDescending { it.value[0] }.take(10).joinToString(",") { "${it.key}=${it.value[0]}/rt${it.value[1]}" } + "}"
+                "byExit{" + byExit.entries.sortedByDescending { it.value[0] }.take(10).joinToString(",") { "${it.key}=${it.value[0]}/rt${it.value[1]}" } + "}" +
+                " recent9025{" + recent.joinToString(" | ") + "}"
         }
 
         fun encode(): String = "T\t$reached\t$kept\t$roundTrips\t$riders\t$sumBanked\t$sumPeak\t$sumShare\t$sumHoldMin\t$holds\n" +
-            byExit.entries.joinToString("\n") { "E\t${it.key}\t${it.value[0]}\t${it.value[1]}" }
+            byExit.entries.joinToString("\n") { "E\t${it.key}\t${it.value[0]}\t${it.value[1]}" } +
+            recent.joinToString("") { "\nR\t$it" }
 
         fun decode(body: String) {
             for (l in body.lineSequence()) {
@@ -113,12 +124,26 @@ object DegenHarvest9011 {
                     sumPeak = f[6].toDoubleOrNull() ?: 0.0; sumShare = f[7].toDoubleOrNull() ?: 0.0
                 } else if (f.size == 4 && f[0] == "E" && f[1].isNotBlank()) {
                     byExit[f[1]] = longArrayOf(f[2].toLongOrNull() ?: 0L, f[3].toLongOrNull() ?: 0L)
+                } else if (f.size == 2 && f[0] == "R" && f[1].isNotBlank() && recent.size < RECENT_MAX_9025) {
+                    recent.addLast(f[1])
                 }
             }
         }
     }
 
-    private const val PERSIST_KEY_9011 = "degen_harvest_ledger_9011"
+    /**
+     * V5.0.9025 §ONE_CLOSE_IS_BOOKED_ONCE — the finalized bus replays every stored close at each app start (it rebuilds its
+     * in-memory rings from them), and this ledger booked each replayed close again on top of its persisted totals: the
+     * 26 Nov 00:20 capture read reached+200%=45 and the 03:49 one 63 with the same means to the digit (peak +2866 %, banked
+     * +29 %, share 11 %, hold 4 min) and every count in the ratio 5:7 — nine closes counted five and seven times. A close
+     * is now booked once per trade id, across restarts (LearnerAttribution8418, as ExitProfile7955 and CellAllocator7962
+     * are), under a new key so the multiplied totals are not carried: the next start's replay rebuilds the ledger, each
+     * close once. The last [RECENT_MAX_9025] closes are kept by row (when, peak, banked, exit, minutes held) so a capture
+     * shows the positions themselves and whether they closed before or after the 9011 line was armed.
+     */
+    private const val PERSIST_KEY_9011 = "degen_harvest_ledger_9025"
+    internal const val LEARNER_9025 = "DegenHarvest9011.close"
+    internal const val RECENT_MAX_9025 = 12
     private val book = Book9011()
     @Volatile private var loaded = false
     private val riderMints = ConcurrentHashMap<String, Boolean>()   // position id -> was a launch rider while open
@@ -141,12 +166,16 @@ object DegenHarvest9011 {
     }
 
     /** RunnerCapture8017.onClose8017: a position closed. Booked when it is LIVE, terminal and its own peak reached +200 %. */
-    fun onClose9011(mode: String, terminal: Boolean, positionId: String, exitReason: String, realizedPct: Double, mfePct: Double, holdingMs: Long = 0L) {
+    fun onClose9011(mode: String, terminal: Boolean, positionId: String, exitReason: String, realizedPct: Double, mfePct: Double, holdingMs: Long = 0L,
+                    tradeId: String = "", atMs: Long = 0L) {
         if (!terminal || !mode.equals("live", true)) return
         val rider = riderMints.remove(positionId) == true
-        load()
         val peak = if (mfePct.isFinite()) maxOf(mfePct, realizedPct) else realizedPct   // an unread excursion is not a peak of zero
-        val booked = synchronized(book) { book.add(peak, realizedPct, exitReason, rider, holdingMs) }
+        if (!peak.isFinite() || !realizedPct.isFinite() || peak < BIG_WIN_PCT_9011) return
+        // V5.0.9025 — once per close across restarts: the bus's start-up replay is refused here
+        if (!(try { com.lifecyclebot.engine.truth.LearnerAttribution8418.admit8418(LEARNER_9025, tradeId.ifBlank { positionId }, mode) } catch (_: Throwable) { true })) return
+        load()
+        val booked = synchronized(book) { book.add(peak, realizedPct, exitReason, rider, holdingMs, atMs) }
         if (!booked) return
         try { PipelineHealthCollector.labelInc(if (realizedPct < ROUND_TRIP_PCT_9011) "DEGEN_HARVEST_ROUND_TRIP_9011" else "DEGEN_HARVEST_BANKED_9011") } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("DEGEN_HARVEST_CLOSE_9011", "pos=${positionId.take(12)} peak=${peak.toInt()} banked=${realizedPct.toInt()} exit=${family9011(exitReason)} rider=$rider") } catch (_: Throwable) {}

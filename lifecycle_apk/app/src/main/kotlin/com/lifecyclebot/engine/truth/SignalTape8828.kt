@@ -97,10 +97,32 @@ class SignalTape8828 {
         const val AT_OPEN_EMPTY_20S_9010 = "O9010A"
         const val AT_OPEN_EMPTY_60S_9010 = "O9010B"
 
+        /**
+         * V5.0.9025 §THE_QUIET_OPEN — the owner's launch-hour export of 26 Nov (2,590 pump.fun launches over 48 h, 10-second
+         * bars; filled at a later bar's open +3 %, sold -6 %, 35 % stop, the doctrine line from a 2x peak), split on the
+         * launch's FIRST ten seconds, for launches whose second bar printed:
+         *   under 10 buys and closed no more than 1.5x its first print: filled one bar on n782 +35.1 +-9.1 % (without the
+         *     best three +23.7 %, halves +32 / +38); filled two bars on n709 +22.2 +-8.4 % (+10.2 %, halves +15 / +29);
+         *     three bars on n572 +7.5 +-7.6 % (-3.8 %);
+         *   10 buys or more: n450 -2.5 +-7.7 %, two bars on -5.5 +-6.1 %;
+         *   already over 1.5x its first print: n235 -12.1 +-8.2 %, two bars on -7.1 %.
+         * A launch nobody has piled into yet, bought before the crowd, is where the first hour's runners are bought; the
+         * same launch ten seconds later with a crowd in it loses. The at-its-open settings above decide on the 20-40 s
+         * bar and ask for 8+ prints: the other side of this split. One setting joins the tape, decided when the first bar
+         * closes. Bars are not prints: SignalReplay8828 grades it on this phone's stored launch hours at the bot's own
+         * latency, and only a PROVEN record arms it; armed, its fire is evidence for its graded delay plus one bar
+         * ([FAST_IDS_9025], SignalReplay8828.windowFor9025), not for the 120 s the other signals keep.
+         */
+        const val QUIET_OPEN_9025 = "O9025A"
+        internal const val QUIET_OPEN_MAX_BUYS_9025 = 10
+        internal const val QUIET_OPEN_MAX_OVER_9025 = 1.5
+        /** The first-seconds signals: a fire is evidence only for the delay it was graded at plus one bar. */
+        val FAST_IDS_9025: Set<String> = setOf(QUIET_OPEN_9025)
+
         /** The signals this tape expresses (SignalBible300 ids, and the base breakout's two settings). */
         val IDS: List<String> = listOf("S001", "S003", "S005", "S006", "S009", "S010", "S011", "S012", "S014", "S016", "S023",
             "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994, AT_OPEN_20S_9007, AT_OPEN_60S_9007,
-            AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008, AT_OPEN_EMPTY_20S_9010, AT_OPEN_EMPTY_60S_9010)
+            AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008, AT_OPEN_EMPTY_20S_9010, AT_OPEN_EMPTY_60S_9010, QUIET_OPEN_9025)
         /** Those that need the buyer's wallet. */
         val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014", AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008)
     }
@@ -277,6 +299,9 @@ class SignalTape8828 {
         AT_OPEN_CLEAN_60S_9008 -> atOpen9007(5L, 7L) && earlyPct9008() < EARLY_MAX_PCT_9008
         AT_OPEN_EMPTY_20S_9010 -> atOpen9007(1L, 3L) && emptyCurve9010(c(0))
         AT_OPEN_EMPTY_60S_9010 -> atOpen9007(5L, 7L) && emptyCurve9010(c(0))
+        // V5.0.9025 — the launch's first ten-second bar just closed: under 10 buys, no more than 1.5x its first print
+        QUIET_OPEN_9025 -> n == 1 && idx(0) == 0L && first9007 > 0f && buys(0) < QUIET_OPEN_MAX_BUYS_9025 &&
+            c(0) <= first9007.toDouble() * QUIET_OPEN_MAX_OVER_9025
         else -> false
     }
 

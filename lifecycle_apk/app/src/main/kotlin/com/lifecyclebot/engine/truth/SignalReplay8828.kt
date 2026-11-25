@@ -93,7 +93,19 @@ object SignalReplay8828 {
         proven = r.filter { it.proven }.maxByOrNull { it.exTop3 - it.exTop3Se }
         shadow = r.firstOrNull { it.n >= SHADOW_MIN_N && !it.proven }
         status = "ran launches=${paths.size} graded=${r.size} delay=${delayMs / 1000}s cost=${"%.1f".format(costPct)}% ms=${System.currentTimeMillis() - t0}"
+        gradedDelayMs9025 = delayMs
     }
+
+    @Volatile private var gradedDelayMs9025 = 0L
+    /** One 10-second bar past the graded delay: the launch-hour export loses about 13 points per further bar of delay. */
+    internal const val FAST_SLACK_MS_9025 = 10_000L
+
+    /** Pure: the evidence window of a fire of [id] graded at [gradedDelayMs]: 0 (the 120 s default) unless it is a first-seconds signal. */
+    internal fun windowFor9025(id: String, gradedDelayMs: Long): Long =
+        if (id in SignalTape8828.FAST_IDS_9025 && gradedDelayMs > 0L) gradedDelayMs + FAST_SLACK_MS_9025 else 0L
+
+    /** LaunchSniper8748: the window a live fire of [id] is evidence for (0 = the default). */
+    fun windowMs9025(id: String): Long = windowFor9025(id, gradedDelayMs9025)
 
     /** LaunchSniper8748: the signal it may trade (proven) and the one it watches (shadow). */
     fun proven8828(): Rec? = proven

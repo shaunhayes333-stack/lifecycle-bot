@@ -2049,6 +2049,7 @@ object CandidateAdmission8136 {
                 if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { EvidenceWait8948.note8948(ts, k, it.terminal.name, it.reason, deferCauses8700(it.trace), nowMs) } catch (_: Throwable) {} }
                 // V5.0.8949 — an admitted armed launch-rule fire holds on the rule's own stop once bought
                 if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { LaunchSniper8748.noteAdmission8949(ts.mint, k, it.terminal.name, nowMs) } catch (_: Throwable) {} }
+                if (mode == "LIVE") try { LaunchSniper8748.noteAdmission9025(ts.mint, it.terminal.name, it.reason, nowMs) } catch (_: Throwable) {}   // V5.0.9025 — the fire's clock
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
