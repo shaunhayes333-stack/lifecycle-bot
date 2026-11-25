@@ -8701,6 +8701,13 @@ class Executor(
         return false
     }
 
+    /** V5.0.9000 — true (and counted) when the coin's ACTIVE pump.fun curve was read fresh: it has no LP to pull. */
+    private fun onActiveCurve9000(mint: String): Boolean {
+        val on = try { com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint) != null } catch (_: Throwable) { false }
+        if (on) try { PipelineHealthCollector.labelInc("THIN_LIQ_BACKSTOP_LEFT_TO_CURVE_STOP_9000") } catch (_: Throwable) {}
+        return on
+    }
+
     fun runManageOnly(ts: TokenState, wallet: SolanaWallet?, walletSol: Double) {
         // V5.0.7146 — this is the ONLY caller of STRICT_SL, partial sells and
         // profit-lock. Gating it on Position.isOpen hid every position whose
@@ -9296,7 +9303,15 @@ class Executor(
                 // of age — this captures lanes (MANIPULATED, EXPRESS) where rug occurs
                 // past the 60s but pool drain is the smoking gun.
                 val liqDrainRug = liqUsd > 0.0 && liqUsd < 2_500.0 && worstPnl <= -15.0
-                if (freshThinLiq || liqDrainRug) {
+                // V5.0.9000 §A_CURVE_HAS_NO_LP_TO_PULL — owner, 25 Nov 15:01: "fix the back stop". This guard exists to get
+                // out before an LP pull. A pump.fun coin still on its bonding curve has no LP anyone can withdraw: the curve
+                // IS the pool, and its "liquidity" falling is holders selling, which the position's own stop and the -25 %
+                // catastrophic backstop below already read. Live, the guard cut 9 positions, 7 of them pump.fun coins, at
+                // -2 % to -19 %; the forward labels of those it cut: 4V77Yjpr sold -14 %, +283 % an hour later (peak +286 %),
+                // DE6jZSwe sold -2 % (peak +90 %), Gs47zYRE sold +6 % (peak +41 %) — and HVzypN16 sold -19 % went to -73 %.
+                // So a coin whose ACTIVE curve was read fresh (CurveReserves7951.realSolIfActive8046: not graduated, inside
+                // the curve TTL) is left to its own stop; a graduated or off-pump coin keeps this guard (venue-checked, 8996).
+                if ((freshThinLiq || liqDrainRug) && !onActiveCurve9000(ts.mint)) {
                     val reason = if (freshThinLiq) "THIN_LIQ_FRESH_TOKEN" else "LIQ_DRAIN_IN_PROGRESS"
                     try {
                         ForensicLogger.lifecycle(

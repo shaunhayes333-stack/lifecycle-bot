@@ -3792,3 +3792,17 @@ launch fire or an armed base breakout (carried: its record clears cost, supporte
 (since 8985) holds a door proven losing on live closes to one probe at a time. Safety, data, structure, the selected setup's
 own record, timing, economics and live discipline are unchanged; no gate added.
 
+## 185. A curve has no LP to pull (9000)
+
+Owner, 25 Nov 15:01: "fix the back stop". Executor's THIN_LIQ_EARLY_RUG_BACKSTOP (4187 / 4551) sells at -10 % when the pool
+reads under $5k in a position's first 10 minutes, or -15 % under $2.5k at any age, to get out before an LP pull. Live it
+cut 9 positions (all exports, 20-25 Nov), 7 of them pump.fun mints, at -2 % to -19 % (one at +6 %). Forward labels of the
+coins it cut: 4V77Yjpr sold -14 %, 1 h +283 % (peak +286 %), 4 h -65 %; DE6jZSwe sold -2 %, 1 h peak +90 %, 4 h -61 %;
+Gs47zYRE sold +6 %, 1 h peak +41 %; HVzypN16 sold -19 %, 1 h -73 %; 6Ncsox6o sold -3 %, 1 h -49 %. (Labels run from the
+decision, not the fill.)
+A coin on an active pump.fun curve has no LP anyone can withdraw: the curve is the pool and a falling curve reading is
+selling, which the position's stop and the -25 % catastrophic backstop (corroborated, every lane) already read.
+Change: when CurveReserves7951.realSolIfActive8046(mint) answers (a fresh reading of an active, ungraduated curve) the
+backstop does not sell; label THIN_LIQ_BACKSTOP_LEFT_TO_CURVE_STOP_9000. Graduated and off-pump coins keep it, venue-checked
+since 8996. The lane hard -15 % stop (MANIPULATED / SHITCOIN / EXPRESS), dev-dump, drain and LP-pull exits are unchanged.
+
