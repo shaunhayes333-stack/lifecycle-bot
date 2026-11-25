@@ -3775,3 +3775,20 @@ The authority table on the same capture (1 h, 955 cells): ONE door PAYS, LPSTATE
 +26.4 % median, ex-top-3 +26.5 %, halves +30.9 / +36.5; the same cohort at 4 h: median -25.5 %, ex-top-3 -98.4 %. Every
 other door with n >= 20 is UNPROVEN or LOSES (runner-tail cells with large means and negative medians). Nothing is bought.
 
+## 184. A proven launch rule answers the cell prior (8999)
+
+Owner, 25 Nov 14:54 (MINELIUS +22,000 %, MAYA +9,000 %, NOHR +2,000 %, JENSEN / OpenIndex / Singularity / RIEMANN +1,000 %,
+from a web summary): "inexcusable that we have missed these let alone the others that have run".
+The 12:01 capture (5.0.8997) runner report: 46 coins ran 4x+ in 24 h, held 2 (paper), missed 44, never_detected 0; refused by
+safety 13, lane liquidity floor 7, LP_BLOCKED 6, execution economics 3, CORE ensemble 2, TREASURY role floor 2 (JENSEN +684 %).
+Live runner admits: bought the top 101, gave back 18, won 22. Live closes bought under a $15k cap (all exports): 12, 1 win,
+-0.046 SOL, held 31-259 s, mostly cut by THIN_LIQ_EARLY_RUG_BACKSTOP_-10.
+The phone's launch replay: forward8856 cap$5k buys>=3 tp5x stop35% DOCTRINE +20s n5366 mean +6.0 +- 1.7 %, ex-best +5.6 %,
+22 % winners, 7 % at 2x+, PROVEN; armed. sniper8748 fires armed=20, armedLanded none. LAUNCH_RULE_8748 evidence funnel:
+COINS 20, REFUSE CELL_PROVEN_LOSING_8136 9, DEFER_DATA 6, SAFETY 4 (top-holder concentration), FDG economics 2.
+Change: CandidateAdmission8136.POCKET_KINDS_8971 gains LaunchSniper8748.KIND_8748 and BaseBreakout8995.KIND_8995, so an armed
+launch fire or an armed base breakout (carried: its record clears cost, supported8136) answers the lane's cell prior.
+8971 had excluded the launch rule on its live record, 0 of 10 (23 Nov); P(0 of 10 | 22 % win) = 0.08, and LiveDiscipline8985
+(since 8985) holds a door proven losing on live closes to one probe at a time. Safety, data, structure, the selected setup's
+own record, timing, economics and live discipline are unchanged; no gate added.
+

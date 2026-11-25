@@ -1795,7 +1795,22 @@ object CandidateAdmission8136 {
      * fire (LaunchSniper8748) is not in this set: its live record is 0 of 10 (8968). Safety, structure, the selected setup's
      * own losing record, timing, economics and realised live losses all still decide.
      */
-    internal val POCKET_KINDS_8971: Set<String> = setOf(AgreementPocket8874.KIND_8874, BasePocket8904.KIND_8904, LanePocket8934.KIND_8934)
+    internal val POCKET_KINDS_8971: Set<String> = setOf(AgreementPocket8874.KIND_8874, BasePocket8904.KIND_8904, LanePocket8934.KIND_8934,
+        LaunchSniper8748.KIND_8748, BaseBreakout8995.KIND_8995)   // V5.0.8999: the armed launch rule and the armed base breakout too
+
+    /*
+     * V5.0.8999 §A_PROVEN_LAUNCH_RULE_ANSWERS_THE_CELL_PRIOR — owner, 25 Nov 14:54, on runners of +1,000 % to +22,000 % the bot
+     * did not hold: "inexcusable that we have missed these let alone the others that have run". The 25 Nov 12:01 capture: 46
+     * coins ran 4x+ in 24 h, 2 held (paper), 44 missed, none undetected. The launch rule armed on the phone's own replay
+     * (cap$5k buys>=3 tp5x stop35% DOCTRINE +20s, forward8856 n5366 mean +6.0 +- 1.7 %, without the best +5.6 %, 22 %
+     * winners, 7 % at 2x+, PROVEN) fired 20 times and landed 0 buys: CELL_PROVEN_LOSING_8136 refused 9, data 6, safety 4,
+     * economics 2. 8971 kept the launch fire out of this set on its live record, 0 of 10 (23 Nov). Ten losses at a 22 %
+     * win rate happen 8 % of the time by chance, so ten closes cannot overturn 5,366 forward ones; and since 8985 the door's
+     * own live record governs it (LiveDiscipline8985: a door proven losing on live closes keeps one probe at a time). So an
+     * armed launch fire, and an armed base breakout (BaseBreakout8995 arms only on its own forward record, n >= 100), answer
+     * the lane's cell prior as a proven pocket does. Safety, data, structure, the selected setup's own record, timing,
+     * economics and the door's live discipline still decide; nothing else is loosened.
+     */
     private val pocketCell8971 = ConcurrentHashMap<String, AtomicLong>()
     private fun notePocketCell8971(lane: String, door: String) {
         val k = lane.uppercase().take(24) + ":" + door
@@ -1803,7 +1818,7 @@ object CandidateAdmission8136 {
     }
     fun pocketCellLine8971(): String = "pocketAnswersCell8971{" + pocketCell8971.entries.sortedByDescending { it.value.get() }
         .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-        " rule=a proven agreement / base / lane pocket answers the lane's own cell prior (refusal and edge exclusion); not the launch rule}"
+        " rule=a proven agreement / base / lane pocket, an armed launch rule or an armed base breakout answers the lane's own cell prior (refusal and edge exclusion)}"
 
     /** V5.0.8965 status: how often a pocket coin's unread move was priced by its pocket. */
     fun cellGrossLine8965(): String =

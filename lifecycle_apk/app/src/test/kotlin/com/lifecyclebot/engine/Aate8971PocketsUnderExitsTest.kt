@@ -39,10 +39,11 @@ class Aate8971PocketsUnderExitsTest {
         val p = adm.decide8136(cand(pocket))
         assertFalse(p.trace.joinToString("\n"), p.reason == "CELL_PROVEN_LOSING_8136")
         assertTrue(p.trace.any { it.contains("answeredByPocket8971=") })
+        // superseded by V5.0.8999: an armed launch fire answers the cell prior too (its door's live record governs it, 8985)
         val l = adm.decide8136(cand(launch))
-        assertEquals(l.trace.joinToString("\n"), "CELL_PROVEN_LOSING_8136", l.reason)
+        assertFalse(l.trace.joinToString("\n"), l.reason == "CELL_PROVEN_LOSING_8136")
         assertTrue(adm.POCKET_KINDS_8971.containsAll(listOf("AGREEMENT_POCKET", "BASE_POCKET", "LANE_POCKET")))
-        assertFalse(adm.POCKET_KINDS_8971.contains("LAUNCH_RULE_8748"))
+        assertTrue(adm.POCKET_KINDS_8971.contains("LAUNCH_RULE_8748"))
     }
 
     @Test fun wired() {
