@@ -27,7 +27,7 @@ class Aate8998HolderReadRunsTest {
             LiquidityOwnership8522.Pool(locked, "raydium_cpmm", 100.0, 90_000.0),   // locked: not what the rule blamed
             LiquidityOwnership8522.Pool("Curve8998", "pump_fun", 0.0, 99_000.0))))   // a curve is not a pool to drain
         assertEquals(deep, LpStateRecord8725.blamedPool8998(ts))
-        val bare = TokenState(mint = mint, symbol = "T").also { it.pairAddress = shallow }
+        val bare = TokenState(mint = mint, symbol = "T", pairAddress = shallow)
         assertEquals("no report: the coin's own pair", shallow, LpStateRecord8725.blamedPool8998(bare))
     }
 
