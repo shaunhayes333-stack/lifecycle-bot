@@ -100,7 +100,8 @@ class Aate8320CurveExitFloorTest {
         assertTrue(active8881.contains("if (migrated) return false to \"\""))
         assertTrue(active8881.contains("if (pumpCurveLive9007(mint, nowMs))"))   // superseded by V5.0.9007: the account read, or the program's own stream
         assertTrue(active8881.contains("PumpCurveKeys7269.canonicalCurveKey7392(mint)"))
-        assertTrue(g.contains("safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now"))
+        // superseded by V5.0.9021: the LP question takes the curve's custody (fresh, or known under the program); exit depth keeps the fresh read
+        assertTrue(g.contains("safety, selectedPool8522, custody9021.first, TokenSafetyChecker.isWhitelisted(mint), custody9021.second, now"))
         assertTrue(g.contains("val curveCustody8522 = ownership8522.reason == \"ACTIVE_CURVE_LP_NOT_APPLICABLE_8522\""))
         val ownership = src("engine/LiquidityOwnership8522.kt")
         val curveProof = ownership.substringAfter("fun activeCurveVerified(").substringBefore("/** Pure parsing.")

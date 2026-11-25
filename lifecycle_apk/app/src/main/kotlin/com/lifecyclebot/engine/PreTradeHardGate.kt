@@ -389,8 +389,14 @@ object PreTradeHardGate {
         val (curveExitSafe8319, curveAddress8522) = LiquidityOwnership8522.activeCurve8881(mint, ts.tokenMap.migratedOrGraduated, now)
         val selectedPool8522 = selectedPoolAddressOverride8522 ?:
             ts.tokenMap.poolAddress.ifBlank { ts.lastPricePoolAddr.ifBlank { ts.pairAddress } }
+        // V5.0.9021 — the LP question is whose custody the liquidity is in: a pump.fun curve stays in the program's between
+        // trades (the exit depth below still needs the fresh reading, asked from the chain now rather than waited for).
+        val custody9021 = if (curveExitSafe8319) true to curveAddress8522
+            else LiquidityOwnership8522.pumpCurveCustody9021(mint, ts.tokenMap.migratedOrGraduated, now)
+        if (!curveExitSafe8319 && custody9021.first)
+            try { com.lifecyclebot.engine.truth.ChainConfirm8950.confirm8950(ts, listOf("DEPTH"), "DECISION", now) } catch (_: Throwable) {}
         val ownership8522 = LiquidityOwnership8522.assess(
-            safety, selectedPool8522, curveExitSafe8319, TokenSafetyChecker.isWhitelisted(mint), curveAddress8522, now,
+            safety, selectedPool8522, custody9021.first, TokenSafetyChecker.isWhitelisted(mint), custody9021.second, now,
             expectedMint = mint,
             // V5.0.8895 — the selected pool's lock as read from its own accounts (only an unread LP proof can change)
             chainLock8895 = try { com.lifecyclebot.engine.truth.PoolLock8895.proof8895(mint, selectedPool8522, now) } catch (_: Throwable) { null },

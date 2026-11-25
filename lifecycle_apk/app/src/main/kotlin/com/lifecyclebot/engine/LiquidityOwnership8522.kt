@@ -59,12 +59,34 @@ object LiquidityOwnership8522 {
      * while it waited. Not for a graduated coin, a curve under [LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319]
      * real SOL, or a Mayhem coin (chain supply in the Mayhem band; MayhemMode7943 also refuses those on its own).
      */
-    fun pumpCurveByStream9007(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
-        val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.freshRealSol9007(mint, nowMs) } catch (_: Throwable) { null } ?: return false
+    fun pumpCurveByStream9007(mint: String, nowMs: Long = System.currentTimeMillis(), maxAgeMs: Long = 30_000L): Boolean {
+        val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.freshRealSol9007(mint, nowMs, maxAgeMs) } catch (_: Throwable) { null } ?: return false
         if (!com.lifecyclebot.engine.truth.OnChainDepth8038.curveAmountOk9010(real, LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319,
                 com.lifecyclebot.engine.truth.OnChainDepth8038.launchFireAnswers9010(mint, nowMs))) return false   // V5.0.9010
         val supply = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint) } catch (_: Throwable) { 0.0 }
         return !(supply > 0.0 && MayhemMode7943.mayhemSupply(supply))
+    }
+
+    /**
+     * V5.0.9021 §CUSTODY_DOES_NOT_EXPIRE_IN_THIRTY_SECONDS — owner, 26 Nov 00:55: "they have to get buys thru". 5.0.9020,
+     * LIVE, 8.6 min: the final gate allowed 0 of 137 meme candidates; criticalProofPending9010 counted
+     * LP_OWNERSHIP_PROOF_PENDING_8522=344 and the last wait read "curve label lacks current active-curve proof". 9007 proved
+     * a pump.fun curve only from a reading at most 30 s old, so a curve that had not traded for half a minute lost its LP
+     * proof on every pass. Whose custody the liquidity is in is a fact of the pump.fun program, not of the last 30 seconds:
+     * a curve the program was seen trading (or that was read from its account) stays in the program's custody until it
+     * graduates, and at graduation its pool's LP is burned (the owner's rule, 25 Nov: every "pump" mint has locked
+     * liquidity unless Mayhem). The LP proof now holds for [PUMP_CUSTODY_MAX_AGE_MS_9021] after the last such reading —
+     * same exclusions (graduated, under the exit floor at that reading, Mayhem supply, never seen). Only the LP question:
+     * the curve's exit depth, the price and the send itself still need the fresh reading ([activeCurve8881] unchanged),
+     * and the door asks the chain for it at once (PreTradeHardGate).
+     */
+    const val PUMP_CUSTODY_MAX_AGE_MS_9021 = 6L * 60L * 60_000L
+
+    /** (in the pump.fun program's custody, the curve's address) for the LP rule; never for a [migrated] coin. */
+    fun pumpCurveCustody9021(mint: String, migrated: Boolean, nowMs: Long = System.currentTimeMillis()): Pair<Boolean, String> {
+        if (migrated || !pumpCurveByStream9007(mint, nowMs, PUMP_CUSTODY_MAX_AGE_MS_9021)) return false to ""
+        try { PipelineHealthCollector.labelInc("PUMP_CURVE_CUSTODY_KNOWN_9021") } catch (_: Throwable) {}
+        return true to (try { com.lifecyclebot.network.PumpCurveKeys7269.canonicalCurveKey7392(mint).orEmpty() } catch (_: Throwable) { "" })
     }
 
     /** V5.0.9007 — [mint]'s pump.fun curve is live: by a fresh account read, or by the program's own stream. */

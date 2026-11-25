@@ -4530,3 +4530,27 @@ key (Settings -> data keys). The histories start at install: listed wallets are 
 still meets every door the 21:53 capture counted (`LP_OWNERSHIP_PROOF_PENDING_8522=1112`, `DATA_INCOMPLETE_DEFER_8136`): a
 named trader's buy brings the coin to the bot sooner, it does not buy it. Fifty busy wallets on the stream add push volume
 and candidates on a heap that already reads 88 %.
+
+## §206 — V5.0.9021: a pump.fun curve's LP custody does not lapse 30 s after its last print
+
+Owner, 26 Nov 00:55: "they have to get buys thru". 5.0.9020, LIVE, 8.6 min: the final gate allowed 0 of 137 meme
+candidates (MOONSHOT 0/42, EXPRESS 0/58, SHITCOIN 0/37); `criticalProofPending9010{LP_OWNERSHIP_PROOF_PENDING_8522=344,
+LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP=196, RUGCHECK_PENDING_OR_UNKNOWN=88, HOLDER_*=74}`; last wait: "curve label lacks
+current active-curve proof".
+
+- `LiquidityOwnership8522.pumpCurveCustody9021`: a pump.fun curve read from its account or seen on the program's own
+  stream within 6 h, not graduated, at or over the exit floor at that reading and not Mayhem, is in the program's custody.
+  `PreTradeHardGate` passes that to the LP assessment when the fresh (30 s) reading is absent — the LP proof only.
+- Unchanged: the exit-depth proof (`curveExitSafe8319`), the price, `BuyRouteSafety8522` at the send and the executor's
+  curve selector all still need the fresh reading; the door asks the chain for it at once
+  (`ChainConfirm8950.confirm8950(ts, ["DEPTH"], "DECISION")`) and the coin's pipeline re-runs when it lands.
+- Counter: `PUMP_CURVE_CUSTODY_KNOWN_9021`. Expect `LP_OWNERSHIP_PROOF_PENDING_8522` to fall for pump.fun coins and
+  `DECISION:PRICE_DEPTH` in `chainConfirm8950` to rise. Not measured: how many of the 344 were pump.fun curves.
+
+**Measured in this capture, not changed here** (research rows, pump.fun mints, one worst read per coin-hour, n=2,680):
+held to the hour -22.1 % (capped +300) / -16.7 % uncapped; under an approximation of the bot's own exits (stop 20 %
+before the peak, 55 % of a 2x+ peak kept, the line from +10 %) -0.3 % +/- 2.6. Where runners are: forecast >= +5 n473
++18.6 +/- 14.4 (8.0 % reach +100 %, 2.1 % +400 %); FRESH_LAUNCH n248 +6.1 +/- 4.5 (10.1 % / 3.6 %); cap $5k-$20k n733
++3.8 +/- 2.0; cap $100k+ n861 -4.3 +/- 0.5 (0.6 % reach +100 %). The model's forecast ranks the runner rate under exits
+(forecast < 0: 0.5 % reach +400 %), so its refusal authority is left as it is. Live exits: of 45 positions that reached
++200 %, 5 kept it and 30 closed on the hard stop (degenHarvest9011) — the next build.
