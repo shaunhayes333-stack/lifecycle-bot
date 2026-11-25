@@ -24,7 +24,8 @@ import java.util.concurrent.ConcurrentHashMap
  * POOLED records at the support tests (CandidateAdmission8136.Candidate8136.pooledShortfall9001), exactly as the realised
  * live shortfall does (LiveAdmissionProof8290). It adds no refusal: a record that still clears its bar after the gap admits
  * as before, one that does not is simply not proof for this coin and the candidate goes on to the lane's ordinary checks.
- * The coin's own cell (source x lane x cap x age) and the pockets already carry their age and are not shifted. A band that
+ * The coin's own cell (source x lane x cap x age) carries its age and is not shifted. The pockets are not shifted either,
+ * but 9003 found they do NOT carry an age: LanePocket8934 now withholds an age-blind cell in a band the lane loses in. A band that
  * pays as well as the lane has no gap; nothing is added for a band that pays more. It follows the labels, so a band that
  * starts paying loses its gap. Memory only, rebuilt from the dataset replay at start.
  */
@@ -90,6 +91,18 @@ object AgeProof9001 {
         val all = stat("$l|$ALL") ?: return 0.0
         val own = stat("$l|$band") ?: return 0.0
         return gap9001(all.first, all.second, own.first, own.second, own.third)
+    }
+
+    /** Pure: a band the lane is measured to lose in — [MIN_BAND_N_9001]+ admitted labels whose mean plus one SE is under zero. */
+    fun loses9003(bandN: Long, bandMean: Double, bandSe: Double): Boolean =
+        bandN >= MIN_BAND_N_9001 && bandMean.isFinite() && bandSe.isFinite() && bandMean + bandSe < 0.0
+
+    /** Does [lane] lose, on its own admitted labels, in the age band of a coin [ageMin] minutes old? Unknown age: no claim. */
+    fun bandLoses9003(lane: String, ageMin: Double): Boolean {
+        val band = band9001(ageMin)
+        if (band == "UNKNOWN") return false
+        val own = stat("${lane.trim().uppercase()}|$band") ?: return false
+        return loses9003(own.first, own.second, own.third)
     }
 
     /** CandidateAdmission8136.candidateFor8136: the gap a LIVE candidate carries, counted by band when it is not zero. */

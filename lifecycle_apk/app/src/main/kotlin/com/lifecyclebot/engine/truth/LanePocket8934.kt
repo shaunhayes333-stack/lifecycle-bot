@@ -342,9 +342,14 @@ object LanePocket8934 {
             val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
             val buyers9002 = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)?.distinctBuyers60s?.toDouble() ?: Double.NaN } catch (_: Throwable) { Double.NaN }
             val feats = features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap, raw.ageMin, buyers9002).toSet()
-            val c = cells.orEmpty().firstOrNull { feats.containsAll(it.conds) } ?: run {
+            val blind9003 = ageBlindBarred9003(l, raw.ageMin)
+            val c = cells.orEmpty().firstOrNull { fits9003(it.conds, feats, blind9003) } ?: run {
                 // V5.0.8991 — in no cell of the lane's own hold: a cell proven at a longer horizon is its evidence, named with it
-                val (e, h) = ext.firstOrNull { feats.containsAll(it.first.conds) } ?: return null
+                val (e, h) = ext.firstOrNull { fits9003(it.first.conds, feats, blind9003) } ?: run {
+                    if (blind9003 && (cells.orEmpty().any { feats.containsAll(it.conds) } || ext.any { feats.containsAll(it.first.conds) }))
+                        try { PipelineHealthCollector.labelInc("LANE_POCKET_AGE_BLIND_NOT_SERVED_9003_${AgeProof9001.band9001(raw.ageMin)}") } catch (_: Throwable) {}
+                    return null
+                }
                 servedExt8991.incrementAndGet()
                 return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:${extKey8991(l, h)}:${e.id}", e.n, e.mean, e.z * e.se, runnerRate = e.runRate)
             }
@@ -352,6 +357,27 @@ object LanePocket8934 {
             return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:$l:${c.id}", c.n, c.mean, c.z * c.se, runnerRate = c.runRate)
         } catch (_: Throwable) { return null }
     }
+
+    /**
+     * V5.0.9003 §A_POCKET_IS_PROOF_ONLY_WHERE_IT_WAS_EARNED — owner, 25 Nov 16:04: "keep going. we have to unlock this
+     * trading logic". The 12:01 pipeline: of the specific proofs let through, 2,340 were LANE_POCKET (MOONSHOT 928, EXPRESS
+     * 601, SHITCOIN 590, CORE 221) against 50 setups and 9 base pockets — the pocket is the proof behind the live buys, and
+     * its cells never knew the coin's age. On the 22-25 Nov rows the cells of that kind pay young and lose old:
+     * origin=OTHER +20.4 % under 15 minutes (n 1,529) / -3.6 % past a day (n 274, none doubled); pool $5k-$20k +13.6 % /
+     * -21.8 % at 15-60 minutes, -10.7 % at 1-24 h, -4.5 % past a day; forecast >= +5 % +23.3 % / -16.7 % at 15-60 minutes.
+     * Such a cell is earned on coins minutes old and was being served to coins hours or days old (9001 left the pockets
+     * unshifted on the belief that they carried their age; only the admission cell does). So LIVE, a cell that names no age
+     * is not served to a coin whose age band the lane is measured to lose in on its own admitted labels
+     * (AgeProof9001.bandLoses9003: 100+ labels, mean + SE under zero). A cell that names the coin's age (9002) is always
+     * served, so a lane that proves an old-coin cell trades it; a band that stops losing is served again; paper is unchanged.
+     * No refusal is added: the candidate simply carries no pocket evidence and goes on to its other proofs.
+     */
+    internal fun fits9003(conds: List<String>, feats: Set<String>, ageBlindBarred: Boolean): Boolean =
+        feats.containsAll(conds) && (!ageBlindBarred || conds.any { it.startsWith("age=") })
+
+    private fun ageBlindBarred9003(lane: String, ageMin: Double): Boolean = try {
+        !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && AgeProof9001.bandLoses9003(lane, ageMin)
+    } catch (_: Throwable) { false }
 
     /** Every candidate assessment, regardless of which evidence source wins, supplies its already-computed forecast. */
     fun noteHuntDecision8961(ts: TokenState, lane: String, stage: String, predPct: Double?, nowMs: Long) {

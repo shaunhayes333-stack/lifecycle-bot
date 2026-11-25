@@ -3903,3 +3903,43 @@ best three > z SE). An unread value adds no feature, so the seed and the rows wr
 candidate is matched on its own age (EdgeModel8537 raw) and current buyer count. No lane is handed a cell: each proves
 its own from its own rows, and a cell needs rows written from 9002 on, so the first can appear after about a day of them.
 The 4 h and 24 h follow rows do not carry the age yet.
+
+## 188. A pocket is proof only where it was earned (9003)
+
+Correction to section 186: it said the pockets "carry their own age". Only the admission cell (source x lane x cap x age)
+does. A LanePocket8934 cell is built from origin, stage, setup, V3, forecast, pool and cap; until 9002 no age.
+
+25 Nov 12:01 pipeline, the session's specific proofs let through: LANE_POCKET 2,340 (MOONSHOT 928, EXPRESS 601, SHITCOIN
+590, CORE 221), setup 50, lab strategy 83, base pocket 9, launch rule 2. The pocket is the proof behind the live buys.
+The same pipeline's funnel for coins carrying pocket evidence: 1,253 coins, 321 admitted, FDG allowed 35, 7 tickets, 1 buy.
+
+The kind of cell a pocket holds, by the coin's age (22-25 Nov hour rows joined to the decision row; CORE, MOONSHOT,
+SHITCOIN, EXPRESS, MANIPULATED):
+
+| cell | under 15 min | 15-60 min | 1-24 h | over 24 h |
+|---|---|---|---|---|
+| origin=OTHER | +20.4 % (n 1,529) | -8.3 % (n 72) | -2.3 % (n 106) | -3.6 % (n 274, none doubled) |
+| pool $5k-$20k | +13.6 % (n 731) | -21.8 % (n 157) | -10.7 % (n 206) | -4.5 % (n 213, none doubled) |
+| forecast >= +5 % | +23.3 % (n 1,177) | -16.7 % (n 72) | -2.3 % (n 50) | n 23 |
+| stage BASE_START | +32.2 % (n 1,090) | n 3 | n 4 | n 4 |
+| origin=OTHER and forecast >= +10 % | +39.2 % (n 831) | n 8 | n 2 | n 5 |
+
+Change: LIVE, LanePocket8934.evidence8934 does not serve a cell that names no age to a coin whose age band the lane is
+measured to lose in on its own admitted labels (AgeProof9001.bandLoses9003: 100+ labels in the band, mean + SE under
+zero). A cell that names the coin's age (9002) is always served. Paper is unchanged. No terminal is added; label
+LANE_POCKET_AGE_BLIND_NOT_SERVED_9003_<band>. A band that stops losing is served again.
+
+Other measurements taken for this build, no change made on them:
+- exits on 2,527 pump.fun launch paths, bought at 30 s, 2.9 % cost: doctrine line (stop 15 %) +10.7 % +- 2.2; profit lock
+  keeping 35 % of the peak from +10 % +9.5 %; keeping 50 % +10.3 %; hold to the hour +5.5 %; the doctrine line with a 5
+  minute time exit +5.2 % and with a 15 minute one +7.6 %. 78 % of all profit comes from trades of +100 % or more. A
+  trailing lock does not lose the runners; a clock does.
+- live sell legs 12-25 Nov (155): median hold 3.2 minutes, 28 winning legs, median win +9.4 %, 2 legs at +40 % or more.
+- BASE_START under 15 minutes outside the LP-unlocked cohort, one read per coin (220 coins): hold to the hour +12.1 %;
+  with a stop, low assumed first: -10 % stop +23.9 %, -15 % +23.3 %, -25 % +22.5 %, -50 % +17.3 %; all sold at +40 %
+  -2.3 %, at +100 % +4.0 %, at +200 % +11.5 %. By venue: Meteora +29.1 % (n 550, halves +13.5 / +40.3), PumpSwap +42.9 %
+  (n 220, halves +1.8 / +78.5), pump.fun curve -12.8 % (n 206). Pool under $5k -5.2 %; $5k-$20k +58.3 %; $20k+ +31.7 %.
+  Refusals inside the cell that went on to pay: NATIVE_MCAP_TOO_LOW n 149 +13.0 %, NO_KNOWN_MANIPULATION_EVIDENCE n 85
+  +19.1 %, CORE_YIELD_CLEAR_SPECIALIST n 65 +27.7 %, SELLABILITY_REJECT n 58 +25.2 %, TREASURY_ROLE_FLOOR n 32 +12.7 %.
+- FDG blocks, same pipeline (allow 68 / block 1,835): DATA_INCOMPLETE_DEFER 254, EXECUTION_ECONOMICS 224,
+  LANE_REALISED_LOSING_PROBE_OCCUPIED_8424 204, EDGE_MODEL_NEGATIVE 141, SETUP_RECORD_LOSING 116, MOVE_HISTORY 101.
