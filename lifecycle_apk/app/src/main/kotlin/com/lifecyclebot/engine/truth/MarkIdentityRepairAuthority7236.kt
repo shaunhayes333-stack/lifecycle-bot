@@ -95,8 +95,23 @@ object MarkIdentityRepairAuthority7236 {
      * the next evaluation tick can see a corroborated price. Never
      * blocks.
      */
+    /**
+     * V5.0.9019 — while LIVE runs with paper closing out (8872), a coin held only by a frozen PAPER lot is not repaired from
+     * here: the close-out pass asks its own marks at its own pace, and these repairs ran every feed for coins nobody can
+     * price (21:53 capture, 13 min: MARK_REPAIR_FAILED 224, all-live-sources-failed 233) beside the live candidates' marks.
+     */
+    internal fun frozenPaperOnly9019(mint: String): Boolean = try {
+        val bare = mint.removePrefix("solana|").trim()
+        com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() &&
+            CanonicalPositionAuthority6441.hasOpenMint(bare, "paper") && !CanonicalPositionAuthority6441.hasOpenMint(bare, "live")
+    } catch (_: Throwable) { false }
+
     fun requestRepair(mint: String, context: String) {
         if (mint.isBlank()) return
+        if (frozenPaperOnly9019(mint)) {
+            try { PipelineHealthCollector.labelInc("MARK_REPAIR_SKIPPED_FROZEN_PAPER_9019") } catch (_: Throwable) {}
+            return
+        }
         val now = System.currentTimeMillis()
         val prev = lastAttempt[mint] ?: 0L
         if (now - prev < REPAIR_DEBOUNCE_MS) return

@@ -4433,3 +4433,53 @@ on PAPER-mode closes (which of them a live decision reads was not audited in thi
 
 **Limits.** A crypto desk's paper close carries no stamp (its admission is not `assess8136`): filed UNREAD, holds only.
 The record starts empty on this build: 30 closes per cell before any proof.
+
+## §204 — V5.0.9019: a fresh price is never stale; the holder rule judges the largest single wallet
+
+**Why.** Owner, 25 Nov 22:05-22:08, on the 21:53 capture (5.0.9016, LIVE, 13 min, 0 buys): "general rule on pump is no one
+should own more than 5% - 10%" and "stale decision and stale pricing are meant to be fixed already ... deliver a complete fix".
+
+**Stale price / stale decision: measured.**
+
+| | |
+|---|---|
+| Decisions whose price age was unknown or negative | unknown8870{MOONSHOT=84, EXPRESS=81, SHITCOIN=47, CORE=23} = 235 in 13 min |
+| EXPRESS decisions on a price 30 s to 5 min old | 2 (so the 81 are not old prices) |
+| Evidence coins waiting PRICE_STALE | 61 |
+| Ticket dropped ENTRY_CHASE_DECISION_STALE | 1 of 2, with its price 0 s old |
+| Loop cycle | 5.1 s average |
+
+Cause: each door took `now - observedAt` with `now` read at the start of its cycle and treated a negative age as stale.
+A price that printed after the cycle's clock was read was refused as stale.
+
+**What changed.**
+- `PriceAge8549.ageMs9019(observedAt, now)`: an age is never negative. Stamped up to 60 s after the judging clock = 0 ms
+  old; further ahead or unstamped = unknown (as before). Used for the admission's price age
+  (`CandidateAdmission8136.candidateFor8136`); `seenAfterClock9019=` on the `decisionPriceAge8549[...]` line counts them.
+- `EntryEconomics8329.preBroadcastRefusal8329`: the send is measured against `decisionRef9019` — the ticket's own mark
+  (a stamp just ahead of this clock is observed now), else, for a ticket sealed without a mark (7096 allows that), the
+  price its LIVE admission read (`noteAdmissionPrice9019`). The single DECISION_STALE refusal now names its cause:
+  `decisionStale9019[byCause{MINT_MISMATCH | NO_DECISION_PRICE | PRICE_STAMPED_FAR_AHEAD | DECISION_PRICE_OLD | TICKET_EXPIRED}]`.
+- `markRefusal8329` (unquoted Pump route): a price stamped just after its clock is current.
+- `MarkIdentityRepairAuthority7236.requestRepair`: in LIVE with paper closing out, a coin held only by a frozen PAPER lot is
+  not repaired here (MARK_REPAIR_FAILED 224 and all-live-sources-failed 233 in those 13 min).
+
+**Holder rule: measured** (decision dataset, coins up to an hour old with both readings, n=2,903, 5-minute net).
+
+| Largest single wallet | Top-10 combined | Today | n | mean | falls 50 %+ |
+|---|---|---|---|---|---|
+| 5 % or more | under 35 % | bought | 183 | -6.5 % +/- 2.7 (both halves negative) | 6.0 % |
+| 5 % or more | 35 %+ | refused | 144 | -5.3 % +/- 5.6 | 11.8 % |
+| under 5 % | under 35 % | bought | 1,162 | +2.9 % +/- 2.6 | 4.8 % |
+| under 5 % | 35-50 % | refused | 203 | +7.2 % | 4.9 % |
+| under 5 % | 50 %+ | refused | 1,211 | -1.5 %, 7 % win | 6.7 % |
+
+`PreTradeHardGate.holderBlock9019`: one wallet at 5 % or more is refused whatever the top-10 reads; when the launch's own
+trades show no wallet at that limit the combined fatal is 50 %, not 35 %; with no single-wallet reading the 35 % rule
+stands. The single-wallet share is `LaunchFacts8840.top1Pct` (largest current holding among the wallets that traded the
+launch). Applied at the buy door and at the admission's probe of it.
+
+**Not built: the KOL / good-trader exemption.** The bot does not know who a top holder is. The nearest reading it has —
+proven wallets buying in the last 5 minutes — goes the other way inside concentrated coins (top-10 35 %+): with proven
+buyers n796 -3.3 % +/- 1.9, without n1,265 +3.3 % +/- 2.8. That is not the same question, so it is not a refutation; it is
+no support either. Needs the holders' wallets matched to a named list before it can be measured.

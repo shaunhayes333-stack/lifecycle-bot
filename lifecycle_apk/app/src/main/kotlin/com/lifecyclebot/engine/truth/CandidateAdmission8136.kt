@@ -2053,6 +2053,8 @@ object CandidateAdmission8136 {
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
             if (mode == "LIVE") try { TuningReport8618.noteLiveVerdict8618(ts.mint, candidate.lane, it.admitted, it.reason, nowMs) } catch (_: Throwable) {}
+            // V5.0.9019 — the price this LIVE admission read is kept as the decision's reference for a ticket sealed without a mark
+            if (mode == "LIVE" && it.admitted) try { EntryEconomics8329.noteAdmissionPrice9019(ts.mint, ts.lastPrice, ts.lastPriceUpdate, nowMs) } catch (_: Throwable) {}
             // V5.0.9018 — PAPER mode: a candidate the paper decision admits is also decided the LIVE way (same coin, live's
             // inputs), so its paper close can be filed by whether live would have taken it. A what-if: nothing is bought on it.
             if (mode != "LIVE" && it.admitted && !FdgGate8365.shadowOnly8393()) try {
@@ -2251,7 +2253,7 @@ object CandidateAdmission8136 {
                 com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(
                     it.canonicalAssetId7424, it.priceUsd.value.toDouble(), it.timestampMs)
             })
-        val priceAge = if (observedAt > 0L) nowMs - observedAt else Long.MAX_VALUE
+        val priceAge = PriceAge8549.ageCounted9019(observedAt, nowMs)   // V5.0.9019 — never negative: seen after the clock was read = 0
         val lifecycle8283 = try { pb.lifecycleSplit8283(ts, lane, nowMs) } catch (_: Throwable) { null }
         // V5.0.8324 — a runner lane's loss tests read its tail pond (the Cortex grade book: hold-window objective, raw while plausible).
         val pond8324 = if (com.lifecyclebot.engine.RunnerExitProfile7277.isRunnerLane(lane))

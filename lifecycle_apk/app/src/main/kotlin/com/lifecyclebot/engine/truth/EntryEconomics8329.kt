@@ -248,7 +248,7 @@ object EntryEconomics8329 {
     fun line8918(): String = "sendBoundary8918[lateSent=${lateSent8918.get()} admissionEconomicsStood=${admissionStood8918.get()} " +
         synchronized(markToSeal8919) { "markToSeal8919=${quantiles8919(markToSeal8919.toList())} sealToSend8919=${quantiles8919(sealToSend8919.toList())} n=${markToSeal8919.size} " } +
         "rule=an expired ticket is sent within ${LATE_SEND_GRACE_MS_8918 / 1000}s more when the re-quote passes; the send refuses a move that consumed the edge, " +
-        "not an admission's own economics (it still refuses a remaining move at or under cost)]"
+        "not an admission's own economics (it still refuses a remaining move at or under cost)] " + staleLine9019()   // V5.0.9019
     private val chase8329 = ConcurrentHashMap<String, ChaseBook8329>()
     private val consumedAt8329 = ConcurrentHashMap<String, Long>()
 
@@ -263,8 +263,16 @@ object EntryEconomics8329 {
     ): String? {
         val lane = CanonicalLaneIdentity6506.desk8392(intent.canonicalLane)
         val book = chase8329.computeIfAbsent(lane) { ChaseBook8329() }
-        val decisionPx = intent.executableMarkPriceUsd6613
-        val observedAt = intent.executableMarkTimestampMs6613
+        // V5.0.9019 — the decision's own price reference: the ticket's mark, else (a ticket may be sealed without one, 7096)
+        // the price its admission read; a stamp seen after this clock was read is fresh, never "stale" (PriceAge8549).
+        val ref9019 = decisionRef9019(intent.executableMarkPriceUsd6613, intent.executableMarkTimestampMs6613, admissionPrice9019[intent.mint], nowMs)
+        val decisionPx = ref9019?.first ?: intent.executableMarkPriceUsd6613
+        val observedAt = ref9019?.second ?: intent.executableMarkTimestampMs6613
+        if (ref9019 != null && !(intent.executableMarkPriceUsd6613 > 0.0 && intent.executableMarkTimestampMs6613 > 0L)) admissionPriceUsed9019.incrementAndGet()
+        staleCause9019(intent.mint != ts.mint, observedAt, intent.expiresAtMs6613, nowMs)?.let { cause ->
+            staleByCause9019.computeIfAbsent(cause) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+            labelInc("ENTRY_CHASE_DECISION_STALE_9019_${cause}_$lane")
+        }
         // V5.0.8918 — a ticket past its 45 s life is still sent inside [LATE_SEND_GRACE_MS_8918] when the decision's own mark is
         // fresh: the re-quote below measures the move since the decision against the fresh executable price, which is what
         // "stale" protects. 21 Nov 22:49-22:53 (5.0.8917): DPRK refused DECISION_STALE three times with its price 1-5 s old.
@@ -329,10 +337,51 @@ object EntryEconomics8329 {
         return preBroadcastRefusal8329(ts, intent, sizeSol, px, quote.priceImpactPct, "JUPITER")?.let { "BUY_TERMINAL_$it" }
     }
 
+    // ── V5.0.9019 — the decision's reference at the send (see PriceAge8549.ageMs9019) ──
+    private val admissionPrice9019 = ConcurrentHashMap<String, Pair<Double, Long>>()
+    private val staleByCause9019 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val admissionPriceUsed9019 = java.util.concurrent.atomic.AtomicLong()
+
+    /** CandidateAdmission8136 (LIVE, admitted): the price the admission read for [mint] and when it was observed. */
+    fun noteAdmissionPrice9019(mint: String, priceUsd: Double, observedAtMs: Long, nowMs: Long) {
+        if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return
+        if (admissionPrice9019.size > 2_000) admissionPrice9019.entries.removeIf { nowMs - it.value.second > DECISION_MAX_AGE_MS_8329 }
+        if (admissionPrice9019.size > 2_000) admissionPrice9019.clear()
+        admissionPrice9019[mint] = priceUsd to observedAtMs
+    }
+
+    /**
+     * Pure: the (price, observed-at) a ticket's send is measured against. The ticket's own mark when it carries one; a
+     * ticket sealed without a mark takes the price its admission read ([admission]); none when neither exists. A stamp
+     * seen after [nowMs] was read counts as observed now.
+     */
+    internal fun decisionRef9019(markPx: Double, markAtMs: Long, admission: Pair<Double, Long>?, nowMs: Long): Pair<Double, Long>? {
+        fun at(t: Long) = if (t > nowMs && t - nowMs <= PriceAge8549.AHEAD_MAX_MS_9019) nowMs else t
+        if (markPx.isFinite() && markPx > 0.0 && markAtMs > 0L) return markPx to at(markAtMs)
+        if (admission != null && admission.first.isFinite() && admission.first > 0.0 && admission.second > 0L)
+            return admission.first to at(admission.second)
+        return null
+    }
+
+    /** Pure: why a send is refused as a stale decision, or null when it is not: the one refusal had four causes and no name. */
+    internal fun staleCause9019(mintMismatch: Boolean, observedAtMs: Long, expiresAtMs: Long, nowMs: Long): String? = when {
+        mintMismatch -> "MINT_MISMATCH"
+        observedAtMs <= 0L -> "NO_DECISION_PRICE"
+        observedAtMs > nowMs -> "PRICE_STAMPED_FAR_AHEAD"
+        nowMs - observedAtMs > DECISION_MAX_AGE_MS_8329 -> "DECISION_PRICE_OLD"
+        nowMs >= expiresAtMs && !lateSendAllowed8918(expiresAtMs, nowMs) -> "TICKET_EXPIRED"
+        else -> null
+    }
+
+    fun staleLine9019(): String = "decisionStale9019[byCause{" +
+        staleByCause9019.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        "} admissionPriceUsed=${admissionPriceUsed9019.get()} rule=a price seen after the clock was read is 0 s old; a ticket sealed without a mark is measured against the price its admission read]"
+
     /** The unquoted Pump route needs a current mark for its comparison. */
     fun markRefusal8329(ts: TokenState, intent: ExecutionIntent, sizeSol: Double): String? {
         val now = System.currentTimeMillis()
-        if (ts.lastPriceUpdate < intent.executableMarkTimestampMs6613 || ts.lastPriceUpdate > now)
+        // V5.0.9019 — a price stamped just after this clock was read is current, not stale
+        if (ts.lastPriceUpdate < intent.executableMarkTimestampMs6613 || ts.lastPriceUpdate - now > PriceAge8549.AHEAD_MAX_MS_9019)
             return "BUY_TERMINAL_ENTRY_CHASE_PUMP_MARK_STALE"
         return preBroadcastRefusal8329(ts, intent, sizeSol, ts.lastPrice, 0.0, "PUMPPORTAL", now)?.let { "BUY_TERMINAL_$it" }
     }

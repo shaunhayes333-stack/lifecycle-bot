@@ -157,7 +157,38 @@ object PreTradeHardGate {
      * each one a dropped ticket and a lease backoff (BUY_LEASE_BACKOFF_ENDS_TICKET_8545). Same proof, same threshold.
      */
     fun holderBlock8684(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? =
-        if (holderProof8960(ts, ts.safety, nowMs).adversePct >= TOP_HOLDER_FATAL_PCT) "TOP_HOLDER_CONCENTRATION" else null
+        holderBlock9019(holderProof8960(ts, ts.safety, nowMs).adversePct, singleHolderPct9019(ts.mint))
+
+    /**
+     * V5.0.9019 §NO_ONE_WALLET_OVER_THE_LIMIT — owner, 25 Nov 22:05: "general rule on pump is no one should own more than
+     * 5% - 10%". The holder block read only the top-10 wallets COMBINED (35 %): it never asked whether one wallet held too
+     * much. Measured on coins up to an hour old that carry both readings (decision dataset, 2,903 coins, 5-minute net):
+     *   one wallet >= 5 %, top-10 under 35 % (bought today)   n183  -6.5 % +/- 2.7, negative on both halves
+     *   one wallet >= 5 %, any top-10                         n327  -6.0 % +/- 2.9
+     *   no wallet at 5 %, top-10 35-50 % (refused today)      n203  +7.2 %, falls 50 %+ in 4.9 % of cases
+     *   no wallet at 5 %, top-10 under 35 % (bought today)    n1162 +2.9 %, falls 50 %+ in 4.8 % of cases
+     *   no wallet at 5 %, top-10 50 %+ (refused today)        n1211 -1.5 %, 7 % win, falls 50 %+ in 6.7 % of cases
+     * So: a single wallet at [SINGLE_HOLDER_FATAL_PCT_9019] or more is refused whatever the top-10 reads, and when the
+     * launch's own trades show no wallet at that limit, ten such wallets can hold up to [TOP10_SPREAD_FATAL_PCT_9019]
+     * between them — the combined fatal is that, not 35. With no single-wallet reading the 35 % rule stands unchanged.
+     * The single-wallet share is the largest current holding among the wallets that traded the launch (LaunchFacts8840).
+     */
+    internal const val SINGLE_HOLDER_FATAL_PCT_9019 = 5.0
+    internal const val TOP10_SPREAD_FATAL_PCT_9019 = 50.0
+
+    /** The largest single wallet's share of [mint] from the launch's own decoded trades; NaN when the launch was not followed. */
+    internal fun singleHolderPct9019(mint: String): Double =
+        try { com.lifecyclebot.engine.truth.LaunchFacts8840.snapshot8840(mint)?.first?.top1Pct ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+
+    /** Pure: the holder block for a top-10 share [top10Pct] and the largest single wallet's share [singlePct] (NaN = not read). */
+    internal fun holderBlock9019(top10Pct: Double, singlePct: Double): String? {
+        val single = singlePct.takeIf { it.isFinite() && it >= 0.0 }
+        return when {
+            single != null && single >= SINGLE_HOLDER_FATAL_PCT_9019 -> "TOP_HOLDER_CONCENTRATION"
+            top10Pct >= (if (single != null) TOP10_SPREAD_FATAL_PCT_9019 else TOP_HOLDER_FATAL_PCT) -> "TOP_HOLDER_CONCENTRATION"
+            else -> null
+        }
+    }
 
     /**
      * V5.0.8705 — the buy door, asked BEFORE a ticket is spent (CandidateAdmission8136). 8703 read three of the door's proof
@@ -384,8 +415,10 @@ object PreTradeHardGate {
         }
         // Freeze is already fail-closed above; do not wait for an impossible
         // FREEZE_AUTHORITY_UNKNOWN marker before deferring other missing proofs.
-        if (topHolder >= TOP_HOLDER_FATAL_PCT) {
-            return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder max=$TOP_HOLDER_FATAL_PCT")
+        val single9019 = singleHolderPct9019(ts.mint)   // V5.0.9019 — one wallet over the limit, or ten wallets over theirs
+        if (holderBlock9019(topHolder, single9019) != null) {
+            return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder singleHolderPct=$single9019 " +
+                "max=$TOP_HOLDER_FATAL_PCT single=$SINGLE_HOLDER_FATAL_PCT_9019 spread=$TOP10_SPREAD_FATAL_PCT_9019")
         }
         // If BOTH critical holder ownership and the provider report are blind,
         // or the pool is already thin, no new money is spent on unverified
