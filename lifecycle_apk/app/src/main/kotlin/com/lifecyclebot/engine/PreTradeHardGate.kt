@@ -67,6 +67,24 @@ object PreTradeHardGate {
         return Verdict(false, "DEFER_SAFETY_PROOF", "$reason|$detail")
     }
 
+    /**
+     * V5.0.9010 — the 25 Nov 18:23 capture named LIVE_CRITICAL_PROOF_PENDING_8373 as the largest deferral of all (1,207 in
+     * 13 minutes: MOONSHOT 442, SHITCOIN 352, EXPRESS 281, CORE 132) and nothing in any export says WHICH of the door's eight
+     * proofs was unread, because the admission probe answers without a log. Counted here by proof name (the detail after
+     * the first ':' dropped), probe and door alike, so the next capture states it. A count only: nothing is decided on it.
+     */
+    private val pendingByProof9010 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    internal fun proofName9010(pending: String): String = pending.substringBefore(':').trim().uppercase().take(40)
+    private fun notePending9010(pending: List<String>) {
+        for (p in pending) {
+            val k = proofName9010(p)
+            if (k.isNotBlank() && (pendingByProof9010.size < 24 || pendingByProof9010.containsKey(k)))
+                pendingByProof9010.computeIfAbsent(k) { java.util.concurrent.atomic.AtomicLong(0L) }.incrementAndGet()
+        }
+    }
+    fun pendingProofLine9010(): String = "criticalProofPending9010{" + pendingByProof9010.entries.sortedByDescending { it.value.get() }
+        .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } + "}"
+
     /** Essential proof is a live spending prerequisite, not a tunable quality score. */
     internal fun criticalProofPending8373(pending: Collection<String>): List<String> = pending.filter { reason ->
         reason.startsWith("RUGCHECK_PENDING_OR_UNKNOWN:") ||
@@ -179,6 +197,7 @@ object PreTradeHardGate {
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         val essentialPending = criticalProofPending8373(pending)
         if (essentialPending.isNotEmpty()) {
+            notePending9010(essentialPending)   // V5.0.9010 — which proof the door is waiting on, by name
             try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
             return deferSafetyProof(ts, "LIVE_CRITICAL_PROOF_PENDING_8373", essentialPending, callSite)
         }

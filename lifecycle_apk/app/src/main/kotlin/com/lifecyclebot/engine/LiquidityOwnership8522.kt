@@ -43,7 +43,9 @@ object LiquidityOwnership8522 {
     fun activeCurveVerified(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.accountObservation8522(mint, nowMs)?.realSol }
             catch (_: Throwable) { null }
-        return real != null && real.isFinite() && real >= LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319
+        // V5.0.9010 — the amount in the curve is a selection rule, not a custody fact: a live armed launch fire answers it
+        return com.lifecyclebot.engine.truth.OnChainDepth8038.curveAmountOk9010(real, LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319,
+            com.lifecyclebot.engine.truth.OnChainDepth8038.launchFireAnswers9010(mint, nowMs))
     }
 
     /**
@@ -59,7 +61,8 @@ object LiquidityOwnership8522 {
      */
     fun pumpCurveByStream9007(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean {
         val real = try { com.lifecyclebot.engine.truth.CurveReserves7951.freshRealSol9007(mint, nowMs) } catch (_: Throwable) { null } ?: return false
-        if (real < LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319) return false
+        if (!com.lifecyclebot.engine.truth.OnChainDepth8038.curveAmountOk9010(real, LaneAgeLiquidityTruth8140.CURVE_EXIT_MIN_REAL_SOL_8319,
+                com.lifecyclebot.engine.truth.OnChainDepth8038.launchFireAnswers9010(mint, nowMs))) return false   // V5.0.9010
         val supply = try { com.lifecyclebot.engine.truth.OnChainSupplyAuthority7075.supplyOf7075(mint) } catch (_: Throwable) { 0.0 }
         return !(supply > 0.0 && MayhemMode7943.mayhemSupply(supply))
     }

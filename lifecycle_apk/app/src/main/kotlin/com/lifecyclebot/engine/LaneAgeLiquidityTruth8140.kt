@@ -218,7 +218,22 @@ object LaneAgeLiquidityTruth8140 {
 
     fun activeCurveExitSafe8319(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
         val real = if (mint.isBlank()) null else com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint, nowMs)
-        real != null && real.isFinite() && real >= CURVE_EXIT_MIN_REAL_SOL_8319
+        // V5.0.9010 — a live armed launch fire answers the amount (OnChainDepth8038.curveAmountOk9010); no fire: the bar as before
+        com.lifecyclebot.engine.truth.OnChainDepth8038.curveAmountOk9010(real, CURVE_EXIT_MIN_REAL_SOL_8319,
+            real != null && com.lifecyclebot.engine.truth.OnChainDepth8038.launchFireAnswers9010(mint, nowMs))
+    } catch (_: Throwable) { false }
+
+    /**
+     * V5.0.9010 §A_HELD_CURVE_POSITION_IS_PAID_BY_THE_CURVE — a bonding curve holds the SOL of every token it has sold, the
+     * holder's own included, and its price is a function of its reserves alone: it cannot be drained under a holder without
+     * the price falling first, which the position's own price lines already read (LaunchWindow8379's floor, the stops). The
+     * pool-floor release was written for a pool whose liquidity can be pulled at an unchanged price; borrowing the curve's
+     * amount bar for it released every exit on a position bought at its open (curve under [CURVE_EXIT_MIN_REAL_SOL_8319]).
+     * A held position's curve is exit-safe while it is an ACTIVE pump.fun curve read inside the curve TTL
+     * (CurveReserves7951.realSolIfActive8046); unknown, stale or graduated is not, as before.
+     */
+    fun heldCurveSolvent9010(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean = try {
+        mint.isNotBlank() && com.lifecyclebot.engine.truth.CurveReserves7951.realSolIfActive8046(mint, nowMs) != null
     } catch (_: Throwable) { false }
 
     /** V5.0.8319 — [laneLiquidityRefusal8140] for a launch lane that knows the mint: an exit-safe active curve passes. */

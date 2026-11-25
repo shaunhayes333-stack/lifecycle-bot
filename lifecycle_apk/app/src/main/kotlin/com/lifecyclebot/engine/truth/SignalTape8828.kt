@@ -86,10 +86,21 @@ class SignalTape8828 {
         private const val EARLY_MAX_PCT_9008 = 3.0
         private const val SUPPLY_9008 = 1.0e9
 
+        /**
+         * V5.0.9010 §AT_ITS_OPEN_ON_A_CURVE_NOBODY_HAS_BOUGHT — the same launch-hour paths, the at-its-open entries split by
+         * the SOL already in the curve at the decision (curve arithmetic on the bar's close): under 3 SOL n754 +19.4 +- 6.2 %,
+         * without the best three +11.5 %, halves +24.6 / +12.7 %, positive on each of the four days; 3 SOL or more n590
+         * +7.6 +- 7.3 %, without the best three -1.0 %, median -27 %. Two settings for the phone's own replay to grade
+         * (20 s and 60 s; the 60 s one measured +7.0 +- 7.2 % here, halves +12.8 / 0.0 %, so it is expected not to arm).
+         * The bar is OnChainDepth8038.MIN_CURVE_REAL_SOL_8046: the launches that door calls "nobody bought".
+         */
+        const val AT_OPEN_EMPTY_20S_9010 = "O9010A"
+        const val AT_OPEN_EMPTY_60S_9010 = "O9010B"
+
         /** The signals this tape expresses (SignalBible300 ids, and the base breakout's two settings). */
         val IDS: List<String> = listOf("S001", "S003", "S005", "S006", "S009", "S010", "S011", "S012", "S014", "S016", "S023",
             "S049", "S050", "S051", "S052", BASE_WIDE_8994, BASE_TIGHT_8994, AT_OPEN_20S_9007, AT_OPEN_60S_9007,
-            AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008)
+            AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008, AT_OPEN_EMPTY_20S_9010, AT_OPEN_EMPTY_60S_9010)
         /** Those that need the buyer's wallet. */
         val WALLET_IDS: Set<String> = setOf("S001", "S003", "S005", "S010", "S014", AT_OPEN_CLEAN_20S_9008, AT_OPEN_CLEAN_60S_9008)
     }
@@ -264,8 +275,14 @@ class SignalTape8828 {
         AT_OPEN_60S_9007 -> atOpen9007(5L, 7L)
         AT_OPEN_CLEAN_20S_9008 -> atOpen9007(1L, 3L) && earlyPct9008() < EARLY_MAX_PCT_9008
         AT_OPEN_CLEAN_60S_9008 -> atOpen9007(5L, 7L) && earlyPct9008() < EARLY_MAX_PCT_9008
+        AT_OPEN_EMPTY_20S_9010 -> atOpen9007(1L, 3L) && emptyCurve9010(c(0))
+        AT_OPEN_EMPTY_60S_9010 -> atOpen9007(5L, 7L) && emptyCurve9010(c(0))
         else -> false
     }
+
+    /** Pure (V5.0.9010): a pump.fun curve priced at [priceSol] (SOL per token) holds under the "nobody bought" bar of real SOL. */
+    internal fun emptyCurve9010(priceSol: Double): Boolean = priceSol.isFinite() && priceSol > 0.0 &&
+        CurveReserves7951.realSolFromPrice8418(priceSol) < OnChainDepth8038.MIN_CURVE_REAL_SOL_8046
 
     /**
      * V5.0.9007 — the newest closed bar is one of bars [fromIdx]..[toIdx] (10 s each from birth), the launch has printed

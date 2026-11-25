@@ -147,7 +147,7 @@ object LaunchWindow8379 {
         } catch (_: Throwable) { true }
         val poolFloor = try {
             val curve = ts.tokenMap.pumpFunExecutable && !com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint)
-            floorBreached8418(ts.lastLiquidityUsd, curve, curve && LaneAgeLiquidityTruth8140.activeCurveExitSafe8319(ts.mint, nowMs))
+            floorBreached8418(ts.lastLiquidityUsd, curve, curve && LaneAgeLiquidityTruth8140.heldCurveSolvent9010(ts.mint, nowMs))   // V5.0.9010
         } catch (_: Throwable) { true }
         val cause = releaseCause8379(reason, g, collapsed, poolFloor)
         if (cause != null) {

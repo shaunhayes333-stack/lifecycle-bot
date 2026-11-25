@@ -637,7 +637,9 @@ object OnChainDepth8038 {
         }
         // A fresh create frame can still describe the opening curve while another venue is now active.
         // Re-read the account before binding a negative reserve verdict; unknown is not "nobody bought".
-        if (curveNobodyBought8046(curveReal8046) && CurveReserves7951.accountRealSol8253(ts.mint, nowMs) == null) {
+        val fire9010 = launchFireAnswers9010(ts.mint, nowMs)   // V5.0.9010 — a live armed launch fire answers the amount and the cap proxy
+        if (fire9010 && curveNobodyBought8046(curveReal8046)) noteFireAnswered9010("BUY_DOOR")
+        if (!fire9010 && curveNobodyBought8046(curveReal8046) && CurveReserves7951.accountRealSol8253(ts.mint, nowMs) == null) {
             try { needCurve8039(ts.mint, nowMs, approved8385 = true) } catch (_: Throwable) {}
             val graduated = try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(ts.mint) } catch (_: Throwable) { false }
             curveReal8046 = CurveReserves7951.accountRealSol8253(ts.mint, System.currentTimeMillis())
@@ -646,7 +648,7 @@ object OnChainDepth8038 {
                 return "CURVE_RESERVES_UNVERIFIED_DEFER_8253"
             }
         }
-        if (curveNobodyBought8046(curveReal8046)) {
+        if (!fire9010 && curveNobodyBought8046(curveReal8046)) {
             emptyCurveRefused8046.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_CURVE_NOBODY_BOUGHT_8046")
@@ -659,7 +661,7 @@ object OnChainDepth8038 {
         // pump-suffixed (LetsBonk, Meteora, un-suffixed pump.fun) skipped the curve check above. Any coin still at a
         // launch curve's opening cap has no buyers behind it, whichever launchpad minted it.
         val capSol8047 = try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }
-        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs)) {
+        if (atLaunchCap8047(capSol8047) && !launchCapStoodDown8094(ts.mint, nowMs) && !fire9010) {
             // V5.0.8252 — the one three-state launch-buyer verdict (same read as earlyLaunchRefusal8048).
             when (launchBuyers8252(curveReal8046)) {
                 LaunchBuyers8252.BUYERS_PROVEN -> {
@@ -827,11 +829,50 @@ object OnChainDepth8038 {
     }
 
     /** V5.0.8046 — SOL other buyers must have put into a curve before live money joins (a dev buy alone is not a market). */
-    private const val MIN_CURVE_REAL_SOL_8046 = 3.0
+    internal const val MIN_CURVE_REAL_SOL_8046 = 3.0
     private val emptyCurveRefused8046 = AtomicLong(0)
 
     /** Pure: an active curve's real SOL is known and below the floor. Unknown is not judged here. */
     fun curveNobodyBought8046(realSol: Double?): Boolean = realSol != null && realSol.isFinite() && realSol < MIN_CURVE_REAL_SOL_8046
+
+    /**
+     * V5.0.9010 §THE_AMOUNT_IN_A_CURVE_IS_A_SELECTION_RULE_AND_A_PROVEN_LAUNCH_FIRE_ANSWERS_IT — owner, 25 Nov 19:18, on the
+     * audit of every export in the chat: "go fix these not patch". The launch-hour paths (4,344 pump.fun launches, 22-25
+     * Nov; decision 20 s after birth, fill one bar later, 3 % cost and 3 % slip, stop 35 %, 45 % trail past +100 %):
+     *
+     *   curve under [MIN_CURVE_REAL_SOL_8046] SOL   n 754  +19.4 +- 6.2 %  without the best three +11.5 %, without the best
+     *                                               1 % +5.3 %, halves +24.6 / +12.7 %, every day positive (+30, +8, +7,
+     *                                               +35 %), 26 % lose 30 %+, 2.3 % make 5x; held the whole hour +16.3 %
+     *   curve at or over it (what this door asks)   n 590  +7.6 +- 7.3 %   without the best three -1.0 %, without the best
+     *                                               1 % -5.2 %, halves -2.2 / +16.2 %, median -27 %, 47 % lose 30 %+
+     *
+     * A curve nobody has bought into cannot fall under its opening price (there is nobody above the buyer to sell), so the
+     * usual result there is the cost of the round trip (median -6 %) and the tail is the coin being found; a curve already
+     * holding 3+ SOL has sellers above every new buyer. This door's own history says the same twice: 8094 (AT_LAUNCH_CAP n92
+     * +67.5 %, 9 % runners; VEILDOGE +23,804 %) and 8252 (the session's only two 20x runners refused at the launch cap)
+     * each stood the cap proxy down and kept the amount binding. The phone's record of what 8046 refuses with no other
+     * evidence (n86, -34 % an hour later, 5 % winners) is why the rule stays: a coin met at any age with an empty curve and
+     * nobody printing is dead. What separates the two is whether the launch is trading NOW, and that is what a launch fire is
+     * (LaunchSniper8748: a signal the phone's own replay proved on its stored launch paths, turned on by this coin's own
+     * prints, live only for its graded window). So where a live armed fire carries the coin, the amount (8046) and the cap
+     * proxy (8047) are answered by it; everywhere else both bind exactly as before. The amount is not a custody or an
+     * exit-capacity fact either (a bonding curve always holds the SOL of every token it has sold, the buyer's own included),
+     * so the same answer serves the three places that borrowed the amount for those: [curveAmountOk9010].
+     */
+    fun launchFireAnswers9010(mint: String, nowMs: Long = System.currentTimeMillis()): Boolean =
+        mint.isNotBlank() && (try { LaunchSniper8748.armedWindow8824(mint, nowMs) } catch (_: Throwable) { false })
+
+    /** Pure (V5.0.9010): a curve reading [realSol] meets the amount bar [minSol], or a live launch fire answers the amount. Unknown never passes. */
+    fun curveAmountOk9010(realSol: Double?, minSol: Double, fireAnswers: Boolean): Boolean =
+        realSol != null && realSol.isFinite() && realSol >= 0.0 && (realSol >= minSol || fireAnswers)
+
+    private val fireAnswered9010 = AtomicLong(0)
+    /** V5.0.9010 status: how often a live launch fire answered the curve amount / the launch-cap proxy at the buy door or the early gate. */
+    fun fireAnsweredLine9010(): String = "curveAmountAnsweredByFire9010=${fireAnswered9010.get()}"
+    private fun noteFireAnswered9010(site: String) {
+        fireAnswered9010.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("CURVE_AMOUNT_ANSWERED_BY_LAUNCH_FIRE_9010_$site") } catch (_: Throwable) {}
+    }
 
     /**
      * V5.0.8047 — a launch curve opens near 28 SOL of cap (pump.fun: 30 virtual SOL over 1.073B virtual tokens, 1B
@@ -850,6 +891,8 @@ object OnChainDepth8038 {
      */
     fun earlyLaunchRefusal8048(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? {
         val real = try { CurveReserves7951.accountRealSol8253(ts.mint, nowMs) } catch (_: Throwable) { null }
+        // V5.0.9010 — a live armed launch fire answers the amount and the cap proxy here as at the buy door
+        if (launchFireAnswers9010(ts.mint, nowMs)) { if (curveNobodyBought8046(real)) noteFireAnswered9010("EARLY_GATE"); return null }
         val why = when {
             curveNobodyBought8046(real) -> "CURVE_NOBODY_BOUGHT_8046"
             atLaunchCap8047(try { EconomicUnitInvariant7061.usdToSol(TrustedMcap8019.mcap8019(ts), solUsd()) } catch (_: Throwable) { Double.NaN }) -> {

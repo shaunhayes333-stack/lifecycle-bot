@@ -4134,3 +4134,34 @@ Change: for a position LaunchSniper8748.ruleStopMag8949 answers for (the rule's 
 ordinary-stop ceiling), the sweep floor is that stop when it is wider than the fluid floor. Label
 SWEEP_FLOOR_HOLDS_RULE_STOP_9009. Every other position keeps the fluid floor. The other stop engines (scalp, rapid, strict,
 tick) are not changed: which of them closes a launch-entry position is read from the next live closes first.
+
+## §195 — V5.0.9010: the SOL in a curve is a selection rule, and a proven launch fire answers it
+
+**Why.** The audit of every export in the chat (25 Nov) found the bot admits young runners and buys old coins. The launch-hour
+paths (4,344 pump.fun launches, 22-25 Nov; decision 20 s after birth, stop 35 %, 45 % trail past +100 %) split by the SOL already
+in the curve at the decision:
+
+| Curve at the decision | n | Mean | Without best 3 | Halves | Days positive | Lose 30 %+ |
+|---|---|---|---|---|---|---|
+| under 3 SOL (what 8046 refuses as "nobody bought") | 754 | +19.4 +- 6.2 % | +11.5 % | +24.6 / +12.7 % | 4 of 4 | 26 % |
+| 3 SOL or more (what 8046 asks for) | 590 | +7.6 +- 7.3 % | -1.0 % | -2.2 / +16.2 % | 2 of 4 | 47 % |
+
+**What changed.**
+- `OnChainDepth8038.launchFireAnswers9010` / `curveAmountOk9010`: where a live armed launch fire (LaunchSniper8748, proven on the
+  phone's own replay, turned on by the coin's own prints) carries the coin, the curve amount (CURVE_NOBODY_BOUGHT_8046, under 3 SOL)
+  and the launch-cap proxy (AT_LAUNCH_CAP_8047) are answered at the buy door (`buyRefusal8038`) and the early gate
+  (`earlyLaunchRefusal8048`). With no fire both bind exactly as before (phone record: n86, -34 % an hour later).
+- The same answer serves the three places that borrowed the amount: `LiquidityOwnership8522.activeCurveVerified`,
+  `pumpCurveByStream9007` (LP custody) and `LaneAgeLiquidityTruth8140.activeCurveExitSafe8319` (lane floor). No fire: 0.5 SOL as before.
+- `LaneAgeLiquidityTruth8140.heldCurveSolvent9010`: a held position's curve is exit-safe while it is an active curve read inside
+  the curve TTL; `LaunchWindow8379` reads it, so a position bought at its open is not released to every early exit by the
+  amount bar. Unknown, stale or graduated: not safe, as before.
+- `SignalTape8828`: `O9010A` / `O9010B`, at its open on a curve under the 8046 bar, for the replay to grade (23 signals).
+- `PreTradeHardGate.pendingProofLine9010`: the buy door's pending critical proofs counted by name (the 18:23 capture's largest
+  deferral, 1,207 in 13 min, named no proof). Printed after `deferCause8700{}` with `curveAmountAnsweredByFire9010=`.
+
+**Not changed.** The top-holder limit: at-its-open entries with 10-20 % of supply already out lose on both halves (-18.8 +- 4.5 %),
+so the limit is doing its job. RugCheck, the LP rule, Mayhem refusal, every stop.
+
+**Read next.** `criticalProofPending9010{}`, `curveAmountAnsweredByFire9010`, the replay's grade of O9010A, launch buys landed.
+

@@ -42,7 +42,8 @@ class Aate8828OwnerSignalsGradedTest {
         // superseded by V5.0.8994: 15 signals until the base breakout's two settings joined the tape
         // superseded by V5.0.9007: 17 until the two bought-at-its-open settings joined
         // superseded by V5.0.9008: 19 until the two clean at-its-open settings joined
-        assertTrue(SignalTape8828.IDS.size == 21 && SignalTape8828.IDS.containsAll(SignalTape8828.WALLET_IDS))
+        // superseded by V5.0.9010 — two at-its-open-on-an-empty-curve settings (was 21)
+        assertTrue(SignalTape8828.IDS.size == 23 && SignalTape8828.IDS.containsAll(SignalTape8828.WALLET_IDS))
     }
 
     @Test fun theReplayGradesEachSignalOnTheBotsLatencyAndCanProveIt() {
