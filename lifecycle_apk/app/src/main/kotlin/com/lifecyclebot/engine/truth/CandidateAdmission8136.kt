@@ -2328,7 +2328,7 @@ object CandidateAdmission8136 {
             laneRealised8325 = if (live8290) (try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(lane) } catch (_: Throwable) { null }) else null,
             laneLabel8325 = if (live8290) laneLabel8325(lane) else null,
             // V5.0.8424 — the same ask LiveEdgeGate7877 makes (by mint, so the probe claim is this coin's): a shut lane's probe
-            laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint) == null } catch (_: Throwable) { false }),
+            laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs)) == null } catch (_: Throwable) { false }),
             recordProbe8429 = live8290 && (try { LaneRealisedProbe8424.slotOpen8429(lane, ts.mint, nowMs) } catch (_: Throwable) { false }),
         )
     }

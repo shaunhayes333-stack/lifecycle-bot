@@ -35,7 +35,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun realisedRefusalBindsOverThe8114AdmitButNotOverHardSafety() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs))"))   // superseded by V5.0.9004 — and at the coin's age;   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
         // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
         assertTrue(s.contains("val doors8577 = core ?: hold"))
@@ -60,7 +60,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun modeDecisionConsultsTheRealisedLaneRead() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs))"))   // superseded by V5.0.9004 — and at the coin's age;   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
         // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
         assertTrue(s.contains("val doors8577 = core ?: hold"))
@@ -193,7 +193,7 @@ class Aate8329EntryEconomicsTest {
 
     @Test fun modeStaysOnByDefaultAndLabelRefusalsStayBypassed() {
         val s=src("engine/truth/LiveEdgeGate7877.kt")
-        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
+        assertTrue(s.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs))"))   // superseded by V5.0.9004 — and at the coin's age;   // superseded by V5.0.8424 — by mint (the lane's one probe is this coin's claim); was `(l, nowMs)`
         // superseded by V5.0.8577 — "val final = core ?: hold ...": the doors' answer is doors8577; the verdict (final) is that
         // answer unless lane authority makes it advisory for a lane-qualified LIVE candidate (LaneAuthority8577).
         assertTrue(s.contains("val doors8577 = core ?: hold"))

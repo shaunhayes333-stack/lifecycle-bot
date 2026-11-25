@@ -3943,3 +3943,25 @@ Other measurements taken for this build, no change made on them:
   +19.1 %, CORE_YIELD_CLEAR_SPECIALIST n 65 +27.7 %, SELLABILITY_REJECT n 58 +25.2 %, TREASURY_ROLE_FLOOR n 32 +12.7 %.
 - FDG blocks, same pipeline (allow 68 / block 1,835): DATA_INCOMPLETE_DEFER 254, EXECUTION_ECONOMICS 224,
   LANE_REALISED_LOSING_PROBE_OCCUPIED_8424 204, EDGE_MODEL_NEGATIVE 141, SETUP_RECORD_LOSING 116, MOVE_HISTORY 101.
+
+## 189. A lane's live record is read at the coin's own age (9004)
+
+25 Nov 12:01 pipeline: realised8295 lanesLosing{SHITCOIN n6 / -8.6 %, EXPRESS n8 / -4.3 %, MOONSHOT n36 / -6.4 %, CASHGEN
+n4 / -0.8 %}. A lane with 3+ live closes averaging under zero is held to one live position at a time
+(LaneRealisedProbe8424), and a lane proven losing (10+ closes, mean + 2 SE under zero) to one probe every two hours.
+LANE_REALISED_LOSING_PROBE_OCCUPIED_8424 blocked 204 FDG decisions in the session - the largest block that is not one of
+the admission's own refusals (the others: NO_PLAN_WAIT 67, V3 floor 61, CHASING_SPIKE 42, brain veto 35, coin too slow 28,
+timing record 27). The funnel for coins carrying pocket proof: 1,253 coins, 321 admitted, 35 allowed, 7 tickets, 1 buy.
+
+That record was made at one age. Live buys matched to a decision row (section 186): 30 of 43 on coins past their launch
+phase, 3 wins; 7 on coins still expanding, 5 wins.
+
+Change: every graded live close also folds under laneage|<lane desk>|<age band at entry> (EntryReceipt8500, persisted with
+the receipt book; report byLaneAge9004{...}). When a lane is shut on its record, a candidate is held to it unless, in the
+candidate's own age band, (a) the lane has 3+ live closes averaging at or above zero, or (b) it has fewer than 3 and the
+lane's admitted labels pay there (AgeProof9001.pays9004: 100+ labels, mean - SE above zero). A band with 3+ closes
+averaging under zero, a band the labels do not show paying, and an unknown age stay on the lane's record: one probe at a
+time, as before. Stake is unchanged (a lane without a positive realised record sizes at the route minimum), so the most
+a fresh band can cost before its own record holds it is three small-stake closes. Label LANE_SHUT_NOT_AT_THIS_AGE_9004_<lane>.
+Hard safety, the LP rule, economics, data and every record door are untouched. The lane-wide read used by the evidence
+hold (no coin named) is unchanged.

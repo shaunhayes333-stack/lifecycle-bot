@@ -80,10 +80,15 @@ object EntryEconomics8329 {
      * proven-losing lane once per two hours). [mint] names the candidate so its probe claim survives the FDG's re-asks;
      * blank = read-only (no claim).
      */
-    fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = ""): String? {
+    fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = "", ageMin: Double = Double.NaN): String? {
         val l = CanonicalLaneIdentity6506.desk8392(lane)
         val r = try { com.lifecyclebot.engine.cortex.Cortex7885.laneRealised8295(l) } catch (_: Throwable) { null }
         if (r == null || r.size < 2 || !laneShut8329(r[0], r[1])) { shut8329.remove(l); return null }
+        // V5.0.9004 — the lane's record is read at the coin's own age (EntryReceipt8500.ownAgeOpen9004)
+        if (try { EntryReceipt8500.ownAgeRecordOpen9004(l, ageMin) } catch (_: Throwable) { false }) {
+            labelInc("LANE_SHUT_NOT_AT_THIS_AGE_9004_$l")
+            return null
+        }
         val closes = laneCloses8329(l)
         val reopened = reopenedAt8329[l]
         if (reopened != null) {

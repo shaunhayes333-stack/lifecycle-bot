@@ -87,13 +87,13 @@ class Aate8424LaneProbeTest {
     @Test fun wiring() {
         val eco = File("src/main/kotlin/com/lifecyclebot/engine/truth/EntryEconomics8329.kt").readText()
         assertTrue(eco.contains("val probe8424 = LaneRealisedProbe8424.probe8424(l, mint, closes, s.sinceMs, nowMs) ?: return null"))
-        assertTrue(eco.contains("fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = \"\"): String?"))
+        assertTrue(eco.contains("fun laneRealisedRefusal8329(lane: String, nowMs: Long = System.currentTimeMillis(), mint: String = \"\", ageMin: Double = Double.NaN): String?"))
         val gate = File("src/main/kotlin/com/lifecyclebot/engine/truth/LiveEdgeGate7877.kt").readText()
-        assertTrue(gate.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint)"))
+        assertTrue(gate.contains("EntryEconomics8329.laneRealisedRefusal8329(l, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs))"))   // superseded by V5.0.9004: read at the coin's age
         assertTrue("the slot is claimed on the live admission only", gate.contains("if (!paper && final == null) try { LaneRealisedProbe8424.claim8424(l, ts.mint, nowMs) } catch (_: Throwable) {}"))
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("tailRefuted8295(c.laneRealised8325) && !c.laneProbe8424) return LIVE_LANE_LOSING_8325"))
-        assertTrue(adm.contains("laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint) == null } catch (_: Throwable) { false })"))
+        assertTrue(adm.contains("laneProbe8424 = live8290 && (try { EntryEconomics8329.laneRealisedRefusal8329(lane, nowMs, ts.mint, AgeProof9001.ageOf9004(ts, nowMs)) == null } catch (_: Throwable) { false })"))
         // the shut rule, the re-open rule and the shadow-only measurement of a losing lane are untouched
         assertTrue(eco.contains("if (reopens8329(s.sinceMs, closes)) {"))
         val reh = File("src/main/kotlin/com/lifecyclebot/engine/truth/Rehearsal8339.kt").readText()

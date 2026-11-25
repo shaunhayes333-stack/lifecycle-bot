@@ -22,7 +22,7 @@ class Aate8500EntryReceiptTest {
     @Test fun aReceiptFoldsIntoDoorStageRunupAndPeakCohorts() {
         val r = EntryReceipt8500.Receipt8500("MOONSHOT", "ADMIT_X+GRAB", "S", "CONTROLLED_MARKUP", 90.0, 0.98, 30.0, 4.0, 1L)
         assertEquals(listOf("door|MOONSHOT|ADMIT_X+GRAB", "stage|MOONSHOT|CONTROLLED_MARKUP", "runup|80-150", "peak|atHigh",
-            "age|UNDER_15M"),   // superseded by V5.0.9001: a receipt also folds by the coin's age band
+            "age|UNDER_15M", "laneage|MOONSHOT|UNDER_15M"),   // superseded by V5.0.9004: and by lane x age   // superseded by V5.0.9001: a receipt also folds by the coin's age band
             EntryReceipt8500.keysFor8500(r))
     }
 

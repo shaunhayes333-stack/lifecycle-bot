@@ -105,6 +105,18 @@ object AgeProof9001 {
         return loses9003(own.first, own.second, own.third)
     }
 
+    /** Pure: a band the lane is measured to pay in — [MIN_BAND_N_9001]+ admitted labels whose mean less one SE is above zero. */
+    fun pays9004(bandN: Long, bandMean: Double, bandSe: Double): Boolean =
+        bandN >= MIN_BAND_N_9001 && bandMean.isFinite() && bandSe.isFinite() && bandMean - bandSe > 0.0
+
+    /** Does [lane] pay, on its own admitted labels, in the age band of a coin [ageMin] minutes old? Unknown age: no claim. */
+    fun bandPays9004(lane: String, ageMin: Double): Boolean {
+        val band = band9001(ageMin)
+        if (band == "UNKNOWN") return false
+        val own = stat("${lane.trim().uppercase()}|$band") ?: return false
+        return pays9004(own.first, own.second, own.third)
+    }
+
     /** CandidateAdmission8136.candidateFor8136: the gap a LIVE candidate carries, counted by band when it is not zero. */
     fun gapFor9001(ts: TokenState, lane: String, live: Boolean): Double {
         if (!live) return 0.0
@@ -113,6 +125,10 @@ object AgeProof9001 {
         if (gap > 0.0) try { PipelineHealthCollector.labelInc("AGE_PROOF_GAP_9001_${band9001(age)}") } catch (_: Throwable) {}
         return gap
     }
+
+    /** The coin's age in minutes as the admission reads it (NaN when unknown). */
+    fun ageOf9004(ts: TokenState, nowMs: Long): Double =
+        try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
 
     /** Report line: per lane, each band's admitted labels and the gap it carries. */
     fun statusLine9001(): String {

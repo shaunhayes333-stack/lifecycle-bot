@@ -179,7 +179,37 @@ object EntryReceipt8500 {
     /** Pure: the cohorts one receipt folds into. */
     fun keysFor8500(r: Receipt8500): List<String> = listOf(
         "door|${r.lane}|${r.door}", "stage|${r.lane}|${r.stage}", "runup|${runupBand8500(r.runupPct)}", "peak|${peakBand8500(r.vsPeak)}",
-        "age|${AgeProof9001.band9001(r.ageMin)}")   // V5.0.9001 — the axis the top-buys sit on
+        "age|${AgeProof9001.band9001(r.ageMin)}",   // V5.0.9001 — the axis the top-buys sit on
+        laneAgeKey9004(r.lane, r.ageMin))             // V5.0.9004 — the lane's realised record at this age
+
+    /** Pure: the cohort key of [lane]'s live closes entered at [ageMin]. */
+    fun laneAgeKey9004(lane: String, ageMin: Double): String =
+        "laneage|${CanonicalLaneIdentity6506.desk8392(lane)}|${AgeProof9001.band9001(ageMin)}"
+
+    /**
+     * V5.0.9004 §A_LANES_LIVE_RECORD_IS_READ_AT_THE_COINS_OWN_AGE — owner, 25 Nov 17:17: "go" (make the proven young-coin
+     * engines land). 25 Nov 12:01: SHITCOIN n6 / -8.6 %, EXPRESS n8 / -4.3 % and MOONSHOT n36 / -6.4 % are each held to one
+     * live position at a time by their realised record (LaneRealisedProbe8424; OCCUPIED blocked 204 FDG decisions, the
+     * largest block left on a coin the admission had admitted), and that record was made on coins past their launch (30 of
+     * 43 matched live buys, 3 wins) while the buys on coins still expanding won 5 of 7. Pure: is a candidate in an age band
+     * NOT held to the lane's shut record? Yes when the lane's own live closes entered in that band are 3 or more and average
+     * at or above zero; or when it has fewer than 3 there and the lane's admitted labels pay in that band
+     * ([bandPaysOnLabels], AgeProof9001.pays9004). A band with 3+ closes averaging under zero, a band the labels do not
+     * show paying, and an unknown age all stay on the lane's record as before. The stake is unchanged (a lane without a
+     * positive realised record sizes at the route minimum), so the most a fresh band can cost before its own record holds
+     * it is three small-stake closes.
+     */
+    fun ownAgeOpen9004(bandCloses: Double, bandSumPct: Double, bandPaysOnLabels: Boolean): Boolean =
+        if (bandCloses >= 3.0) bandSumPct / bandCloses >= 0.0 else bandPaysOnLabels
+
+    /** EntryEconomics8329.laneRealisedRefusal8329: [lane] (its desk name) is shut on its record; is a coin [ageMin] minutes old held to it? */
+    @Synchronized fun ownAgeRecordOpen9004(lane: String, ageMin: Double): Boolean {
+        if (AgeProof9001.band9001(ageMin) == "UNKNOWN") return false
+        restore8500()
+        val a = agg[laneAgeKey9004(lane, ageMin)]
+        val (n, sum) = if (a == null) 0.0 to 0.0 else synchronized(a) { a[0] to a[4] }
+        return ownAgeOpen9004(n, sum, AgeProof9001.bandPays9004(CanonicalLaneIdentity6506.desk8392(lane), ageMin))
+    }
 
     @Synchronized internal fun fold8500(key: String, o: RunnerFunnel8297.Outcome8297, realizedPct: Double) {
         if (agg.size >= 400 && !agg.containsKey(key)) return
@@ -202,7 +232,7 @@ object EntryReceipt8500 {
             .ifBlank { "-" }
         return "entryReceipts8500[open=${open.size} unmatchedCurrent8510=${unmatchedCurrent8510.get()} historicalNoReceipt8510=${historicalNoReceipt8510.get()} " +
             "replay8522=${replayed8522.get()} outsideMeme8522=${outsideScope8522.get()} legacyUnknown8522=${legacyUnknown8522.get()} resolvedUnmatched8522=${resolvedUnmatched8522.get()} " +
-            "pendingWrite8522=$dirty8522 restoreDeferred8522=${deferred8522.size}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}} byAge9001{${fam("age", 5)}}"
+            "pendingWrite8522=$dirty8522 restoreDeferred8522=${deferred8522.size}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}} byAge9001{${fam("age", 5)}} byLaneAge9004{${fam("laneage", 10)}}"
     }
 
     // ── persistence (doctrine: learnt state survives restarts) ──
