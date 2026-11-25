@@ -8702,6 +8702,19 @@ class Executor(
     }
 
     /**
+     * V5.0.9009 — the sweep's fluid stop floor (%, negative), and for a position bought on an armed launch rule or proven
+     * tape signal that entry's own graded stop when it is wider. The floor (-15 % at this learning stage) sold Nwx5jwd9, a
+     * launch 1.6 minutes old, at -15 % on 23 Nov; its decision's 15-minute label read +229.7 %. Every other position keeps
+     * the fluid floor.
+     */
+    private fun sweepFluidFloor9009(ts: TokenState): Double {
+        val floor = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0) } catch (_: Throwable) { -25.0 }
+        val rule = try { com.lifecyclebot.engine.truth.LaunchSniper8748.ruleStopMag8949(ts.mint, ts.position.entryTime) } catch (_: Throwable) { null }
+        if (rule != null && -rule < floor) { try { PipelineHealthCollector.labelInc("SWEEP_FLOOR_HOLDS_RULE_STOP_9009") } catch (_: Throwable) {}; return -rule }
+        return floor
+    }
+
+    /**
      * V5.0.9007 — the loss (%, negative) at which the lane hard cap sells: -15 for MANIPULATED / SHITCOIN / EXPRESS, no cap
      * for any other lane; and for a position bought on an armed launch rule, that rule's own stop (LaunchSniper8748, the
      * stop its record was graded at). The first live launch-rule buy (Gzz8Cz, 25 Nov 18:11, EXPRESS) was sold by this cap
@@ -10198,9 +10211,7 @@ class Executor(
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol)) return
 
             // Fluid stop floor — already wired but make the log more visible
-            val floor = try {
-                com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(-25.0)
-            } catch (_: Throwable) { -25.0 }
+            val floor = sweepFluidFloor9009(ts)
             if (pnlPct <= floor && currentPrice > 0.0 &&
                 StopMarkConfirm8418.confirmed8418(ts, pnlPct, floor, ts.position.isPaperPosition)) {
                 onLog("🛑 SWEEP_FLUID_FLOOR: ${ts.symbol} pnl=${pnlPct.toInt()}% ≤ floor=${floor.toInt()}%", ts.mint)

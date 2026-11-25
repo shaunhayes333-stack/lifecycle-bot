@@ -4121,3 +4121,16 @@ Changes:
 3. evidenceFunnel8876 prints, per evidence kind, the final gate's own block reasons (`fdg9008{...}`, top 8): the top four
    reasons it printed were always the admission's refusals, so what stopped an ADMITTED pocket or launch coin at the
    gate could not be read (12:01 capture: pocket coins 321 admitted, 35 allowed).
+
+## 194. The sweep floor holds a launch entry's stop (9009)
+
+Executor's sweep sells any position at FluidLearningAI's stop floor (-15 % at the current learning stage) as
+SWEEP_FLUID_FLOOR. Like the lane hard cap (section 192) it did not ask whether the position was bought on an armed launch
+rule or a proven tape signal, whose record was graded at its own stop. Live, 23 Nov: Nwx5jwd9 (MOONSHOT, 1.6 minutes old,
+$24k cap) sold by SWEEP_FLUID_FLOOR_-15; that decision's 15-minute label was +229.7 %. On the launch hours the at-its-open
+entries make +14.0 % under a 15 % stop and +20.1 % under 35 %.
+
+Change: for a position LaunchSniper8748.ruleStopMag8949 answers for (the rule's or signal's graded stop, under the existing
+ordinary-stop ceiling), the sweep floor is that stop when it is wider than the fluid floor. Label
+SWEEP_FLOOR_HOLDS_RULE_STOP_9009. Every other position keeps the fluid floor. The other stop engines (scalp, rapid, strict,
+tick) are not changed: which of them closes a launch-entry position is read from the next live closes first.
