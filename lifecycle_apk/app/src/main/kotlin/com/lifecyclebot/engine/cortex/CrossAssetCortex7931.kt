@@ -434,6 +434,8 @@ object CrossAssetCortex7931 {
     fun observe(c: CanonicalAssetEntryCandidate6551, admitted: Boolean, reason: String?) {
         val (ts, lane) = tokenStateFor(c) ?: return
         try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, lane, admitted, reason) } catch (_: Throwable) {}
+        // V5.0.9013 — the row of this decision carries the desk's own strategy and trend cell as its setup
+        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.noteDeskSetup9013(ts.mint, lane, c.evidence["strategy7803"], c.evidence["trend8886"]) } catch (_: Throwable) {}
     }
 
     /** Native crypto desk YES/NO before owner selection, in its exact crypto lane; observation only, never a fill. */

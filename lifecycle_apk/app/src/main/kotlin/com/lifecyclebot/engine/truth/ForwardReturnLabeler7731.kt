@@ -460,6 +460,8 @@ object ForwardReturnLabeler7731 {
         @Volatile var lastPxAtMs = 0L
         /** V5.0.7955 — the setup at the decision (ExitProfile7955 key), when the peak was set, and the 5-minute give-back. */
         @Volatile var setup7955 = ""
+        /** V5.0.9013 — a crypto lane's own desk strategy at the decision (its research row's setup; the exit profile key stays setup7955). */
+        @Volatile var deskSetup9013 = ""
         @Volatile var peakAtMs7955 = 0L
         @Volatile var giveback5_7955 = Double.NaN
         /** V5.0.7962 — lowest gross seen so far, and the lowest before the (latest) peak. */
@@ -1304,6 +1306,37 @@ object ForwardReturnLabeler7731 {
         } catch (_: Throwable) { "UNKNOWN" }
         return shape to stage
     }
+
+    /**
+     * V5.0.9013 §A_CRYPTO_ROW_CARRIES_WHAT_ITS_SPECIALIST_SAW — the 9012 audit: the nine CRYPTO_* lanes' research rows carry
+     * four setup values, all the meme playbook's read of a coin it does not trade ("NONE"-like), so no crypto setup could be
+     * graded or mined at any horizon while every meme lane's could. The desk's own candidate names its strategy (evidence
+     * "strategy7803", CryptoAltTrader's signal) and trend cell ("trend8886"). CrossAssetCortex7931.observe hands them here
+     * for the observation it just opened; the row's setup is then the desk's own for a crypto lane ([rowSetup9013]). The
+     * exit-profile key (setup7955) and every learner that reads it are untouched; a restart before the hour falls back to it.
+     */
+    private val deskSetups9013 = java.util.concurrent.atomic.AtomicLong(0L)
+    fun noteDeskSetup9013(mint: String, lane: String, strategy: String?, trend: String?) {
+        val s = deskSetup9013(strategy, trend)
+        if (mint.isBlank() || s.isBlank()) return
+        val l = lane.trim().uppercase()
+        if (!l.startsWith("CRYPTO_")) return
+        pending["$mint|$l"]?.let { it.deskSetup9013 = s; deskSetups9013.incrementAndGet() }
+    }
+    fun deskSetupLine9013(): String = "cryptoDeskSetups9013=${deskSetups9013.get()}"
+
+    /** Pure (V5.0.9013): the desk's own setup name from its strategy and trend cell ("" when it named no strategy). */
+    internal fun deskSetup9013(strategy: String?, trend: String?): String {
+        fun clean(v: String?, max: Int) = v.orEmpty().trim().uppercase().replace(Regex("[^A-Z0-9_]+"), "_").trim('_').take(max)
+        val s = clean(strategy, 24)
+        if (s.isBlank()) return ""
+        val t = clean(trend, 10)
+        return "CX_" + s + (if (t.isBlank()) "" else "@$t")
+    }
+
+    /** Pure (V5.0.9013): the setup a research row carries — a crypto lane's desk setup when it named one, else the playbook's. */
+    internal fun rowSetup9013(lane: String, playbookSetup: String, deskSetup: String): String =
+        if (deskSetup.isNotBlank() && lane.trim().uppercase().startsWith("CRYPTO_")) deskSetup else playbookSetup
 
     fun observe(mint: String, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
         if (mint.isBlank()) return
@@ -2299,9 +2332,10 @@ object ForwardReturnLabeler7731 {
         // V5.0.8923 — a decision on a pool no buyer could take (under ResearchFollow8884.MIN_POOL_USD_8923) is no research row:
         // its "price" is not the coin's (20-22 Nov: decision caps of $3-$80 reading +73,000 % later).
         if (ResearchFollow8884.tradeable8923(o.liqUsd8539)) try {
-            ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, o.setup7955,
+            ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, rowSetup9013(o.lane, o.setup7955, o.deskSetup9013),
                 o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967,
-                diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002))
+                diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002,
+                ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955)))
             // V5.0.8891 — measurement: an hour booked on a last accepted mark older than this labeler's own price age bar
             if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)
                 ResearchRows8877.noteStale8891(o.lastSkip8891.ifBlank { "NONE_REFUSED" })

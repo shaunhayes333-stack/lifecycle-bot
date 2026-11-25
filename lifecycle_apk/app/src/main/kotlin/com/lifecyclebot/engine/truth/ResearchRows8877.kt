@@ -120,7 +120,7 @@ object ResearchRows8877 {
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
                  peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = "",
-                 ageMin: Double = Double.NaN): String {
+                 ageMin: Double = Double.NaN, path: String = ""): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
@@ -131,8 +131,42 @@ object ResearchRows8877 {
             (if (ageMin.isFinite() && ageMin >= 0.0) ",\"age\":${n(ageMin)}" else "") +
             // V5.0.8891 — the hour read's path diagnostics (ForwardReturnLabeler7731.diagJson8891), when the labeler gives them
             (if (diag.startsWith("{") && diag.endsWith("}")) ",\"diag8891\":$diag" else "") +
+            // V5.0.9013 — the hour's path: the low before the peak, when the peak came, the give-back after it (pathJson9013)
+            (if (path.startsWith("{") && path.endsWith("}")) ",\"path9013\":$path" else "") +
             // V5.0.8924 — the buyer flow at the decision, when it was read
             (if (flow.startsWith("{") && flow.endsWith("}")) ",\"flow8924\":$flow}" else "}")
+    }
+
+    /**
+     * V5.0.9013 §A_ROW_SAYS_WHICH_CAME_FIRST — owner, 25 Nov 19:57: "both" (the crypto rows carrying what their specialist
+     * saw, and the rows carrying the price path). The 9012 audit could not grade a stop, a profit lock or a top-up for any
+     * lane: a row held the hour's low and its peak but not their order, so "stop 20 % / take 50 %" was undecidable whenever
+     * both were touched. The labeler already keeps the three facts that decide it for every observation and wrote none of
+     * them: the lowest gross BEFORE the peak ([dipBeforePeakPct], ForwardReturnLabeler7731 dipBeforePeak7962), when the
+     * peak was set ([peakAfterMs] after the decision) and the give-back five minutes after the peak ([giveback5Pct]). With
+     * them a stop of S and a target of T resolve exactly: the stop came first when the dip before the peak reached -S; else
+     * the target when the peak reached T; else the low after the peak. Pure; "" when the peak was never dated (a row
+     * without a path stays as it was).
+     */
+    fun pathJson9013(dipBeforePeakPct: Double, peakAfterMs: Long, giveback5Pct: Double): String {
+        if (peakAfterMs <= 0L) return ""
+        fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
+        return "{\"dip\":${n(dipBeforePeakPct)},\"tPeakS\":${peakAfterMs / 1000L},\"gb5\":${n(giveback5Pct)}}"
+    }
+
+    /**
+     * Pure (V5.0.9013): did a stop of [stopPct] come before a target of [targetPct] on a row's path? null when the row cannot
+     * say. Counted for the stop when the price reached it anywhere before its final peak (a target touched, lost and regained
+     * reads as stopped: the cautious side).
+     */
+    fun stopFirst9013(dipBeforePeakPct: Double, peakPct: Double, minPct: Double, stopPct: Double, targetPct: Double): Boolean? {
+        if (!(stopPct > 0.0) || !(targetPct > 0.0) || !peakPct.isFinite() || !minPct.isFinite()) return null
+        val dip = if (dipBeforePeakPct.isFinite()) dipBeforePeakPct else return if (minPct > -stopPct) false else if (peakPct < targetPct) true else null
+        return when {
+            dip <= -stopPct -> true          // the stop was touched on the way to the peak
+            peakPct >= targetPct -> false    // the target came with the stop untouched
+            else -> minPct <= -stopPct       // neither before the peak: the stop only if the low after it reached it
+        }
     }
 
     /**

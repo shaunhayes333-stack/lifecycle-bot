@@ -4231,3 +4231,29 @@ Bundle + sniper share of supply at the open: under 1 % +26.0 % (n 820), 10 % or 
 
 **Read next.** `pocketMap9012{...}`, `extended8991{CRYPTO_*@4h=...}`, `degenHarvest9011[... meanHoldMin=]`.
 
+## §198 — V5.0.9013: rows carry their path; crypto rows carry their desk's setup
+
+**Why.** Owner, 25 Nov 19:57: "both", and "you skipped doing the full meme stack research".
+
+**Meme stack research** (decision dataset, 22-25 Nov, every recorded feature (about 220 cells a lane), first read of a coin by a
+lane, 15-minute label, the miner's proof; 12-13 Nov as an out-of-time check where the feature existed):
+
+| Lane | Coins | Proven cells | What they are |
+|---|---|---|---|
+| MOONSHOT / SHITCOIN / EXPRESS / CORE / MANIPULATED | 2,584-3,080 | 118-164 each | almost all one cohort: LP read as 0 % locked (n139-183, +41..+44 %, 76-79 % winners). The LP rule refuses it, and 41.5 % of its reads are unpriced (30.3 % for LP locked, 22.6 % LP unread) |
+| The same five without that cohort | 2,453-2,958 | 1-5 each | `ladderProven` with a pool over $3.2k / v3 over 11 / cap over $12.6k: +18..+28 %, 49-56 % winners, both halves |
+| CYCLIC | 765 | 39 (8 without the cohort) | the same, and `txVel > 7.2 & v3 > 11` (+19.6 %, 12-13 Nov n111 +6.7 %: the one cell that also holds out of time) |
+| QUALITY / BLUECHIP / DIP_HUNTER / PROJECT_SNIPER | 630-2,229 | 0 (BLUECHIP 1 with the cohort) | nothing; PROJECT_SNIPER has 48 of 193 single cells proven losing |
+| All meme, one read a coin, without the cohort | 4,180 | 14 | `ladderProven & liq > 3.2k` n229 +18.8 %, without the best three +15.0 +- 3.1 %, halves +16 / +21 % |
+
+**What changed.**
+- `ResearchRows8877.pathJson9013` and `line8877(..., path)`: the hour row carries `path9013{dip, tPeakS, gb5}` from facts the
+  labeler already kept (dipBeforePeak7962, peakAtMs7955, giveback5_7955). `stopFirst9013` puts a stop and a target in order.
+- `ForwardReturnLabeler7731.noteDeskSetup9013` (called from `CrossAssetCortex7931.observe`): a crypto lane's observation keeps
+  its desk's strategy and trend cell (`CX_<strategy>@<trend>`); `rowSetup9013` writes it as the row's setup for CRYPTO_* lanes.
+  The exit-profile key (setup7955) is untouched. LanePocket8934 already mines `setup=` for every lane and (9012) every horizon.
+- `cryptoDeskSetups9013=` printed after `degenHarvest9011[...]`.
+
+**Limits.** Rows written before 9013 have no path and no desk setup. A desk setup is lost if the app restarts before the hour
+read. The native-desk yes/no observation (no candidate) names no strategy and keeps the playbook setup.
+

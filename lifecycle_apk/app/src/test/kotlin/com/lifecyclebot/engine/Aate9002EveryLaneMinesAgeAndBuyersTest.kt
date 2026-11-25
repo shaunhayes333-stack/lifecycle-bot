@@ -41,7 +41,7 @@ class Aate9002EveryLaneMinesAgeAndBuyersTest {
     @Test fun wired() {
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(lab.contains("it.age9002 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) ?: Double.NaN } catch (_: Throwable) { Double.NaN }"))
-        assertTrue(lab.contains("diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002))"))
+        assertTrue(lab.contains("diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002,"))   // superseded by V5.0.9013: the row also carries its path (was ...o.age9002)))
         val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LanePocket8934.kt").readText()
         assertEquals(2, p.split("mcap, rowExtras9002(o).first, rowExtras9002(o).second)").size - 1)
         assertTrue(p.contains("features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap, raw.ageMin, buyers9002).toSet()"))
