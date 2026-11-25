@@ -122,13 +122,39 @@ object LanePocket8934 {
      * Proven: [MIN_COINS_8934]+ coins, [MIN_HALF_8934]+ in each half with both halves' means above zero, and the mean without
      * the best three above z x SE, z deflated for the cells holding [MIN_COINS_8934]+ coins.
      */
-    internal fun mine8934(coins: List<Coin8934>, splitMs: Long): List<Cell8934> {
+    internal fun mine8934(coins: List<Coin8934>, splitMs: Long): List<Cell8934> = mineAll9012(coins, splitMs).first
+
+    /**
+     * V5.0.9012 §THE_WHOLE_POCKET_MAP — owner, 25 Nov 19:47: "we were meant to be building out and identifying smart pockets
+     * for every single lane trader set up specialists. we have ignored hundreds. not just one lane. for everything."
+     * Audit of every research row in the chat (190,369 rows, 20-25 Nov; 52 lane keys, 81 setups; each lane at 1 h, 4 h and
+     * 24 h; this miner's features and proof):
+     *  - every lane loses on average at every horizon (1 h -2..-17 %, 4 h -4..-41 %, 24 h -5..-43 %) except the crypto
+     *    desk's reads at 4 h (CRYPTO_EXPRESS +5.3 %, CRYPTO_SHITCOIN +2.8 %, CRYPTO_CORE +0.5 %);
+     *  - proven cells: 24-30 in each of CORE / MOONSHOT / SHITCOIN / EXPRESS / MANIPULATED, 13 in CYCLIC, 4 in QUALITY, 1
+     *    in BLUECHIP at 1 h — and they are ONE pocket read by eight lanes (an off-pump coin at BASE_START, cap $10-20k,
+     *    forecast 10+: +33..+39 %, both halves, 67-71 % winners), a one-hour trade (the same stage held 4 h: n57-72,
+     *    -57..-68 %); at 4 h CRYPTO_EXPRESS 8 and CRYPTO_CORE 2 (a pump.fun coin under a $10k cap on the desk's watch list:
+     *    +26..+28 %, halves +33 / +19..+24 %, 18 % winners), a horizon no crypto lane was mined at;
+     *  - setups: of every lane x setup with 30+ coins (5-16 a lane) none proves, 3-9 a lane are proven losing, and the nine
+     *    CRYPTO_* lanes carry no setup at all on their rows (four values, all "NONE"-like), so theirs cannot be read.
+     * The status named a lane's best proven cell or "none" and nothing else: not how many cells a lane holds, how many of
+     * them lose, how near its best unproven one is or why it fails, or that five lanes' "own" pockets were one shared
+     * cell. The miner now returns that survey with the proven cells from the same pass (no second pass, no extra books for
+     * it), every lane and horizon, and files the crypto lanes' 4 h / 24 h reads too (report only: [evidence8934] serves no
+     * crypto lane, unchanged).
+     */
+    data class Survey9012(val cells: Int, val proven: Int, val losing: Int, val nearest: Cell8934?, val nearestWhy: String)
+
+    /** Pure: [mine8934]'s proven cells and the survey of everything else the book holds, in one pass. */
+    internal fun mineAll9012(coins: List<Coin8934>, splitMs: Long): Pair<List<Cell8934>, Survey9012> {
         val byCell = HashMap<List<String>, MutableList<Coin8934>>()
         for (c in coins) for (cell in cellsOf8934(c.feats)) byCell.getOrPut(cell) { ArrayList() }.add(c)
         val k = byCell.values.count { it.size >= MIN_COINS_8934 }
-        if (k == 0) return emptyList()
+        if (k == 0) return emptyList<Cell8934>() to Survey9012(0, 0, 0, null, "")
         val z = maxOf(2.0, try { com.lifecyclebot.perps.CryptoTrend8886.familyZ8886(k) } catch (_: Throwable) { 3.0 })
         val out = ArrayList<Cell8934>()
+        var losing9012 = 0; var near9012: Cell8934? = null; var nearWhy9012 = ""; var nearScore9012 = Double.NEGATIVE_INFINITY
         for ((cell, v) in byCell) {
             if (v.size < MIN_COINS_8934) continue
             val ys = v.map { PayingCell8723.outcome8723(it.net) }
@@ -139,12 +165,34 @@ object LanePocket8934 {
             val exTop3 = sorted.take(n - 3).sum() / (n - 3)
             val first = v.filter { it.atMs < splitMs }.map { PayingCell8723.outcome8723(it.net) }
             val second = v.filter { it.atMs >= splitMs }.map { PayingCell8723.outcome8723(it.net) }
-            if (first.size < MIN_HALF_8934 || second.size < MIN_HALF_8934 || first.sum() <= 0.0 || second.sum() <= 0.0) continue
-            if (!(exTop3 > z * se)) continue
-            out += Cell8934(cell, n, mean, se, exTop3, z, v.count { it.net >= 100.0 }.toDouble() / n)
+            val halfThin = first.size < MIN_HALF_8934 || second.size < MIN_HALF_8934
+            val halvesOk = !halfThin && first.sum() > 0.0 && second.sum() > 0.0
+            val c9012 = Cell8934(cell, n, mean, se, exTop3, z, v.count { it.net >= 100.0 }.toDouble() / n)
+            if (halvesOk && exTop3 > z * se) { out += c9012; continue }
+            // V5.0.9012 — the survey: a cell losing on both halves with its mean under zero by the same margin, and the
+            // unproven cell nearest its bar, with the test it fails
+            if (!halfThin && first.sum() < 0.0 && second.sum() < 0.0 && mean + z * se < 0.0) losing9012++
+            val score = exTop3 - z * se
+            if (score > nearScore9012) {
+                nearScore9012 = score; near9012 = c9012
+                nearWhy9012 = if (halfThin) "HALF_THIN" else if (!halvesOk) "A_HALF_NOT_POSITIVE" else "MARGIN"
+            }
         }
-        return out.sortedByDescending { it.exTop3 - it.z * it.se }
+        val sorted = out.sortedByDescending { it.exTop3 - it.z * it.se }
+        return sorted to Survey9012(k, sorted.size, losing9012, near9012, nearWhy9012)
     }
+
+    /** Pure (V5.0.9012): the cell ids proven in [minLanes]+ of [proven]'s lanes — one market pocket read by several lanes. */
+    internal fun sharedIds9012(proven: Map<String, List<Cell8934>>, minLanes: Int = 3): Set<String> {
+        val n = HashMap<String, Int>()
+        for (cells in proven.values) for (id in cells.map { it.id }.toSet()) n[id] = (n[id] ?: 0) + 1
+        return n.filterValues { it >= minLanes }.keys
+    }
+
+    /** Pure (V5.0.9012): one lane's entry of the pocket map. */
+    internal fun mapEntry9012(key: String, s: Survey9012, own: Int): String =
+        "$key:k${s.cells}/p${s.proven}" + (if (s.proven > 0) "(own$own)" else "") + "/l${s.losing}" +
+            (s.nearest?.takeIf { s.proven == 0 }?.let { "~[${it.id.take(48)} n${it.n} ${"%+.1f".format(it.mean)}% ex3${"%+.1f".format(it.exTop3)} ${s.nearestWhy}]" } ?: "")
 
     /**
      * V5.0.8991 §A_POCKET_S_RANGE_IS_EVERY_HORIZON_IT_PROVES_AT — owner, 24 Nov 23:00: "we need to extend the time range of
@@ -170,10 +218,15 @@ object LanePocket8934 {
     /** Pure: the book of [lane]'s reads at [horizonMs] ("MOONSHOT@4h"). */
     internal fun extKey8991(lane: String, horizonMs: Long): String = "${lane.trim().uppercase()}@${horizonMs / 3_600_000L}h"
 
-    /** Pure: is [horizonMs] a longer horizon [lane] is also mined at? (Never a crypto lane: they are read by their own twins.) */
+    /**
+     * Pure: is [horizonMs] a longer horizon [lane] is also mined at?
+     * V5.0.9012 — the crypto lanes too (was: never a crypto lane): the only horizon a crypto lane's reads prove at is 4 h
+     * (CRYPTO_EXPRESS 8 cells, CRYPTO_CORE 2; none at 1 h, where the round trip is the whole move). Mined and reported;
+     * [evidence8934] still serves no crypto lane.
+     */
     internal fun extended8991(lane: String, horizonMs: Long): Boolean {
         val l = lane.trim().uppercase()
-        return !l.startsWith("CRYPTO_") && horizonMs > horizon8934(l) && EXT_HORIZONS_8991.any { it == horizonMs }
+        return horizonMs > horizon8934(l) && EXT_HORIZONS_8991.any { it == horizonMs }
     }
 
     /** Pure: is [line] a research row any book here files (the hour, 4 h or 24 h read)? */
@@ -185,8 +238,10 @@ object LanePocket8934 {
         if (!net.isFinite()) return
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val mcap = d("mcap")
-        val (lo, hi) = band(lane) ?: return
-        if (!inBand8934(mcap, lo, hi)) return
+        if (!lane.startsWith("CRYPTO_")) {   // V5.0.9012 — crypto lanes are unbanded, as at their own hour
+            val (lo, hi) = band(lane) ?: return
+            if (!inBand8934(mcap, lo, hi)) return
+        }
         val mint = o.optString("mint")
         if (mint.isBlank()) return
         val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap, rowExtras9002(o).first, rowExtras9002(o).second), net)
@@ -202,6 +257,17 @@ object LanePocket8934 {
 
     private val books = ConcurrentHashMap<String, LinkedHashMap<String, Coin8934>>()   // lane -> mint -> its first in-band read
     @Volatile private var proven: Map<String, List<Cell8934>> = emptyMap()
+    @Volatile private var survey9012: Map<String, Survey9012> = emptyMap()   // V5.0.9012 — per lane and per "LANE@4h" / "LANE@24h"
+
+    /** V5.0.9012 status: every lane and horizon the miner reads — cells, proven (own = not the shared market pocket), losing, and the nearest unproven cell with the test it fails. */
+    fun pocketMapLine9012(): String {
+        val sv = survey9012
+        val shared = sharedIds9012(proven)
+        return "pocketMap9012{" + sv.entries.sortedBy { it.key }.joinToString(" ") { (k, s) ->
+            val cells = proven[k] ?: provenExt8991[k].orEmpty()
+            mapEntry9012(k, s, cells.count { it.id !in shared })
+        }.ifBlank { "-" } + " sharedPockets=${shared.size} rule=k cells with 30+ coins / p proven (own = not proven in 3+ lanes) / l losing on both halves by the same margin; ~ the nearest unproven cell and the test it fails}"
+    }
     @Volatile private var minedAtMs = 0L
     @Volatile private var ready = false
     @Volatile private var loading = false
@@ -305,12 +371,15 @@ object LanePocket8934 {
 
     private fun mine(nowMs: Long) {
         minedAtMs = nowMs
+        val surveys = HashMap<String, Survey9012>()
         val out = HashMap<String, List<Cell8934>>()
         for ((lane, book) in books) {
             val coins = synchronized(book) { book.values.sortedBy { it.atMs } }
             if (coins.size < MIN_COINS_8934) continue
             val split = coins[coins.size / 2].atMs
-            out[lane] = try { mine8934(coins, split) } catch (_: Throwable) { emptyList() }
+            val both = try { mineAll9012(coins, split) } catch (_: Throwable) { null }   // V5.0.9012 — the survey from the same pass
+            out[lane] = both?.first ?: emptyList()
+            both?.second?.let { surveys[lane] = it }
         }
         proven = out
         // V5.0.8991 — and each lane's longer horizons, by the same rule on the held net
@@ -318,9 +387,12 @@ object LanePocket8934 {
         for ((key, book) in extBooks8991) {
             val coins = synchronized(book) { book.values.sortedBy { it.atMs } }
             if (coins.size < MIN_COINS_8934) continue
-            ext[key] = try { mine8934(coins, coins[coins.size / 2].atMs) } catch (_: Throwable) { emptyList() }
+            val both = try { mineAll9012(coins, coins[coins.size / 2].atMs) } catch (_: Throwable) { null }
+            ext[key] = both?.first ?: emptyList()
+            both?.second?.let { surveys[key] = it }
         }
         provenExt8991 = ext
+        survey9012 = surveys
     }
 
     /**
@@ -422,13 +494,13 @@ object LanePocket8934 {
             val pr = provenExt8991[k].orEmpty()
             "$k=${synchronized(v) { v.size }}" + (if (pr.isEmpty()) "" else "/proven${pr.size}[${pr.first().id} n${pr.first().n} ${"%+.1f".format(pr.first().mean)}%]")
         }.ifBlank { "-" }
-        return "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} extended8991{$extLine servedExt=${servedExt8991.get()}} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
+        return pocketMapLine9012() + "\n               " + "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} extended8991{$extLine servedExt=${servedExt8991.get()}} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
             "rule=each lane's own in-band coins at its designed hold (BLUECHIP 4 h, others 1 h) under the lane's own exits (8971), one coin once; a single feature or a pair proves at 30+ coins, " +
             "both halves positive, mean without the best three > z SE (z deflated over the lane's cells); meme lanes carry it as market-cell evidence]"
     }
 
     internal fun provenExtForTest8991(lane: String, horizonMs: Long): List<Cell8934> = provenExt8991[extKey8991(lane, horizonMs)].orEmpty()
-    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
+    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); survey9012 = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
     internal fun fileForTest8934(o: JSONObject) = file(o)
     internal fun mineForTest8934() = mine(System.currentTimeMillis())
     internal fun provenForTest8934(lane: String): List<Cell8934> = proven[lane].orEmpty()

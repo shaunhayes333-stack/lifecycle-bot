@@ -75,7 +75,8 @@ class Aate9011DegenHarvestTest {
     }
 
     @Test fun itIsWiredToTheCloseTheSellDoorAndTheReport() {
-        assertTrue(src("engine/truth/RunnerCapture8017.kt").contains("DegenHarvest9011.onClose9011(env.mode, env.terminal, env.positionId, env.exitReason, env.realizedReturnPct, env.mfePct)"))
+        // superseded by V5.0.9012 — the close also carries how long the position was held
+        assertTrue(src("engine/truth/RunnerCapture8017.kt").contains("DegenHarvest9011.onClose9011(env.mode, env.terminal, env.positionId, env.exitReason, env.realizedReturnPct, env.mfePct, env.holdingTimeMs)"))
         assertTrue(src("engine/Executor.kt").contains("DegenHarvest9011.noteRider9011(ts.position.positionId, rider8941)"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("DegenHarvest9011.statusLine9011()"))
         assertTrue(h.statusLine9011().startsWith("degenHarvest9011["))

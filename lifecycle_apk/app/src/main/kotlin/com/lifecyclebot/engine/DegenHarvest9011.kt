@@ -72,10 +72,11 @@ object DegenHarvest9011 {
     internal class Book9011 {
         var reached = 0L; var kept = 0L; var roundTrips = 0L; var riders = 0L
         var sumBanked = 0.0; var sumPeak = 0.0; var sumShare = 0.0
+        var sumHoldMin = 0.0; var holds = 0L   // V5.0.9012 — how long the big wins were held
         val byExit = LinkedHashMap<String, LongArray>()   // family -> [closes, round trips]
 
         /** Books one closed position; false when it never reached the big-win peak (nothing booked). */
-        fun add(peakPct: Double, bankedPct: Double, reason: String?, rider: Boolean): Boolean {
+        fun add(peakPct: Double, bankedPct: Double, reason: String?, rider: Boolean, holdMs: Long = 0L): Boolean {
             if (!peakPct.isFinite() || !bankedPct.isFinite() || peakPct < BIG_WIN_PCT_9011) return false
             reached++
             if (bankedPct >= BIG_WIN_PCT_9011) kept++
@@ -84,6 +85,7 @@ object DegenHarvest9011 {
             if (rider) riders++
             sumBanked += bankedPct; sumPeak += peakPct
             sumShare += (bankedPct / peakPct).coerceIn(0.0, 1.0)
+            if (holdMs > 0L) { sumHoldMin += holdMs / 60_000.0; holds++ }
             val k = family9011(reason)
             if (byExit.size < 40 || byExit.containsKey(k)) byExit.getOrPut(k) { LongArray(2) }.also { it[0]++; if (trip) it[1]++ }
             return true
@@ -94,16 +96,18 @@ object DegenHarvest9011 {
             val n = reached.toDouble()
             return "reached+200%=$reached kept>=+200%=$kept roundTrips(<+50%)=$roundTrips riders=$riders " +
                 "meanPeak=${"%+.0f".format(sumPeak / n)}% meanBanked=${"%+.0f".format(sumBanked / n)}% shareOfPeak=${"%.0f".format(100.0 * sumShare / n)}% " +
+                (if (holds > 0L) "meanHoldMin=${"%.0f".format(sumHoldMin / holds)} " else "") +
                 "byExit{" + byExit.entries.sortedByDescending { it.value[0] }.take(10).joinToString(",") { "${it.key}=${it.value[0]}/rt${it.value[1]}" } + "}"
         }
 
-        fun encode(): String = "T\t$reached\t$kept\t$roundTrips\t$riders\t$sumBanked\t$sumPeak\t$sumShare\n" +
+        fun encode(): String = "T\t$reached\t$kept\t$roundTrips\t$riders\t$sumBanked\t$sumPeak\t$sumShare\t$sumHoldMin\t$holds\n" +
             byExit.entries.joinToString("\n") { "E\t${it.key}\t${it.value[0]}\t${it.value[1]}" }
 
         fun decode(body: String) {
             for (l in body.lineSequence()) {
                 val f = l.split('\t')
-                if (f.size == 8 && f[0] == "T") {
+                if ((f.size == 8 || f.size == 10) && f[0] == "T") {
+                    if (f.size == 10) { sumHoldMin = f[8].toDoubleOrNull() ?: 0.0; holds = f[9].toLongOrNull() ?: 0L }
                     reached = f[1].toLongOrNull() ?: 0L; kept = f[2].toLongOrNull() ?: 0L; roundTrips = f[3].toLongOrNull() ?: 0L
                     riders = f[4].toLongOrNull() ?: 0L; sumBanked = f[5].toDoubleOrNull() ?: 0.0
                     sumPeak = f[6].toDoubleOrNull() ?: 0.0; sumShare = f[7].toDoubleOrNull() ?: 0.0
@@ -137,12 +141,12 @@ object DegenHarvest9011 {
     }
 
     /** RunnerCapture8017.onClose8017: a position closed. Booked when it is LIVE, terminal and its own peak reached +200 %. */
-    fun onClose9011(mode: String, terminal: Boolean, positionId: String, exitReason: String, realizedPct: Double, mfePct: Double) {
+    fun onClose9011(mode: String, terminal: Boolean, positionId: String, exitReason: String, realizedPct: Double, mfePct: Double, holdingMs: Long = 0L) {
         if (!terminal || !mode.equals("live", true)) return
         val rider = riderMints.remove(positionId) == true
         load()
         val peak = if (mfePct.isFinite()) maxOf(mfePct, realizedPct) else realizedPct   // an unread excursion is not a peak of zero
-        val booked = synchronized(book) { book.add(peak, realizedPct, exitReason, rider) }
+        val booked = synchronized(book) { book.add(peak, realizedPct, exitReason, rider, holdingMs) }
         if (!booked) return
         try { PipelineHealthCollector.labelInc(if (realizedPct < ROUND_TRIP_PCT_9011) "DEGEN_HARVEST_ROUND_TRIP_9011" else "DEGEN_HARVEST_BANKED_9011") } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("DEGEN_HARVEST_CLOSE_9011", "pos=${positionId.take(12)} peak=${peak.toInt()} banked=${realizedPct.toInt()} exit=${family9011(exitReason)} rider=$rider") } catch (_: Throwable) {}

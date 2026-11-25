@@ -4196,3 +4196,38 @@ The average is unchanged within its error; the round trips of 3x-10x winners fal
 
 **Read next.** `degenHarvest9011[reached+200%= kept>=+200%= roundTrips(<+50%)= shareOfPeak= byExit{}]`.
 
+## §197 — V5.0.9012: the whole pocket map, every lane and horizon
+
+**Why.** Owner, 25 Nov 19:47: pockets for every lane, trader and setup, meme and crypto, not one lane. Audit of every research
+row in the chat (190,369 rows, 20-25 Nov, 52 lane keys, 81 setups, each lane at 1 h / 4 h / 24 h, LanePocket8934's features
+and proof):
+
+| Finding | Measured |
+|---|---|
+| Every lane's average | negative at every horizon, except the crypto desk at 4 h (CRYPTO_EXPRESS +5.3 %, CRYPTO_SHITCOIN +2.8 %, CRYPTO_CORE +0.5 %) |
+| Proven cells at 1 h | CORE / MOONSHOT / SHITCOIN / EXPRESS / MANIPULATED 24-30 each, CYCLIC 13, QUALITY 4, BLUECHIP 1 |
+| What they are | one pocket read by eight lanes: an off-pump coin at BASE_START, cap $10-20k, forecast 10+ (+33..+39 %, both halves) |
+| Its hold | one hour. The same stage held 4 h: n57-72, -57..-68 % |
+| Proven cells at 4 h | CRYPTO_EXPRESS 8, CRYPTO_CORE 2 (a pump.fun coin under $10k on the desk's watch list, +26..+28 %, 18 % winners); no crypto lane was mined at 4 h |
+| Setups | of each lane x setup with 30+ coins (5-16 a lane): 0 proven, 3-9 a lane proven losing |
+| Crypto setups | the nine CRYPTO_* lanes carry no setup on their rows, so none can be read |
+| Proven-losing cells | 100-220 per lane and horizon |
+
+**What changed.**
+- `LanePocket8934.mineAll9012`: the proven cells and a survey (`Survey9012`: cells, proven, losing, nearest unproven cell and the
+  test it fails) from one pass; `mine8934` is its first half, unchanged.
+- `pocketMapLine9012` (printed before `lanePocket8934[...]`): for every lane and "LANE@4h" / "LANE@24h",
+  `k cells / p proven (own = not proven in 3+ lanes) / l losing ~[nearest cell n mean ex3 WHY]`.
+- `extended8991`: the crypto lanes' 4 h / 24 h reads are filed and mined (unbanded, as at their hour). Report only:
+  `evidence8934` still serves no crypto lane.
+- `DegenHarvest9011`: the ledger keeps how long each +200 % win was held (`meanHoldMin`).
+
+**Runner behaviour measured and NOT built** (launch-hour paths, runners that peaked 2x+ from an at-its-open entry, n 222):
+time to 2x median 90 s, to the peak 2.5 min (a quarter over 10.7 min); after 2x a new high comes every 20 s (median); with no
+new high for 2-5 min the chance of another inside 5 min is 25 %, after 5-10 min 7 %. Once the doctrine line is armed at 2x
+(9011), selling on a 5-minute stall, a 75-85 % stall line, a volume collapse, 30 s of 2:1 selling or one bar selling 10 % of
+the curve adds 0 to +2 points on every at-its-open entry and 0 on the under-3-SOL entries: inside the error, so none ships.
+Bundle + sniper share of supply at the open: under 1 % +26.0 % (n 820), 10 % or more -8.6 % on both halves (n 169).
+
+**Read next.** `pocketMap9012{...}`, `extended8991{CRYPTO_*@4h=...}`, `degenHarvest9011[... meanHoldMin=]`.
+
