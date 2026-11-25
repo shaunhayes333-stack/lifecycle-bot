@@ -418,14 +418,14 @@ object PoolLock8895 {
             AMM_V4_PROGRAM_8926 -> readAmmV4_8926(mint, pool, data)   // V5.0.8926
             DLMM_PROGRAM_8895 -> {
                 val type = dlmmActivationType8895(mint, data) ?: run { other(pool, now); return }
-                readDlmm(mint, pool, type, dlmmQuoteIsY8997(data))
+                readDlmm(mint, pool, type)
             }
             PUMP_AMM_PROGRAM_8937 -> readPumpSwap8937(mint, pool, data)   // V5.0.8937
             else -> { other(pool, now); if (owner.isNotBlank()) countOther8937(owner) }
         }
     }
 
-    private fun readDlmm(mint: String, pool: String, activationType: Int, quoteIsY8997: Boolean? = null) {
+    private fun readDlmm(mint: String, pool: String, activationType: Int) {
         val clock = rpc("getAccountInfo", JSONArray().put(CLOCK_SYSVAR_8895).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
             ?.optJSONObject("value")?.let { OnChainDepth8038.accountData8418(it) }
         if (clock == null || clock.size < 40) { rpcFailed.incrementAndGet(); return }
@@ -439,8 +439,6 @@ object PoolLock8895 {
         val now = System.currentTimeMillis()
         if (head.length() > MAX_POSITIONS_8895) { tooMany.incrementAndGet(); other(pool, now); return }
         if (head.length() == 0) { store(Lock8895(mint, pool, VENUE_DLMM_8895, 0.0, now, "no positions")); return }
-        // V5.0.8997 — and, for a pool the LP record asked about, who holds its liquidity
-        if (quoteIsY8997 != null && spreadWanted8997.remove(pool)) try { readSpread8997(mint, pool, filters, minPoint, quoteIsY8997) } catch (_: Throwable) { spreadFailed8997.incrementAndGet() }
         val lockedFlags = (0 until head.length()).mapNotNull { i ->
             OnChainDepth8038.accountData8418(head.optJSONObject(i)?.optJSONObject("account"))?.takeIf { it.size >= 88 }?.let { u64Clamp8895(it, 80) > minPoint }
         }
@@ -486,12 +484,25 @@ object PoolLock8895 {
     private const val SPREAD_KEEP_MS_8997 = 10L * 60_000L
 
     /** One read: [owners] wallets hold [pool]'s [positions] positions; the largest can remove [topOwnerPct] % of its quote side. */
-    data class Spread8997(val mint: String, val pool: String, val owners: Int, val positions: Int, val topOwnerPct: Double, val atMs: Long) {
-        val cls: String get() = spreadClass8997(owners, topOwnerPct)
-    }
+    data class Spread8997(val mint: String, val pool: String, val owners: Int, val positions: Int, val topOwnerPct: Double, val atMs: Long,
+                          val cls: String = spreadClass8997(owners, topOwnerPct))
 
     private val spreads8997 = ConcurrentHashMap<String, Spread8997>()
-    private val spreadWanted8997 = ConcurrentHashMap.newKeySet<String>()
+    private val spreadAsked8997 = ConcurrentHashMap<String, Long>()
+    private val spreadInFlight8997 = ConcurrentHashMap.newKeySet<String>()
+    private val spreadDropped8997 = AtomicLong(0L)
+    // V5.0.8998 — 8997 read the holders only when the LOCK read of the same pool happened to run after the LP record asked,
+    // and the lock read had always run first (the LP door asks it), so 0 pools were read on the 25 Nov 12:01 capture
+    // (waiting=12). The holder read is now its own: own queue, own throttle, its own pool / clock / position reads.
+    internal const val SPREAD_MAX_POSITIONS_8998 = 64
+    private const val SPREAD_RETRY_MS_8998 = 60_000L
+    private val spreadExec8998: java.util.concurrent.ThreadPoolExecutor by lazy {
+        java.util.concurrent.ThreadPoolExecutor(
+            1, 1, 30L, TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(32),
+            { r -> Thread(r, "pool-spread-8998").apply { isDaemon = true } },
+            java.util.concurrent.ThreadPoolExecutor.AbortPolicy(),
+        )
+    }
     private val spreadOutcome8997 = ConcurrentHashMap<String, AtomicLong>()
     private val spreadFailed8997 = AtomicLong(0L)
 
@@ -571,9 +582,56 @@ object PoolLock8895 {
         val p = pool.trim()
         if (p.isBlank()) return null
         spreads8997[p]?.takeIf { fresh8997(it, mint, nowMs) }?.let { return it }
-        if (spreadWanted8997.size < 2_000) spreadWanted8997.add(p)
-        request8895(mint, p, nowMs)
+        requestSpread8998(mint.trim(), p, nowMs)
         return null
+    }
+
+    /** V5.0.8998 — read who holds [pool] in the background (one in flight a pool, a pool re-asked at most every minute). */
+    private fun requestSpread8998(mint: String, pool: String, nowMs: Long) {
+        if (mint.isBlank() || pool == mint) return
+        spreadAsked8997[pool]?.let { if (nowMs - it in 0L until SPREAD_RETRY_MS_8998) return }
+        if (!spreadInFlight8997.add(pool)) return
+        spreadAsked8997[pool] = nowMs
+        if (spreadAsked8997.size > 4_000) spreadAsked8997.entries.removeIf { nowMs - it.value > SPREAD_RETRY_MS_8998 }
+        try { spreadExec8998.execute { try { readHolders8998(mint, pool) } catch (_: Throwable) { spreadFailed8997.incrementAndGet() } finally { spreadInFlight8997.remove(pool) } } }
+        catch (_: Throwable) { spreadInFlight8997.remove(pool); spreadDropped8997.incrementAndGet() }
+    }
+
+    /** V5.0.8998 — a read that cannot judge the holders still answers, with why, so the LP record files at once. */
+    private fun storeSpread8998(sp: Spread8997) {
+        if (spreads8997.size > 2_000) spreads8997.entries.removeIf { sp.atMs - it.value.atMs > SPREAD_KEEP_MS_8997 }
+        spreads8997[sp.pool] = sp
+        spreadOutcome8997.computeIfAbsent(sp.cls) { AtomicLong(0L) }.incrementAndGet()
+        try { PipelineHealthCollector.labelInc("POOL_SPREAD_8997_${sp.cls}") } catch (_: Throwable) {}
+        try { LpStateRecord8725.spreadReady8998(sp.mint, sp.atMs) } catch (_: Throwable) {}
+    }
+
+    private fun readHolders8998(mint: String, pool: String) {
+        val now = System.currentTimeMillis()
+        fun answer(cls: String, owners: Int = 0, positions: Int = 0) = storeSpread8998(Spread8997(mint, pool, owners, positions, Double.NaN, now, cls))
+        val res = rpc("getAccountInfo", JSONArray().put(pool).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+            ?: run { spreadFailed8997.incrementAndGet(); return }
+        val v = res.optJSONObject("value")
+        if (v?.optString("owner").orEmpty() != DLMM_PROGRAM_8895) { answer("NOT_DLMM"); return }
+        val data = OnChainDepth8038.accountData8418(v)
+        val quoteIsY = dlmmQuoteIsY8997(data) ?: run { answer("NO_QUOTE"); return }
+        val type = dlmmActivationType8895(mint, data) ?: run { answer("NOT_THIS_COIN"); return }
+        val clock = rpc("getAccountInfo", JSONArray().put(CLOCK_SYSVAR_8895).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
+            ?.optJSONObject("value")?.let { OnChainDepth8038.accountData8418(it) }
+        if (clock == null || clock.size < 40) { spreadFailed8997.incrementAndGet(); return }
+        val minPoint = minReleasePoint8895(type, u64Clamp8895(clock, 0), u64Clamp8895(clock, 32))
+        val filters = JSONArray()
+            .put(JSONObject().put("memcmp", JSONObject().put("offset", 0).put("bytes", discBase58(DLMM_POSITION_DISC_8895))))
+            .put(JSONObject().put("memcmp", JSONObject().put("offset", 8).put("bytes", pool)))
+        // first only the owners (32 bytes each): the count, and how many wallets
+        val head = gpa(JSONObject().put("encoding", "base64").put("commitment", "confirmed").put("withContext", true)
+            .put("filters", filters).put("dataSlice", JSONObject().put("offset", 40).put("length", 32))) ?: run { spreadFailed8997.incrementAndGet(); return }
+        val owners = (0 until head.length()).mapNotNull { i ->
+            OnChainDepth8038.accountData8418(head.optJSONObject(i)?.optJSONObject("account"))?.takeIf { it.size >= 32 }?.let { key(it, 0) }
+        }.toSet()
+        if (head.length() == 0) { answer("NO_POSITIONS"); return }
+        if (head.length() > SPREAD_MAX_POSITIONS_8998) { answer(if (owners.size >= SPREAD_MIN_OWNERS_8997) "WIDE_UNWEIGHED" else "CONCENTRATED", owners.size, head.length()); return }
+        readSpread8997(mint, pool, filters, minPoint, quoteIsY)
     }
 
     private fun readSpread8997(mint: String, pool: String, positionFilters: JSONArray, minPoint: Long, quoteIsY: Boolean) {
@@ -598,22 +656,18 @@ object PoolLock8895 {
             quote.putAll(m)
         }
         val (top, owners) = topOwnerQuotePct8997(owned, quote, minPoint)
-        val sp = Spread8997(mint, pool, owners, owned.size, top, System.currentTimeMillis())
-        if (spreads8997.size > 2_000) spreads8997.entries.removeIf { sp.atMs - it.value.atMs > SPREAD_KEEP_MS_8997 }
-        spreads8997[pool] = sp
-        spreadOutcome8997.computeIfAbsent(sp.cls) { AtomicLong(0L) }.incrementAndGet()
-        try { PipelineHealthCollector.labelInc("POOL_SPREAD_8997_${sp.cls}") } catch (_: Throwable) {}
+        storeSpread8998(Spread8997(mint, pool, owners, owned.size, top, System.currentTimeMillis()))
     }
 
     /** Brief: the DLMM pools whose holders were read, by class. */
     fun spreadLine8997(): String =
         "poolSpread8997[read{${spreadOutcome8997.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "failed=${spreadFailed8997.get()} held=${spreads8997.size} waiting=${spreadWanted8997.size} rule=an LP-blocked coin's Meteora DLMM pool: the largest " +
+            "failed=${spreadFailed8997.get()} dropped=${spreadDropped8997.get()} held=${spreads8997.size} inFlight=${spreadInFlight8997.size} rule=an LP-blocked coin's Meteora DLMM pool: the largest " +
             "share of its quote side one wallet can remove (unlocked positions); SPREAD = $SPREAD_MIN_OWNERS_8997+ owners and none over " +
             "${SPREAD_MAX_TOP_PCT_8997.toInt()} %; measured only, filed on the LP record's label, nothing bought]"
 
     internal fun putSpreadForTest8997(sp: Spread8997) { spreads8997[sp.pool] = sp }
-    internal fun resetSpreadForTest8997() { spreads8997.clear(); spreadWanted8997.clear(); spreadOutcome8997.clear(); spreadFailed8997.set(0L) }
+    internal fun resetSpreadForTest8997() { spreads8997.clear(); spreadAsked8997.clear(); spreadInFlight8997.clear(); spreadOutcome8997.clear(); spreadFailed8997.set(0L); spreadDropped8997.set(0L) }
 
     private class Schedules8925(val atMs: Long, val positions: List<DammPosition8925>, val external: Map<String, List<Vesting8925>>)
     private val schedules8925 = ConcurrentHashMap<String, Schedules8925>()   // pool -> its positions' locks (vesting schedules change only by a new lock)

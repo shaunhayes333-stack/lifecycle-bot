@@ -3756,3 +3756,22 @@ kept 10 minutes. Nothing is bought; LiquidityOwnership8522 and the 70 % rule are
 Stated: distinct wallets are not proven distinct people (the owner's objection of 20 Nov); DAMM v2 positions are held by
 NFT and are not read here; whether SPREAD pools pay and survive is what the next captures will say.
 
+## 183. The holder read runs on its own (8998)
+
+Owner, 25 Nov 12:03: "still very choked out, losing money ignoring the good trades". The 12:01 capture on 5.0.8997 (34 min up):
+poolSpread8997[read{-} held=0 waiting=12], lpBlockedSpread8997{UNREAD=3} against 59 LP refusals at intake. Two faults, both
+§182's: (1) the holder read ran only inside a LOCK read of the same pool that started after the LP record asked, but the LP
+door asks the lock read first and PoolLock8895 throttles a pool for 30 s, so no holder read ever ran; (2) a coin was filed
+only when it came back to intake after the read, and a hard-refused coin rarely comes back.
+Change: PoolLock8895.requestSpread8998 / readHolders8998 run on their own queue (one thread, 32 queued, a pool re-asked at
+most every minute): the pool account (must be DLMM and paired with SOL/USDC/USDT), the chain clock, the positions' owners
+(32-byte slice), then the full positions and bin arrays (readSpread8997) when there are at most 64 positions. A read that
+cannot judge still answers with why: NOT_DLMM, NO_QUOTE, NOT_THIS_COIN, NO_POSITIONS, WIDE_UNWEIGHED (over 64 positions,
+3+ owners), CONCENTRATED (over 64, under 3 owners). LpStateRecord8725 reads the pool the LP rule blamed (the deepest non-curve
+pool of the safety report under 70 % locked, else the coin's pair), holds the coin in pending8998, and files it when the read
+answers (spreadReady8998) or as UNREAD after 60 s. The label is "LPSTATE8725_LP_BLOCKED:<band>/<class>", its forward mark
+taken when it is filed (up to a minute after intake).
+The authority table on the same capture (1 h, 955 cells): ONE door PAYS, LPSTATE8725_LP_BLOCKED_LT30 n157 +33.7 % mean,
++26.4 % median, ex-top-3 +26.5 %, halves +30.9 / +36.5; the same cohort at 4 h: median -25.5 %, ex-top-3 -98.4 %. Every
+other door with n >= 20 is UNPROVEN or LOSES (runner-tail cells with large means and negative medians). Nothing is bought.
+

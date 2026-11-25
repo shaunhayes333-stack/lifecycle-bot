@@ -116,19 +116,45 @@ object LpStateRecord8725 {
         val key = "lp8937|${ts.mint}"
         val last = lastFiled[key]
         if (last != null && nowMs >= last && nowMs - last < REFILE_MS) return
-        // V5.0.8997 — who holds the coin's pool (PoolLock8895.spreadFor8997) is part of the label: the read is asked on the
-        // first look and the label is filed on the next one with what it found, [SPREAD_WAIT_MS_8997] at most (then UNREAD)
-        val pool8997 = listOf(ts.lastPricePoolAddr, ts.pairAddress).map { it.trim() }.firstOrNull { it.length in 32..44 && it != ts.mint }
-        val spread8997 = pool8997?.let { try { PoolLock8895.spreadFor8997(ts.mint, it, nowMs) } catch (_: Throwable) { null } }
-        if (pool8997 != null && spread8997 == null) {
-            if (spreadWait8997.size > 4_000) spreadWait8997.entries.removeIf { nowMs - it.value > REFILE_MS }
-            val first = spreadWait8997.putIfAbsent(key, nowMs) ?: nowMs
-            if (nowMs - first in 0L until SPREAD_WAIT_MS_8997) return
-        }
-        spreadWait8997.remove(key)
-        val cls8997 = spread8997?.cls ?: "UNREAD"
+        // V5.0.8998 — who holds the coin's pool is part of the label. 8997 filed a coin only if it came back to intake after
+        // the read (a hard-refused coin rarely does: 3 filed of 59 LP refusals on 25 Nov 12:01). Now the coin waits in
+        // [pending8998] and is filed by the read's own answer (spreadReady8998), or UNREAD after [SPREAD_WAIT_MS_8997].
+        // The pool read is the one the LP rule blamed: the deepest non-curve pool the safety report holds under 70 % locked.
         if (lastFiled.size > 6_000) lastFiled.entries.removeIf { nowMs - it.value > REFILE_MS }
         lastFiled[key] = nowMs
+        val pool8998 = blamedPool8998(ts)
+        val spread8998 = pool8998?.let { try { PoolLock8895.spreadFor8997(ts.mint, it, nowMs) } catch (_: Throwable) { null } }
+        if (pool8998 != null && spread8998 == null) {
+            if (pending8998.size < 2_000) pending8998[ts.mint] = Pending8998(ts, band, pool8998, nowMs) else file8998(ts, band, "UNREAD")
+        } else file8998(ts, band, spread8998?.cls ?: "NO_POOL")
+        sweep8998(nowMs)
+    }
+
+    private class Pending8998(val ts: TokenState, val band: String, val pool: String, val atMs: Long)
+    private val pending8998 = ConcurrentHashMap<String, Pending8998>()
+
+    /** Pure-ish: the pool the LP rule blamed — the deepest non-curve pool of the coin's safety report under 70 % locked. */
+    internal fun blamedPool8998(ts: TokenState): String? {
+        val fromReport = try {
+            ts.safety.lpOwnership8522.pools.filter { !it.isCurve && it.lockedPct < 70.0 && it.address.length in 32..44 && it.address != ts.mint }
+                .maxByOrNull { it.depthUsd }?.address
+        } catch (_: Throwable) { null }
+        return fromReport ?: listOf(ts.lastPricePoolAddr, ts.pairAddress).map { it.trim() }.firstOrNull { it.length in 32..44 && it != ts.mint }
+    }
+
+    /** PoolLock8895: the holders of [mint]'s blamed pool were read; the waiting coin is filed with what they are. */
+    fun spreadReady8998(mint: String, nowMs: Long) {
+        val p = pending8998[mint] ?: return
+        val sp = try { PoolLock8895.spreadFor8997(mint, p.pool, nowMs) } catch (_: Throwable) { null } ?: return
+        if (pending8998.remove(mint, p)) file8998(p.ts, p.band, sp.cls)
+    }
+
+    private fun sweep8998(nowMs: Long) {
+        for ((m, p) in pending8998) if (nowMs - p.atMs >= SPREAD_WAIT_MS_8997 && pending8998.remove(m, p)) file8998(p.ts, p.band, "UNREAD")
+    }
+
+    private fun file8998(ts: TokenState, band: String, cls8997: String) {
+        val nowMs = System.currentTimeMillis()
         count8732(blocked8937, band)
         count8732(blockedSpread8997, cls8997)
         PipelineHealthCollector.labelInc("${PREFIX_8725}LP_BLOCKED_INTAKE_8937_$band")
@@ -157,11 +183,10 @@ object LpStateRecord8725 {
     private val blocked8937 = ConcurrentHashMap<String, AtomicLong>()
     // V5.0.8997 — the LP-blocked coins by who holds their pool, and the coins waiting for that read
     private val blockedSpread8997 = ConcurrentHashMap<String, AtomicLong>()
-    private val spreadWait8997 = ConcurrentHashMap<String, Long>()
-    internal const val SPREAD_WAIT_MS_8997 = 20_000L
+    internal const val SPREAD_WAIT_MS_8997 = 60_000L
 
     /** Brief (V5.0.8997): LP-blocked coins filed, by the class of their pool's holders. */
-    fun spreadLine8997(): String = "lpBlockedSpread8997{${top8732(blockedSpread8997)}}"
+    fun spreadLine8997(): String = "lpBlockedSpread8997{${top8732(blockedSpread8997)}} pending8998=${pending8998.size}"
 
     /** V5.0.8732 — the second status line: which proofs the PENDING coins wait on and what the admission decided of them. */
     fun waitLine8732(): String = "payCell8732[waits{${top8732(waits8732)}} admission{${top8732(decisions8732)}}" +

@@ -89,7 +89,8 @@ class Aate8997WhoHoldsThePoolTest {
     @Test fun wired() {
         fun src(f: String) = File("src/main/kotlin/com/lifecyclebot/engine/$f").readText()
         assertTrue(src("truth/LpStateRecord8725.kt").contains("\"\${PREFIX_8725}LP_BLOCKED:\$band/\$cls8997\""))
-        assertTrue(src("truth/PoolLock8895.kt").contains("if (quoteIsY8997 != null && spreadWanted8997.remove(pool))"))
+        // superseded by V5.0.8998: the holder read no longer rides the lock read; it runs on its own queue
+        assertTrue(src("truth/PoolLock8895.kt").contains("spreadExec8998.execute { try { readHolders8998(mint, pool) }"))
         assertTrue(src("DiagnosisBrief8438.kt").contains("PoolLock8895.spreadLine8997()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 182. Who holds the pool (8997)"))
     }
