@@ -21,7 +21,8 @@ class Aate9005AgeRecordSeededAtStartTest {
     @Test fun wired() {
         val e = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
         assertTrue(e.contains("if (current) { val ds9005 = File(f.parentFile, DATASET_FILE); io.execute { seedAgeProof9005(ds9005) } } else AgeProof9001.noteSeed9005(\"replayed\")"))
-        assertTrue(e.contains("if (!replayAccept8642(o) || !o.optBoolean(\"admitted\")) return@row"))
+        assertTrue(e.contains("if (!o.optBoolean(\"admitted\")) return@row"))   // superseded by V5.0.9006: unpriced admitted rows are counted too
+        assertTrue(e.contains("if (!replayAccept8642(o)) return@row"))
         assertTrue(e.contains("AgeProof9001.note9001(o.optString(\"lane\"), column8801(o, \"age\"), column8801(o, \"net\"), true, true)"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 190. The age record is filled at every start (9005)"))
     }

@@ -1066,7 +1066,9 @@ object EdgeModel8537 {
                 try {
                     if (refusedUnparsed8863(line)) return@row
                     val o = org.json.JSONObject(line)
-                    if (!replayAccept8642(o) || !o.optBoolean("admitted")) return@row
+                    if (!o.optBoolean("admitted")) return@row
+                    if (!o.optBoolean("fill", false)) { AgeProof9001.note9001(o.optString("lane"), column8801(o, "age"), Double.NaN, true, false); return@row }   // V5.0.9006
+                    if (!replayAccept8642(o)) return@row
                     AgeProof9001.note9001(o.optString("lane"), column8801(o, "age"), column8801(o, "net"), true, true)
                     used++
                 } catch (_: Throwable) {}

@@ -606,13 +606,20 @@ object PoolLock8895 {
         try { LpStateRecord8725.spreadReady8998(sp.mint, sp.atMs) } catch (_: Throwable) {}
     }
 
+    /** Pure: the class of a blamed pool that is not a DLMM pair, naming its owner program. */
+    internal fun notDlmmClass9006(ownerProgram: String): String =
+        "NOT_DLMM_" + ownerProgram.trim().filter { it.isLetterOrDigit() }.take(8).ifBlank { "NONE" }
+
     private fun readHolders8998(mint: String, pool: String) {
         val now = System.currentTimeMillis()
         fun answer(cls: String, owners: Int = 0, positions: Int = 0) = storeSpread8998(Spread8997(mint, pool, owners, positions, Double.NaN, now, cls))
         val res = rpc("getAccountInfo", JSONArray().put(pool).put(JSONObject().put("encoding", "base64").put("commitment", "confirmed")))
             ?: run { spreadFailed8997.incrementAndGet(); return }
         val v = res.optJSONObject("value")
-        if (v?.optString("owner").orEmpty() != DLMM_PROGRAM_8895) { answer("NOT_DLMM"); return }
+        // V5.0.9006 — the class names the program that owns the pool (first 8 characters; NONE = no such account), so the
+        // capture says which venue's reader the unlocked pools need: 20 of the first 31 classes came back NOT_DLMM
+        val owner9006 = v?.optString("owner").orEmpty()
+        if (owner9006 != DLMM_PROGRAM_8895) { answer(notDlmmClass9006(owner9006)); return }
         val data = OnChainDepth8038.accountData8418(v)
         val quoteIsY = dlmmQuoteIsY8997(data) ?: run { answer("NO_QUOTE"); return }
         val type = dlmmActivationType8895(mint, data) ?: run { answer("NOT_THIS_COIN"); return }

@@ -3995,3 +3995,49 @@ Same capture, other readings: the launch rule landed its first live buy (sniper8
 LAUNCH_RULE_8748 COINS=21 ADMIT=3 FDG_ALLOW=2 TICKET=1 EXEC=1), and 18 of its 21 coins were refused by the hard holder
 rule (top-10 wallets 35 %+ of supply). The holder read excludes the curve and venue vaults by program
 (OnChainHolderConcentration7379); the 12 verdict lines in the 22-25 Nov captures are all complete reads. Not changed.
+
+## 191. Unpriced is counted, not assumed (9006)
+
+Owner, 25 Nov 18:32: "keep working thru all the blockers ... all trader and lane mentality across meme and crypto".
+
+Every refusal reason in every lane, graded (all research exports merged: 98,076 hour rows, 8,475 coins, 20-25 Nov; one
+row per lane x coin x reason; a reason is "refusing coins that pay" when its mean - SE is above zero and both time halves
+are positive with 12+ coins each). Result: one reason of every lane's, meme and CRYPTO_*, meets it -
+LPSTATE8725_LP_BLOCKED:LT30, n 194, +40.5 % +- 7.7. No other refusal in any lane refuses coins that went on to pay.
+What the lanes ADMIT, same rows, at the hour: CORE n1,374 -5.4 %, MOONSHOT n2,541 -4.6 %, EXPRESS n2,967 -7.5 %,
+SHITCOIN n1,650 -2.1 %, CASHGEN n105 -7.7 %, CYCLIC n207 -4.2 %, PROJECT_SNIPER n91 -21.4 %, CRYPTO_CORE n175 -0.1 %,
+CRYPTO_EXPRESS n466 -5.2 %, CRYPTO_MOONSHOT n508 -9.8 %, CRYPTO_SHITCOIN n137 +0.6 % +- 7.7, CRYPTO_CASHGEN n62 -3.9 %.
+The blockers are not what loses; what is admitted is.
+
+And the one paying refusal is measured on survivors. LP_BLOCKED coins, each once: at the hour 219 priced (+42.2 %,
+5.9 % at -80 % or worse) and 106 unpriced (33 %); at 4 h 14 priced, 316 unpriced; at 24 h 10 priced, 312 unpriced. Every
+other lane loses 2-3 % of its coins to no price at the hour (CORE 5,234 coins, 5,090 priced). If an unpriced LP_BLOCKED
+coin is a total loss the cohort's hour is (219 x 42.2 - 106 x 100) / 325 = -4.2 %. Sections 186-188 called it the largest
+measured edge without this; it is the largest edge among the coins that could still be priced.
+
+The 15-minute dataset has the same shape (18:23 export, admitted decisions, 15-minute horizon):
+
+| cohort | n | unpriced | mean of the priced |
+|---|---|---|---|
+| pump.fun curve, under 15 min | 1,499 | 20.5 % | +5.0 % |
+| pump.fun curve, 1-24 h | 798 | 22.2 % | -5.2 % |
+| pump.fun curve, over 24 h | 1,444 | 23.5 % | -2.4 % |
+| off-pump, over 24 h | 748 | 28.6 % | -2.8 % |
+| off-pump LP-unlocked, under 15 min | 748 | 42.9 % | +47.0 % |
+| off-pump other, under 15 min | 1,563 | 36.0 % | +14.9 % |
+
+About 22 % unpriced is the feed's ordinary loss (coins days old do not die in 15 minutes). Young off-pump coins lose 14-21
+points more. Whether the excess died is not measured: a young coin is rarely decided on twice, so "seen again later" does
+not separate dead from unmarked (4-14 % of young coins are seen again whether priced or not). If the excess is counted as
+total losses, LP-unlocked young is about +7 % and other off-pump young about -6 %; the pump.fun curve figure is unaffected.
+
+Changes:
+- AgeProof9001 counts an admitted decision with no price beside the priced ones (never as a return) and reports it per
+  band (`/unpricedN%`); the start-up seed counts them too.
+- 9004's label branch is withdrawn: a band is released from a shut lane's one-probe limit only by 3+ of the lane's own
+  live closes in that band averaging at or above zero. A label mean over priced decisions does not lift a live limit.
+- The spread reader's NOT_DLMM class names the program that owns the blamed pool (NOT_DLMM_<first 8>). Of the first 31
+  classes filed by 8998, 20 were NOT_DLMM and 11 UNREAD, none a DLMM pair, though the lock reader found
+  METEORA_DLMM:UNLOCKED on 85 selected pools in the same capture: the pool the safety report blames is a different pool
+  from the one the gate selects. Which program those pools belong to is what the next capture will say.
+9001 and 9003 are unchanged: they act only on bands that lose on priced decisions, where the unpriced share is ordinary.

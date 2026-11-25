@@ -46,15 +46,25 @@ object AgeProof9001 {
         else -> "OVER_24H"
     }
 
-    private class Cell9001 { var n = 0L; var sum = 0.0; var sumSq = 0.0 }
+    private class Cell9001 { var n = 0L; var sum = 0.0; var sumSq = 0.0; var unpriced9006 = 0L }
     private val cells = ConcurrentHashMap<String, Cell9001>()
 
     /** One labelled decision. Only an admitted, filled label is evidence about what an admission earns. */
     fun note9001(lane: String, ageMin: Double, netPct: Double, admitted: Boolean, filled: Boolean) {
-        if (!admitted || !filled || !netPct.isFinite()) return
+        if (!admitted) return
         val l = lane.trim().uppercase()
         if (l.isEmpty()) return
         val band = band9001(ageMin)
+        // V5.0.9006 — an admitted decision that could not be priced at its horizon is counted beside the priced ones, never
+        // as a return: the 18:23 dataset has 21-24 % of admitted decisions on a pump.fun curve unpriced at 15 minutes at
+        // every age, and 37-43 % on off-pump coins under 15 minutes old. Whether that excess is coins that died is not known.
+        if (!filled || !netPct.isFinite()) {
+            for (k in if (band == "UNKNOWN") listOf("$l|$ALL") else listOf("$l|$ALL", "$l|$band")) {
+                val c = cells.computeIfAbsent(k) { Cell9001() }
+                synchronized(c) { c.unpriced9006++ }
+            }
+            return
+        }
         val v = netPct.coerceIn(-100.0, LABEL_CAP_PCT_9001)
         for (k in if (band == "UNKNOWN") listOf("$l|$ALL") else listOf("$l|$ALL", "$l|$band")) {
             val c = cells.computeIfAbsent(k) { Cell9001() }
@@ -105,18 +115,6 @@ object AgeProof9001 {
         return loses9003(own.first, own.second, own.third)
     }
 
-    /** Pure: a band the lane is measured to pay in — [MIN_BAND_N_9001]+ admitted labels whose mean less one SE is above zero. */
-    fun pays9004(bandN: Long, bandMean: Double, bandSe: Double): Boolean =
-        bandN >= MIN_BAND_N_9001 && bandMean.isFinite() && bandSe.isFinite() && bandMean - bandSe > 0.0
-
-    /** Does [lane] pay, on its own admitted labels, in the age band of a coin [ageMin] minutes old? Unknown age: no claim. */
-    fun bandPays9004(lane: String, ageMin: Double): Boolean {
-        val band = band9001(ageMin)
-        if (band == "UNKNOWN") return false
-        val own = stat("${lane.trim().uppercase()}|$band") ?: return false
-        return pays9004(own.first, own.second, own.third)
-    }
-
     /** CandidateAdmission8136.candidateFor8136: the gap a LIVE candidate carries, counted by band when it is not zero. */
     fun gapFor9001(ts: TokenState, lane: String, live: Boolean): Double {
         if (!live) return 0.0
@@ -124,6 +122,12 @@ object AgeProof9001 {
         val gap = gapPts9001(lane, age)
         if (gap > 0.0) try { PipelineHealthCollector.labelInc("AGE_PROOF_GAP_9001_${band9001(age)}") } catch (_: Throwable) {}
         return gap
+    }
+
+    /** Share (%) of [key]'s admitted decisions that had no price at their horizon. */
+    internal fun unpricedPct9006(key: String): Int {
+        val c = cells[key] ?: return 0
+        return synchronized(c) { if (c.n + c.unpriced9006 <= 0L) 0 else (c.unpriced9006 * 100L / (c.n + c.unpriced9006)).toInt() }
     }
 
     /** The coin's age in minutes as the admission reads it (NaN when unknown). */
@@ -138,7 +142,7 @@ object AgeProof9001 {
             val bands = listOf("UNDER_15M", "15M_1H", "1H_24H", "OVER_24H").mapNotNull { b ->
                 val s = stat("$l|$b") ?: return@mapNotNull null
                 val g = if (all == null) 0.0 else gap9001(all.first, all.second, s.first, s.second, s.third)
-                "$b=n${s.first}/${"%+.1f".format(s.second)}%${if (g > 0.0) "/gap${"%.1f".format(g)}" else ""}"
+                "$b=n${s.first}/${"%+.1f".format(s.second)}%${if (g > 0.0) "/gap${"%.1f".format(g)}" else ""}/unpriced${unpricedPct9006("$l|$b")}%"
             }.joinToString(" ")
             "$l[all=n${all?.first ?: 0}/${"%+.1f".format(all?.second ?: 0.0)}% $bands]"
         }.ifBlank { "-" }

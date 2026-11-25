@@ -189,26 +189,24 @@ object EntryReceipt8500 {
     /**
      * V5.0.9004 §A_LANES_LIVE_RECORD_IS_READ_AT_THE_COINS_OWN_AGE — owner, 25 Nov 17:17: "go" (make the proven young-coin
      * engines land). 25 Nov 12:01: SHITCOIN n6 / -8.6 %, EXPRESS n8 / -4.3 % and MOONSHOT n36 / -6.4 % are each held to one
-     * live position at a time by their realised record (LaneRealisedProbe8424; OCCUPIED blocked 204 FDG decisions, the
-     * largest block left on a coin the admission had admitted), and that record was made on coins past their launch (30 of
-     * 43 matched live buys, 3 wins) while the buys on coins still expanding won 5 of 7. Pure: is a candidate in an age band
-     * NOT held to the lane's shut record? Yes when the lane's own live closes entered in that band are 3 or more and average
-     * at or above zero; or when it has fewer than 3 there and the lane's admitted labels pay in that band
-     * ([bandPaysOnLabels], AgeProof9001.pays9004). A band with 3+ closes averaging under zero, a band the labels do not
-     * show paying, and an unknown age all stay on the lane's record as before. The stake is unchanged (a lane without a
-     * positive realised record sizes at the route minimum), so the most a fresh band can cost before its own record holds
-     * it is three small-stake closes.
+     * live position at a time by their realised record (LaneRealisedProbe8424; OCCUPIED blocked 204 FDG decisions), and
+     * that record was made on coins past their launch (30 of 43 matched live buys, 3 wins) while the buys on coins still
+     * expanding won 5 of 7. Pure: a candidate is NOT held to the lane's shut record when the lane's own live closes entered
+     * in the candidate's age band are 3 or more and average at or above zero.
+     * V5.0.9006 — and only then. 9004 also released a band with fewer than 3 closes when the lane's admitted labels paid
+     * there; those labels are means over the decisions that could be priced, and on young off-pump coins 37-43 % could not
+     * (DATA_MAP 191), so a label mean is not evidence enough to lift a live risk limit. A band earns its release through
+     * the probe: real closes, one at a time, at the small stake.
      */
-    fun ownAgeOpen9004(bandCloses: Double, bandSumPct: Double, bandPaysOnLabels: Boolean): Boolean =
-        if (bandCloses >= 3.0) bandSumPct / bandCloses >= 0.0 else bandPaysOnLabels
+    fun ownAgeOpen9004(bandCloses: Double, bandSumPct: Double): Boolean = bandCloses >= 3.0 && bandSumPct / bandCloses >= 0.0
 
     /** EntryEconomics8329.laneRealisedRefusal8329: [lane] (its desk name) is shut on its record; is a coin [ageMin] minutes old held to it? */
     @Synchronized fun ownAgeRecordOpen9004(lane: String, ageMin: Double): Boolean {
         if (AgeProof9001.band9001(ageMin) == "UNKNOWN") return false
         restore8500()
-        val a = agg[laneAgeKey9004(lane, ageMin)]
-        val (n, sum) = if (a == null) 0.0 to 0.0 else synchronized(a) { a[0] to a[4] }
-        return ownAgeOpen9004(n, sum, AgeProof9001.bandPays9004(CanonicalLaneIdentity6506.desk8392(lane), ageMin))
+        val a = agg[laneAgeKey9004(lane, ageMin)] ?: return false
+        val (n, sum) = synchronized(a) { a[0] to a[4] }
+        return ownAgeOpen9004(n, sum)
     }
 
     @Synchronized internal fun fold8500(key: String, o: RunnerFunnel8297.Outcome8297, realizedPct: Double) {
