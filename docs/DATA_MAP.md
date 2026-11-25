@@ -4257,3 +4257,25 @@ lane, 15-minute label, the miner's proof; 12-13 Nov as an out-of-time check wher
 **Limits.** Rows written before 9013 have no path and no desk setup. A desk setup is lost if the app restarts before the hour
 read. The native-desk yes/no observation (no candidate) names no strategy and keeps the playbook setup.
 
+## §199 — V5.0.9014: a quiet curve's confirming read is asked for; the three engines side by side
+
+**Lost prices, measured** (22-25 Nov exports): 15-minute labels with no price 23.3 % / 22.9 % / 42.0 % / 15.4 % by day
+(pump.fun curve 21.6 %, pump.fun pool 26.1 %, other pool 25.6 %); research rows 1 h 7.7 %, 4 h 21.0 %, 24 h 14.7 %
+(NO_PRICE_JUP_8884 and LATE_READ_8884). `quietCurve8750` over the last eight captures: served 27 / 28 / 14 / 0 / 100 / 0 / 0 / 0,
+unconfirmed 550 / 808 / 575 / 35 / 255 / 44 / 0 / 32.
+
+**What changed.** `QuietCurve8750.mark8750`: when a standing print has no curve account read at or after it, the read is
+requested (`OnChainDepth8038.needCurve8039`, the existing batched queue: one read a coin a minute, 2,000 pending at most).
+A read that exists and disagrees is not asked again. 8766's rule is unchanged. Status gains `readsAsked9014=`.
+
+**Not fixed here.** Pool coins' unpriced reads (a quarter of them): no export says why the price read returned nothing.
+
+**The three engines** (pipeline captures 16-25 Nov):
+
+| Engine | Record |
+|---|---|
+| Meme engine, live | 87 closes, -0.116 SOL; canonical 23 wins / 64 losses, profit factor 0.59 |
+| Crypto signal engine (8857), live | 0 closes in every capture. 19-21 Nov it passed 1-19 learned doors a session; since 21 Nov 13:48 it has passed none |
+| Why none | its backing record changed on 21 Nov from the crypto paper book (CRYPTO_ALT n666, +2.8 % a trade) to the twin graded on the live exits (CRYPTO_ALT n400, 112 wins / 184 losses, -2.2 % a trade; CRYPTO_SPOT n400, -0.2 %), which backs nothing |
+| Normal crypto lanes, research rows | every CRYPTO_* lane negative at 1 h (-1.8..-9.7 %); at 4 h CRYPTO_EXPRESS +5.3 %, CRYPTO_SHITCOIN +2.8 %, CRYPTO_CORE +0.5 % |
+

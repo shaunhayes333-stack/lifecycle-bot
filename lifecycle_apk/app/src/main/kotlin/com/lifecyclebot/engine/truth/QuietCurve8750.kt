@@ -65,11 +65,32 @@ object QuietCurve8750 {
         if (!stands8750(tp.second, tp.first, nowMs, lastProgramPrintMs, continuousSinceMs, grad)) return null
         val acct = CurveReserves7951.accountObservation8522(mint, nowMs, ACCOUNT_MAX_AGE_MS_8766)
         if (acct == null || !accountConfirms8766(tp.second, tp.first, acct.observedAtMs,
-                CurveReserves7951.priceSol7951(acct.virtualSol, acct.virtualTokens))) { unconfirmed8766.incrementAndGet(); return null }
+                CurveReserves7951.priceSol7951(acct.virtualSol, acct.virtualTokens))) {
+            unconfirmed8766.incrementAndGet()
+            // V5.0.9014 — the read that would confirm it is asked for (bounded: the curve refresh queue, one read a coin a minute)
+            if (needsRead9014(acct?.observedAtMs, tp.second)) try { OnChainDepth8038.needCurve8039(mint, nowMs); asked9014.incrementAndGet() } catch (_: Throwable) {}
+            return null
+        }
         served.incrementAndGet()
         return tp.first to acct.observedAtMs
     }
 
-    fun statusLine8750(): String = "quietCurve8750[served=${served.get()} unconfirmed8766=${unconfirmed8766.get()} streamGaps=${gaps.get()} " +
+    /**
+     * V5.0.9014 §THE_CONFIRMING_READ_IS_ASKED_FOR — owner, 25 Nov 20:07: "the lost prices thing i thought we fixed? if we see
+     * issues like that just fix them". It is not fixed: of the 22-25 Nov decisions 23 %, 23 %, 42 % and 15 % a day have no
+     * 15-minute price (pump.fun curve 21.6 %, pump.fun pool 26.1 %, other pool 25.6 %). For the curve coins the cause is
+     * here: 8766 lets a quiet curve's last print stand only when the coin's own curve ACCOUNT was read at or after that
+     * print, and nothing asked for that read — the last eight captures read served 27 / 28 / 14 / 0 / 100 / 0 / 0 / 0 against
+     * unconfirmed 550 / 808 / 575 / 35 / 255 / 44 / 0 / 32, so about 93 % of standing prints were thrown away for want of one
+     * account read. When the print stands and no account read at or after it is held, the read is now requested through
+     * the existing curve refresh queue (OnChainDepth8038.needCurve8039: batched, one read a coin a minute, 2,000 pending at
+     * most), so the labeler's next tick a few seconds on can confirm it. A read that exists and DISAGREES with the print is
+     * a real contradiction and is not asked again. The 8766 rule itself is unchanged: nothing stands unconfirmed.
+     */
+    private val asked9014 = AtomicLong()
+    /** Pure: is a confirming read missing (none held, or older than the print)? A read at or after the print that disagrees is not. */
+    fun needsRead9014(accountAtMs: Long?, printMs: Long): Boolean = accountAtMs == null || accountAtMs < printMs
+
+    fun statusLine8750(): String = "quietCurve8750[served=${served.get()} unconfirmed8766=${unconfirmed8766.get()} readsAsked9014=${asked9014.get()} streamGaps=${gaps.get()} " +
         "continuousForS=${if (continuousSinceMs > 0L) (System.currentTimeMillis() - continuousSinceMs) / 1000 else 0}]"
 }
