@@ -230,6 +230,7 @@ object DiagnosisBrief8438 {
             sb.append("               ").append(paperFunnel8536()).append('\n')
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.EdgeModel8537.statusLine() } catch (_: Throwable) { "edge8537[read failed]" }).append('\n')  // V5.0.8537
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.NetworkTier8873.statusLine8873() } catch (_: Throwable) { "network8873[read failed]" }).append('\n')  // V5.0.8873
+            sb.append("               ").append(try { com.lifecyclebot.engine.truth.AgeProof9001.statusLine9001() } catch (_: Throwable) { "ageProof9001{read failed}" }).append('\n')   // V5.0.9001
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.AgreementPocket8874.statusLine8874() } catch (_: Throwable) { "agreement8874[read failed]" }).append('\n')  // V5.0.8874
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.BasePocket8904.statusLine8904() } catch (_: Throwable) { "basePocket8904[read failed]" }).append('\n')  // V5.0.8904
             sb.append("               ").append(try { com.lifecyclebot.engine.truth.LaunchpadMigration8911.statusLine8911() } catch (_: Throwable) { "migration8911[read failed]" }).append('\n')  // V5.0.8911

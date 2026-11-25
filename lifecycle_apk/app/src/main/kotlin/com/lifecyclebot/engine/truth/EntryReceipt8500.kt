@@ -178,7 +178,8 @@ object EntryReceipt8500 {
 
     /** Pure: the cohorts one receipt folds into. */
     fun keysFor8500(r: Receipt8500): List<String> = listOf(
-        "door|${r.lane}|${r.door}", "stage|${r.lane}|${r.stage}", "runup|${runupBand8500(r.runupPct)}", "peak|${peakBand8500(r.vsPeak)}")
+        "door|${r.lane}|${r.door}", "stage|${r.lane}|${r.stage}", "runup|${runupBand8500(r.runupPct)}", "peak|${peakBand8500(r.vsPeak)}",
+        "age|${AgeProof9001.band9001(r.ageMin)}")   // V5.0.9001 — the axis the top-buys sit on
 
     @Synchronized internal fun fold8500(key: String, o: RunnerFunnel8297.Outcome8297, realizedPct: Double) {
         if (agg.size >= 400 && !agg.containsKey(key)) return
@@ -201,7 +202,7 @@ object EntryReceipt8500 {
             .ifBlank { "-" }
         return "entryReceipts8500[open=${open.size} unmatchedCurrent8510=${unmatchedCurrent8510.get()} historicalNoReceipt8510=${historicalNoReceipt8510.get()} " +
             "replay8522=${replayed8522.get()} outsideMeme8522=${outsideScope8522.get()} legacyUnknown8522=${legacyUnknown8522.get()} resolvedUnmatched8522=${resolvedUnmatched8522.get()} " +
-            "pendingWrite8522=$dirty8522 restoreDeferred8522=${deferred8522.size}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}}"
+            "pendingWrite8522=$dirty8522 restoreDeferred8522=${deferred8522.size}] byDoor{${fam("door", 8)}} byStage{${fam("stage", 8)}} byRunup{${fam("runup", 5)}} byPeak{${fam("peak", 4)}} byAge9001{${fam("age", 5)}}"
     }
 
     // ── persistence (doctrine: learnt state survives restarts) ──

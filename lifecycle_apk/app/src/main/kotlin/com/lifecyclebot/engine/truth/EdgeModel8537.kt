@@ -943,6 +943,7 @@ object EdgeModel8537 {
                 val y = managedTarget8722(r.lane, d("net"), r.costPct)
                 if (onceAcrossLanes8776(o.optString("mint"), o.optLong("t", 0L))) global.learn(x, y, solveNow = false)   // V5.0.8776
                 try { SignalTruth8825.note8825(o.optString("mint"), r.ageMin, d("net"), if (o.has("admitted")) o.optBoolean("admitted") else null) { k -> d(k) } } catch (_: Throwable) {}   // V5.0.8825 / 8827
+                try { AgeProof9001.note9001(r.lane, r.ageMin, d("net"), o.optBoolean("admitted"), o.optBoolean("fill", true)) } catch (_: Throwable) {}   // V5.0.9001
                 ownModel8722(r.lane)?.learn(x, y, solveNow = false)
                 used++
             } catch (_: Throwable) { /* corrupted dataset row is excluded, never used as an outcome */ }
@@ -1124,6 +1125,7 @@ object EdgeModel8537 {
     private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, llmP8875: Double = Double.NaN) {
         val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis(), llmP8875) } catch (_: Throwable) { return }
         try { NetworkTier8873.note8873(s.mint, s.raw.ageMin, s.raw.mcap, LearnerColumns8798.valueOf8873(s.raw.ext, "venue"), net, filled) } catch (_: Throwable) {}   // V5.0.8873
+        try { AgeProof9001.note9001(s.raw.lane, s.raw.ageMin, net, s.admitted, filled) } catch (_: Throwable) {}   // V5.0.9001
         io.execute {
             try {
                 val f = File(dir() ?: return@execute, DATASET_FILE)

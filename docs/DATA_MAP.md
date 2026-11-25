@@ -3806,3 +3806,38 @@ Change: when CurveReserves7951.realSolIfActive8046(mint) answers (a fresh readin
 backstop does not sell; label THIN_LIQ_BACKSTOP_LEFT_TO_CURVE_STOP_9000. Graduated and off-pump coins keep it, venue-checked
 since 8996. The lane hard -15 % stop (MANIPULATED / SHITCOIN / EXPRESS), dev-dump, drain and LP-pull exits are unchanged.
 
+
+## 186. The proof is read at the coin's own age (9001)
+
+Owner, 25 Nov: "the runner capture needs to stop buying the tops". Source: aate_edge_dataset_8537 exported 25 Nov 12:01
+(50,586 decisions labelled at 15 minutes, 6,047 coins, 70 hours) and the four live trade files (113 closed live positions,
+43 matched to a decision row within 10 minutes).
+
+| admitted decisions | n | mean net | reach +40 % | halves |
+|---|---|---|---|---|
+| coin under 15 min, cap $6k-$30k | 1,682 | +30.2 % +- 2.4 | 29.8 % | +27.8 / +33.4 |
+| coin under 15 min, cap $30k-$150k | 479 | +37.8 % +- 17.3 (capped +11.5) | 17.5 % | +52.8 / +5.8 |
+| coin 15-60 min, cap $6k-$30k | 247 | -5.0 % +- 3.1 | 8.9 % | -4.7 / -5.4 |
+| coin 1-24 h (all caps) | 947 | -6 % to -7 % by cap | 2-5 % | all negative but one cell |
+| coin over 24 h, cap $6k+ | 1,998 | -2.9 % to -3.9 % | 0.2-1.8 % | all negative |
+
+Coins an hour old or more: 23,448 rows, 1,472 coins, mean -3.0 % +- 0.2; no band of chg5m, chg1h, drawdown, run-up, tx
+velocity, buy pressure, liquidity, model prediction or v3 score pays on both halves. Live: 30 of 43 matched buys were
+MATURE-phase coins (3 wins, -0.085 SOL); 7 EXPANDING (5 wins, +0.041 SOL). Receipts: 45 of 54 live closes entered through
+SPECIFIC_EDGE_PROVEN_8136, 36 of them LOSS_BOUGHT_TOP. The receipt's run-up and peak bands do not separate them
+(<15 % run-up: 26 of 32 bought the top); age does.
+
+Where the young edge sits (same export): off-pump pools read LP-unlocked, n 1,600 / 431 coins, +40.4 % +- 2.2, 74 % wins,
+5.5 % lose 30 %+ (venue METEORA n 1,012, PUMPSWAP n 478) - the cohort the 70 % lock rule refuses; pump.fun curve coins
+under 15 minutes, n 12,084, -0.8 %, except 30-80 unique buyers n 583 / 184 coins +35.8 % +- 8.1 (capped +16.7, halves
++41.1 / +29.2) and 80-200 holders n 343 +21.2 % +- 5.0 (halves +20.9 / +21.4). These two curve cells are candidates, not
+rules: found by scanning columns, to be confirmed forward before anything trades on them.
+
+Change (AgeProof9001): per lane, the admitted labels are kept by age band (UNDER_15M, 15M_1H, 1H_24H, OVER_24H; each label
+capped at +300 %). gap = lane mean - (band mean + SE), floor 0, cap 25, needs n>=300 lane and n>=100 band. LIVE, the gap
+is added to the realised shortfall for records pooled over every age - setup, setup timing, Cortex cohort, runner grab -
+at the support tests only (Candidate8136.pooledShortfall9001). The cell (source x lane x cap x age) and the pockets carry
+their own age and are not shifted; loss tests read raw records; nothing is added for a band that pays more. No terminal
+is added: a record that no longer clears its bar is not proof for that coin, and the candidate continues to the lane's
+ordinary checks. Built from EdgeModel8537.appendDataset and the dataset replay at start; memory only.
+Report: ageProof9001{...} in the brief; entryReceipts8500 byAge9001{...}; label AGE_PROOF_GAP_9001_<band>.

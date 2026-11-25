@@ -203,13 +203,17 @@ object CandidateAdmission8136 {
         val marketCell8723: Evidence8136? = null,
         /** V5.0.8546 — LIVE, Solana meme lane, and MemeRegime8546 reads COLD (every source losing). */
         val regimeCold8546: Boolean = false,
+        /** V5.0.9001 — LIVE: points the coin's own age band runs below the lane's pooled admitted labels (AgeProof9001). */
+        val ageGap9001: Double = 0.0,
     ) {
+        /** V5.0.9001 — what comes off a record POOLED over every age (setup, timing, Cortex cohort, runner grab) at a support test. */
+        val pooledShortfall9001: Double get() = liveShortfall8290 + ageGap9001
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
-        val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, liveShortfall8290) ?: it }
+        val setupsProof8290: List<Evidence8136> get() = setups.map { LiveAdmissionProof8290.shift8290(it, pooledShortfall9001) ?: it }
         /** V5.0.8316 — each setup's timing-band record past the shortfall (StrategyRank8153's support ranking only). */
-        val setupTimingsProof8290: Map<String, Evidence8136> get() = setupTimings.mapValues { LiveAdmissionProof8290.shift8290(it.value, liveShortfall8290) ?: it.value }
+        val setupTimingsProof8290: Map<String, Evidence8136> get() = setupTimings.mapValues { LiveAdmissionProof8290.shift8290(it.value, pooledShortfall9001) ?: it.value }
         /** V5.0.8316 — the selected setup's timing record past the shortfall. */
-        val timingProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(timing, liveShortfall8290)
+        val timingProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(timing, pooledShortfall9001)
         /** V5.0.8316 — the coin's cell past the shortfall (the live positive cell record). */
         val cellProof8290: Evidence8136? get() = LiveAdmissionProof8290.shift8290(cell, liveShortfall8290)
         /** V5.0.8316 — the post-epoch cell past the shortfall (liveCell8210's support read). */
@@ -532,6 +536,7 @@ object CandidateAdmission8136 {
         var net = if (decisionGross.isFinite() && c.costPct.isFinite()) decisionGross - c.costPct else Double.NaN
         trace += "gross=${fmt8136(decisionGross)} cost=${fmt8136(c.costPct)} net=${fmt8136(net)} downside=${fmt8136(c.downsidePct)}" +
             (if (c.costSizeSol.isFinite()) " costSize=${"%.4f".format(c.costSizeSol)}SOL" else "")
+        if (c.ageGap9001 > 0.0) trace += "ageGap9001=${fmt8136(-c.ageGap9001)} off the pooled records (setup / timing / cortex / runner grab) for this coin's age band"
         if (c.liveShortfall8290 > 0.0) trace += "liveShortfall8290=${fmt8136(-c.liveShortfall8290)} off every label record at the support tests (loss tests read raw, 8316)"
         fun done(t: Terminal8136, reason: String, specific: Boolean, setup: String?, basis: String = ""): Decision8136 =
             Decision8136(t, reason, specific, setup, net, trace.toList(), basis.ifBlank { reason },
@@ -797,8 +802,8 @@ object CandidateAdmission8136 {
         val chosenProof8316 = c.setupsProof8290.firstOrNull { it.id == chosen }
         val edge = listOfNotNull(bestSetup ?: chosenProof8316?.takeIf { supported8136(it, c.costPct) }, liveCellProof8290?.takeIf { cellSupported },
             // V5.0.8290 — the Cortex cohort is read past the same realised shortfall as every other label record.
-            LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.liveShortfall8290)?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
-            LiveAdmissionProof8290.shift8290(c.runnerGrab8245, c.liveShortfall8290)?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) },   // V5.0.8245 / 8316
+            LiveAdmissionProof8290.shift8290(c.cortexStrong8200, c.pooledShortfall9001)?.takeIf { supported8136(it, c.costPct) && !losing8136(cellLoss) },  // V5.0.8200
+            LiveAdmissionProof8290.shift8290(c.runnerGrab8245, c.pooledShortfall9001)?.takeIf { grabSupported8245(it) && !losing8136(cellLoss) },   // V5.0.8245 / 8316
             market8723?.takeIf { !losing8136(cellLoss) || pocketAnswersCell8971 })   // V5.0.8723; 8971: a proven pocket answers the cell
             .maxByOrNull { it.lowerPct }
         if (edge?.kind == KIND_RUNNER_GRAB_8245) {
@@ -2303,6 +2308,7 @@ object CandidateAdmission8136 {
             lossEpochAware8169 = true,
             live = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false },
             liveShortfall8290 = extra8290,
+            ageGap9001 = AgeProof9001.gapFor9001(ts, lane, live8290),
             cellLoss8169 = cellLoss8169,
             stageLoss8169 = stageLoss8169,
             cortexStrong8200 = try { com.lifecyclebot.engine.cortex.Cortex7885.strongCohortEvidence8200(ts, lane) } catch (_: Throwable) { null },  // V5.0.8290 — shifted in decide8136
