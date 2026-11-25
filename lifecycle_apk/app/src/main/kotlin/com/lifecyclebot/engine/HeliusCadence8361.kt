@@ -246,9 +246,11 @@ object HeliusCadence8361 {
         // most of it and fed only WHALE_BIG_* signals. Owner, alpha and active copy wallets stay subscribed.
         // V5.0.8713 — the alpha + copy slots are sized for the mined list (25); pump.fun's top fifty have their own.
         val board = CopyTradeEngine.boardWallets8713()
-        val mined = copyActive.filter { it !in board }
+        // V5.0.9020 — the owner's named traders have their own slots too: every one of them is asked for.
+        val named9020 = copyActive.filter { com.lifecyclebot.engine.truth.NamedTraders9020.isNamed9020(it) }
+        val mined = copyActive.filter { it !in board && it !in named9020 }
         val out = (watchListOf8361(emptyList(), alpha, mined, ExpertWallets7962.OWNER_WALLET_7962) +
-            copyActive.filter { it in board }.take(ExpertWallets7962.BOARD_SIZE_8713)).distinct()
+            copyActive.filter { it in board }.take(ExpertWallets7962.BOARD_SIZE_8713) + named9020).distinct()
         watching = out.size
         return out
     }

@@ -67,7 +67,8 @@ class Aate8713PumpFunBoardTest {
         assertTrue(cte.contains("header(\"Authorization\", \"Bearer \$it\")"))
         val smd = src("engine/SmartMoneyDiscovery7277.kt")
         assertTrue(smd.contains("pushWatchlist8713(engine, onWatchlistChanged)"))
-        assertTrue(smd.contains("engine?.getWallets()?.count { !CopyTradeEngine.isBoardWallet8713(it) }"))
+        // superseded by V5.0.9020: the owner's named traders are not counted against the miner's cap either
+        assertTrue(smd.contains("engine?.getWallets()?.count { !CopyTradeEngine.isBoardWallet8713(it) && !CopyTradeEngine.isNamedWallet9020(it) }"))
         assertTrue(src("engine/HeliusCadence8361.kt").contains("copyActive.filter { it in board }.take(ExpertWallets7962.BOARD_SIZE_8713)"))
         assertTrue(src("ui/DataKeysCard7962.kt").contains("ConfigStore.savePumpFunApiKey8713(a, typed)"))
         assertTrue(File("src/main/res/layout/activity_main.xml").readText().contains("android:id=\"@+id/etPumpFunApiKeyMain8713\""))

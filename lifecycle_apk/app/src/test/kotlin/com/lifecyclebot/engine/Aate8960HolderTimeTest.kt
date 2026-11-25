@@ -47,7 +47,8 @@ class Aate8960HolderTimeTest {
 
     @Test fun theBuyDoorAndTheBlockReadTheSameDatedProof() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
-        org.junit.Assert.assertTrue(gate.contains("holderBlock9019(holderProof8960(ts, ts.safety, nowMs).adversePct, singleHolderPct9019(ts.mint))"))
+        // superseded by V5.0.9020: one read of the launch facts, judged net of the owner's named traders (holderBlockFor9020)
+        org.junit.Assert.assertTrue(gate.contains("holderBlockFor9020(holderProof8960(ts, ts.safety, nowMs).adversePct, ts.mint)"))
         org.junit.Assert.assertTrue(gate.contains("val holder8522 = holderProof8960(ts, safety, System.currentTimeMillis())"))
         org.junit.Assert.assertTrue("undated state can never override fresher dated evidence",
             gate.contains("freshState != null && fresh != null -> maxOf(freshState, fresh)"))

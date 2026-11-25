@@ -89,9 +89,12 @@ class Aate9016DexExtrasTest {
 
     @Test fun theColumnsAreAppendedAfterEveryOlderOne() {
         val added = listOf("metaHeat1h", "metaHeat6h", "metaTokens", "dexAd", "dexAdImpr", "profileUpdAgeMin", "poolLabel")
-        assertEquals("older columns keep their positions", added, LearnerColumns8798.NAMES.takeLast(added.size))
-        assertEquals("devPriorDumpRate", LearnerColumns8798.NAMES[LearnerColumns8798.SIZE - added.size - 1])
-        assertEquals(added, TreeRanker8737.FEATURES.takeLast(added.size))
+        // superseded by V5.0.9020: three named-trader columns follow these seven, which still sit directly after every older column
+        val at = LearnerColumns8798.NAMES.indexOf("metaHeat1h")
+        assertEquals("older columns keep their positions", added, LearnerColumns8798.NAMES.subList(at, at + added.size))
+        assertEquals("devPriorDumpRate", LearnerColumns8798.NAMES[at - 1])
+        val fAt = TreeRanker8737.FEATURES.indexOf("metaHeat1h")
+        assertEquals(added, TreeRanker8737.FEATURES.subList(fAt, fAt + added.size))
         val s = File("src/main/kotlin/com/lifecyclebot/engine/truth/LearnerColumns8798.kt").readText()
         val fn = s.substringAfter("fun extract(ts: TokenState").substringBefore("fun fromRow(")
         assertTrue(fn.contains("dx.tick9016(nowMs)"))

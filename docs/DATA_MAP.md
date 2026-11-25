@@ -4483,3 +4483,50 @@ launch). Applied at the buy door and at the admission's probe of it.
 proven wallets buying in the last 5 minutes — goes the other way inside concentrated coins (top-10 35 %+): with proven
 buyers n796 -3.3 % +/- 1.9, without n1,265 +3.3 % +/- 2.8. That is not the same question, so it is not a refutation; it is
 no support either. Needs the holders' wallets matched to a named list before it can be measured.
+
+## §205 — V5.0.9020: the owner's named traders — followed, copied, and not counted as an unknown whale
+
+Owner, 25 Nov 22:05: "if the top holders are all kols or good traders thats ok!" — then the list ("top 50 below": the 50
+most profitable pump.fun / PumpSwap wallets of the trailing 15 days, dEdge leaderboard snapshot of 25 Nov 2026) and 22:19:
+"these should also be wallets we follow and copy trade".
+
+**What the phone showed before this build** (5.0.9016, LIVE, 21:53):
+
+| Reading | Value |
+|---|---|
+| `leaderboard8418[... topTraders8713=` | 0/50 — pump.fun developer key MISSING, gmgn.ai benched (challenge, 23 h) |
+| `helius8307[... whaleAccounts=` | 3 — of 26 wallets asked (`alpha8361[... watching=26`) |
+| why 3 | `HeliusCreditEconomy7881.streamWidth` = asked x value; value = 0.15 because the mined COPY book is `PAPER_ONLY(n=3175 mean-SE=-2.8% pf=0.98)` |
+| `alpha8361[... buysSeen= sellsSeen=` | 0 / 0 in 13 minutes |
+| `SMART_MONEY_COPY_BUY_ENQUEUED_7277` | 4 (from the tape, not the stream) |
+
+The bot was following three wallets. Added to the same list, the fifty would have been cut to about ten.
+
+**`NamedTraders9020`** (`engine/truth`): the list, in rank order (`WALLETS_9020`, list id `dedge-pump-15d-2026-11-25`). Every
+address decodes to a 32-byte key (asserted in the test); none could be checked against the leaderboard from the build
+machine — a wrong address never matches a holder and never trades.
+
+| | What | Where |
+|---|---|---|
+| FOLLOW | each named wallet joins the copy list once per list id (label `TOP_NAMED_<4>_#<rank>`, tier TOP); a wallet the owner removes afterwards stays removed; the board sync never drops it; the miner's cap does not count it | `CopyTradeEngine.seedNamed9020`, `SmartMoneyDiscovery7277` |
+| | every named wallet is asked for on the smart-money stream, and watched whole: the width the mined book's record sets applies to the other wallets only | `HeliusCadence8361.watchList8361`, `NamedTraders9020.streamList9020` in `HeliusEnhancedWS.affordable7881` |
+| | their swaps extend their expert histories (entry charts, MC x age cells, exit profiles); named wallets are learned past the 60-wallet roster cap and keep 400 stream legs each, not 1,200 (heap 452/512 MB) | `ExpertWallets7962` |
+| COPY | a named wallet's buy is a copy signal exactly like any tracked wallet's: INSIDER_SHARK candidate -> V3 -> FDG -> sizing, every safety proof unchanged; it arms EXPERT_ENTRY for 15 minutes | unchanged route (`BotService` onCopySignal) |
+| | graded on its own record: `SignalSourceProof7291.Source.NAMED` (settled live closes + 60-minute forward labels). A later mined-wallet buy does not take the coin off the named record | `NamedTraders9020.sourceFor9020`, `SignalSourceProof7291.stamp` |
+| | a tracked wallet selling half or more of a coin the bot holds was already an exit signal | `BotService.smartMoneySellExit7745` |
+| HOLDERS | the single-wallet limit (5 %) judges the largest wallet NOT on the list; the top-10 limit (50 % spread / 35 % unread) is read net of what named wallets hold inside the ten largest. Thresholds unchanged | `LaunchFacts8840.Facts.top1UnnamedPct` / `namedTop10Pct`, `PreTradeHardGate.holderBlockFor9020` |
+
+**Not measured — the owner's rule, built so it is.** No capture names a holder, so nothing here was graded before it was
+built. What grades it from the next run:
+
+- the NAMED row of the signal sources line (`NAMED[n= wr= mean= pf= labeled7731[n= mean= pf=]]`);
+- dataset columns (appended after `poolLabel`; the tree ranker refits on the new column count): `top1UnnamedPct`,
+  `namedTop10Pct`, `namedBuyers30m` (named wallets that bought the coin in the last 30 minutes and have not sold);
+- `namedTraders9020[list= wallets=50 seededThisRun= buysSeen= sellsSeen= lastBuy= coinsBought30m= coins2plus30m=
+  holderReadsExempted=]` on the diagnosis brief.
+
+**Limits.** The list is a 15-day snapshot and goes stale; the live board that would refresh it needs a pump.fun developer
+key (Settings -> data keys). The histories start at install: listed wallets are not back-filled (8361). A copy candidate
+still meets every door the 21:53 capture counted (`LP_OWNERSHIP_PROOF_PENDING_8522=1112`, `DATA_INCOMPLETE_DEFER_8136`): a
+named trader's buy brings the coin to the bot sooner, it does not buy it. Fifty busy wallets on the stream add push volume
+and candidates on a heap that already reads 88 %.

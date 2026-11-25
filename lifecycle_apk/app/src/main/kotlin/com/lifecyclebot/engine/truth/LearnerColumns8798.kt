@@ -47,6 +47,8 @@ object LearnerColumns8798 {
         // list since the app started and still running, 0 = not seen there, NaN while that list is unread) and its
         // impressions, minutes since its profile was last edited, and its data pool's type tag
         "metaHeat1h", "metaHeat6h", "metaTokens", "dexAd", "dexAdImpr", "profileUpdAgeMin", "poolLabel",
+        // V5.0.9020 — the owner's named traders: the largest holder not on the list, their share of the ten largest, how many bought in 30 min
+        "top1UnnamedPct", "namedTop10Pct", "namedBuyers30m",
     )
     val SIZE: Int = NAMES.size
     private val INDEX: Map<String, Int> = NAMES.withIndex().associate { it.value to it.index }
@@ -153,6 +155,7 @@ object LearnerColumns8798 {
                 put("bundleBuyers", fa.bundleBuyers.toDouble()); put("bundlePct", fa.bundlePct)
                 put("sniperBuyers", fa.sniperBuyers.toDouble()); put("sniperPct", fa.sniperPct)
                 put("top1Pct", fa.top1Pct); put("top5Pct", fa.top5Pct); put("uniqueBuyers", fa.uniqueBuyers.toDouble())
+                put("top1UnnamedPct", fa.top1UnnamedPct); put("namedTop10Pct", fa.namedTop10Pct)   // V5.0.9020
                 if (fa.creatorKnown) {
                     put("devPriorLaunches", prior.first.toDouble())
                     put("devPriorRunnerRate", if (prior.first > 0) prior.second.toDouble() / prior.first else Double.NaN)
@@ -168,6 +171,7 @@ object LearnerColumns8798 {
             val ad = dx.adOf9016(mint, nowMs)
             if (ad != null) { put("dexAd", 1.0); put("dexAdImpr", ad.impressions) } else if (dx.adsFresh9016(nowMs)) put("dexAd", 0.0)
             put("profileUpdAgeMin", dx.profileUpdAgeMin9016(mint, nowMs)); put("poolLabel", dx.labelOf9016(mint))
+            put("namedBuyers30m", NamedTraders9020.buyers9020(mint, nowMs).toDouble())   // V5.0.9020
         } catch (_: Throwable) {}
         note(x)
         return x

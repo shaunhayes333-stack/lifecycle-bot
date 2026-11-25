@@ -157,7 +157,7 @@ object PreTradeHardGate {
      * each one a dropped ticket and a lease backoff (BUY_LEASE_BACKOFF_ENDS_TICKET_8545). Same proof, same threshold.
      */
     fun holderBlock8684(ts: TokenState, nowMs: Long = System.currentTimeMillis()): String? =
-        holderBlock9019(holderProof8960(ts, ts.safety, nowMs).adversePct, singleHolderPct9019(ts.mint))
+        holderBlockFor9020(holderProof8960(ts, ts.safety, nowMs).adversePct, ts.mint)
 
     /**
      * V5.0.9019 §NO_ONE_WALLET_OVER_THE_LIMIT — owner, 25 Nov 22:05: "general rule on pump is no one should own more than
@@ -177,8 +177,38 @@ object PreTradeHardGate {
     internal const val TOP10_SPREAD_FATAL_PCT_9019 = 50.0
 
     /** The largest single wallet's share of [mint] from the launch's own decoded trades; NaN when the launch was not followed. */
-    internal fun singleHolderPct9019(mint: String): Double =
-        try { com.lifecyclebot.engine.truth.LaunchFacts8840.snapshot8840(mint)?.first?.top1Pct ?: Double.NaN } catch (_: Throwable) { Double.NaN }
+    internal fun singleHolderPct9019(mint: String): Double = try {
+        val f = com.lifecyclebot.engine.truth.LaunchFacts8840.snapshot8840(mint)?.first
+        singleJudged9020(f?.top1Pct ?: Double.NaN, f?.top1UnnamedPct ?: Double.NaN)   // V5.0.9020 — the largest wallet that is not a named trader
+    } catch (_: Throwable) { Double.NaN }
+
+    /**
+     * V5.0.9020 §A_NAMED_TRADER_IS_NOT_AN_UNKNOWN_WHALE — owner, 25 Nov 22:05: "if the top holders are all kols or good
+     * traders thats ok!", with the list (NamedTraders9020). The limits judge the wallets that are NOT on the list: the
+     * single-wallet limit reads the largest unnamed wallet, the top-10 limit is read net of what named wallets hold inside
+     * the ten largest. Both thresholds are unchanged, and a tracked wallet selling half or more of a coin the bot holds is
+     * an exit signal (BotService.smartMoneySellExit7745). Not measured yet: `top1UnnamedPct` / `namedTop10Pct` in the dataset.
+     */
+    internal fun singleJudged9020(top1Pct: Double, top1UnnamedPct: Double): Double =
+        if (top1UnnamedPct.isFinite() && top1UnnamedPct >= 0.0) top1UnnamedPct else top1Pct
+
+    /** Pure: the top-10 share net of the named wallets' holdings inside it ([namedTop10Pct] NaN = not read). */
+    internal fun top10Judged9020(top10Pct: Double, namedTop10Pct: Double): Double =
+        if (namedTop10Pct.isFinite() && namedTop10Pct > 0.0 && top10Pct.isFinite()) (top10Pct - namedTop10Pct).coerceAtLeast(0.0) else top10Pct
+
+    internal fun top10JudgedFor9020(top10Pct: Double, mint: String): Double = try {
+        top10Judged9020(top10Pct, com.lifecyclebot.engine.truth.LaunchFacts8840.snapshot8840(mint)?.first?.namedTop10Pct ?: Double.NaN)
+    } catch (_: Throwable) { top10Pct }
+
+    /** The holder block for [mint] with one read of its launch facts; counts a block the named list lifted. */
+    internal fun holderBlockFor9020(top10Pct: Double, mint: String): String? {
+        val f = (try { com.lifecyclebot.engine.truth.LaunchFacts8840.snapshot8840(mint)?.first } catch (_: Throwable) { null })
+            ?: return holderBlock9019(top10Pct, Double.NaN)
+        val judged = holderBlock9019(top10Judged9020(top10Pct, f.namedTop10Pct), singleJudged9020(f.top1Pct, f.top1UnnamedPct))
+        if (judged == null && holderBlock9019(top10Pct, f.top1Pct) != null)
+            try { com.lifecyclebot.engine.truth.NamedTraders9020.noteExemption9020() } catch (_: Throwable) {}
+        return judged
+    }
 
     /** Pure: the holder block for a top-10 share [top10Pct] and the largest single wallet's share [singlePct] (NaN = not read). */
     internal fun holderBlock9019(top10Pct: Double, singlePct: Double): String? {
@@ -416,8 +446,9 @@ object PreTradeHardGate {
         // Freeze is already fail-closed above; do not wait for an impossible
         // FREEZE_AUTHORITY_UNKNOWN marker before deferring other missing proofs.
         val single9019 = singleHolderPct9019(ts.mint)   // V5.0.9019 — one wallet over the limit, or ten wallets over theirs
-        if (holderBlock9019(topHolder, single9019) != null) {
-            return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder singleHolderPct=$single9019 " +
+        val top10J9020 = top10JudgedFor9020(topHolder, ts.mint)   // V5.0.9020 — net of the owner's named traders
+        if (holderBlock9019(top10J9020, single9019) != null) {
+            return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder unnamedTop10=$top10J9020 singleUnnamedPct=$single9019 " +
                 "max=$TOP_HOLDER_FATAL_PCT single=$SINGLE_HOLDER_FATAL_PCT_9019 spread=$TOP10_SPREAD_FATAL_PCT_9019")
         }
         // If BOTH critical holder ownership and the provider report are blind,

@@ -555,7 +555,8 @@ object ExpertWallets7962 {
             if (w.address == OWNER_WALLET_7962 || !w.isActive) continue
             val e = experts[w.address]
             if (e == null) {
-                if (experts.size >= MAX_EXPERTS) continue
+                // V5.0.9020 — the owner's named traders are learned whatever the roster holds (their legs are capped lower).
+                if (experts.size >= MAX_EXPERTS && !com.lifecyclebot.engine.truth.NamedTraders9020.isNamed9020(w.address)) continue
                 experts[w.address] = Expert(w.address, tierOfLabel(w.label), w.label)
             } else { e.tier = tierOfLabel(w.label); e.label = w.label }
         }
@@ -981,7 +982,8 @@ object ExpertWallets7962 {
         }
         for (w in touched) {
             val h = hists[w] ?: continue
-            if (h.legs.size > MAX_LEGS) { val keep = h.legs.sortedByDescending { it.tsMs }.take(MAX_LEGS); h.legs.clear(); h.legs.addAll(keep) }
+            val cap9020 = if (com.lifecyclebot.engine.truth.NamedTraders9020.isNamed9020(w)) com.lifecyclebot.engine.truth.NamedTraders9020.MAX_LEGS_9020 else MAX_LEGS
+            if (h.legs.size > cap9020) { val keep = h.legs.sortedByDescending { it.tsMs }.take(cap9020); h.legs.clear(); h.legs.addAll(keep) }
             val tier = if (w == OWNER_WALLET_7962) Tier7962.OWNER else experts[w]?.tier ?: Tier7962.SMART
             enqueueTrips(h, tier)
             saveHist(h)

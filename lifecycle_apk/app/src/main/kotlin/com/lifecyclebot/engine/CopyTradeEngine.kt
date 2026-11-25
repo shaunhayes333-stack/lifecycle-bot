@@ -134,7 +134,7 @@ class CopyTradeEngine(
         solAmount: Double,
         isBuy: Boolean,
     ) {
-        if (!isBuy) return
+        if (!isBuy) { try { com.lifecyclebot.engine.truth.NamedTraders9020.noteSell9020(mint, buyerWallet) } catch (_: Throwable) {}; return }   // V5.0.9020
         // V5.0.7962 — the pump.fun / Helius tape routes EVERY trade here. A buy by a wallet
         // nobody tracks is tape, not a smart-money detection: 5.0.7958 counted 1,965 of them
         // as INSUFFICIENT_EVIDENCE rejections (detected=2008 rejected=2002), burying the
@@ -170,6 +170,7 @@ class CopyTradeEngine(
             } catch (_: Throwable) {}
             // V5.0.7962 — an expert's (OWNER / top trader / smart money) buy arms EXPERT_ENTRY on this mint.
             try { ExpertWallets7962.onTrackedBuy7962(mint, buyerWallet, now) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.truth.NamedTraders9020.noteBuy9020(mint, buyerWallet, now) } catch (_: Throwable) {}   // V5.0.9020
         }
         val isDupe = recentSignals.any { s ->
             s.mint == mint && s.trackedWallet == buyerWallet && now - s.ts < 30_000L
@@ -275,7 +276,31 @@ class CopyTradeEngine(
         return add.size + drop.size
     }
 
+    /**
+     * V5.0.9020 — the owner's named traders (NamedTraders9020) join the copy list, once per list: a wallet the owner removes
+     * afterwards stays removed. A listed wallet already tracked under another label keeps its record and takes the named
+     * label (tier TOP; never dropped by the board sync). Returns the number added.
+     */
+    internal fun seedNamed9020(nowMs: Long = System.currentTimeMillis()): Int {
+        val named = com.lifecyclebot.engine.truth.NamedTraders9020
+        val (add, relabel) = named.seedPlan9020(wallets.mapValues { it.value.label }, prefs.getString("named_list_9020", null)) ?: return 0
+        for (a in add) wallets[a] = CopyWallet(
+            address = a, label = named.label9020(a), isActive = true,
+            totalCopied = 0, wins = 0, losses = 0, totalPnlSol = 0.0, addedAt = nowMs, lastSeenMs = 0L,
+        )
+        for (a in relabel) wallets[a]?.let { wallets[a] = it.copy(label = named.label9020(a), isActive = true) }
+        boardAddrs8713 = wallets.values.filter { isBoardWallet8713(it) }.map { it.address }.toSet()
+        saveWallets()
+        prefs.edit().putString("named_list_9020", named.LIST_ID_9020).apply()
+        named.noteSeeded9020(add.size)
+        onLog("🎯 Named traders: +${add.size} on the copy list (${relabel.size} relabelled) | list ${named.LIST_ID_9020}")
+        return add.size
+    }
+
     companion object {
+        /** V5.0.9020 — a wallet on the owner's named-trader list (its stream slots and the miner's cap are its own). */
+        fun isNamedWallet9020(w: CopyWallet): Boolean = com.lifecyclebot.engine.truth.NamedTraders9020.isNamed9020(w.address)
+
         const val BOARD_LABEL_8713 = "TopTrader_"
         const val BOARD_REFRESH_MS_8713 = 10L * 60_000L
         @Volatile private var boardAddrs8713: Set<String> = emptySet()
@@ -334,8 +359,8 @@ class CopyTradeEngine(
     }
 
     fun loadWallets() {
-        val json = prefs.getString("wallets", null) ?: return
-        try {
+        val json = prefs.getString("wallets", null)
+        if (json != null) try {
             val arr = org.json.JSONArray(json)
             for (i in 0 until arr.length()) {
                 val o = arr.optJSONObject(i) ?: continue
@@ -355,6 +380,7 @@ class CopyTradeEngine(
             }
         } catch (_: Exception) {}
         boardAddrs8713 = wallets.values.filter { isBoardWallet8713(it) }.map { it.address }.toSet()   // V5.0.8713
+        try { seedNamed9020() } catch (_: Throwable) {}   // V5.0.9020
     }
 
     /** V5.0.8418 — the last get()'s HTTP code (0 = transport failure) and whether it was a challenge page. */

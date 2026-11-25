@@ -44,6 +44,7 @@ class Aate8684CortexReturnTest {
         assertTrue(adm.contains("PreTradeHardGate.holderBlock8684(ts, nowMs)"))
         val gate = src("engine/PreTradeHardGate.kt")
         assertTrue("the buy door keeps its own check", gate.contains("return block(ts, \"TOP_HOLDER_CONCENTRATION\""))
-        assertTrue(gate.contains("holderBlock9019(holderProof8960(ts, ts.safety, nowMs).adversePct, singleHolderPct9019(ts.mint))"))
+        // superseded by V5.0.9020: one read of the launch facts, judged net of the owner's named traders (holderBlockFor9020)
+        assertTrue(gate.contains("holderBlockFor9020(holderProof8960(ts, ts.safety, nowMs).adversePct, ts.mint)"))
     }
 }

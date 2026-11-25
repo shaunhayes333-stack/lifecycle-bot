@@ -30,7 +30,8 @@ object SignalSourceProof7291 {
     // V5.0.7830 — LLM_SCOUT: verified mints from GroqTokenScout7830. Measured
     // here like every other signal source; nothing reads isProven(LLM_SCOUT)
     // for authority (Field Manual L309 — a social thesis earns nothing until proven).
-    enum class Source { COPY, NETWORK, LLM_SCOUT }
+    /** V5.0.9020 — NAMED: copy signals from the owner's named-trader list (NamedTraders9020), graded apart from the mined wallets' COPY book. */
+    enum class Source { COPY, NETWORK, LLM_SCOUT, NAMED }
 
     private const val MIN_CLOSES = 20
     private const val MIN_PF = 1.2
@@ -53,7 +54,7 @@ object SignalSourceProof7291 {
         fun mean() = if (n > 0) sumRet / n else 0.0
     }
 
-    private val tallies = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally())
+    private val tallies = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally(), Source.NAMED to Tally())
     // V5.0.7731 — evidence from forward labels. 5.0.7729: COPY detected 2,666
     // smart-money buys, created 339 candidates, and read n=0 PAPER_ONLY with
     // 99 pending stamps, because this proof grades only canonical closes and
@@ -62,11 +63,11 @@ object SignalSourceProof7291 {
     // paper evidence the live book cannot produce. Kept in its own tally so
     // the report shows which kind of proof a source earned.
     private const val MIN_LABELS_7731 = 50
-    private val labeled7731 = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally())
+    private val labeled7731 = mapOf(Source.COPY to Tally(), Source.NETWORK to Tally(), Source.LLM_SCOUT to Tally(), Source.NAMED to Tally())
     private val stamps = ConcurrentHashMap<String, Pair<Source, Long>>()
     // V5.0.7962 — [n, sum, sumSq] of the labels seen since 7962, for the standard error the
     // evidence-based promotion (liveEligible7962) needs; older labels carry no squares.
-    private val labeledSq7962 = mapOf(Source.COPY to DoubleArray(3), Source.NETWORK to DoubleArray(3), Source.LLM_SCOUT to DoubleArray(3))
+    private val labeledSq7962 = mapOf(Source.COPY to DoubleArray(3), Source.NETWORK to DoubleArray(3), Source.LLM_SCOUT to DoubleArray(3), Source.NAMED to DoubleArray(3))
     private val subscribed = AtomicBoolean(false)
     @Volatile private var prefs: SharedPreferences? = null
 
@@ -126,7 +127,10 @@ object SignalSourceProof7291 {
     fun stamp(source: Source, mint: String) {
         if (mint.isBlank()) return
         ensureSubscribed()
-        stamps[mint] = source to System.currentTimeMillis()
+        val now9020 = System.currentTimeMillis()
+        // V5.0.9020 — a mined wallet buying after a named trader does not take the coin off the named list's record
+        if (source == Source.COPY && stamps[mint]?.let { it.first == Source.NAMED && now9020 - it.second <= STAMP_TTL_MS } == true) return
+        stamps[mint] = source to now9020
         try { PipelineHealthCollector.labelInc("SIGNAL_SOURCE_STAMPED_7291_${source.name}") } catch (_: Throwable) {}
     }
 

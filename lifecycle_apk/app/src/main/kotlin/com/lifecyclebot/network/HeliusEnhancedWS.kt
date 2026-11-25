@@ -374,8 +374,10 @@ object HeliusEnhancedWS {
      */
     private fun affordable7881(requested: List<String>): List<String> = try {
         // V5.0.7962 — OWNER and top-trader wallets first, so the affordable prefix always watches them.
-        com.lifecyclebot.engine.ExpertWallets7962.prioritise7962(requested)
-            .take(com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.streamWidth(requested.size))
+        // V5.0.9020 — the owner's named traders are watched whole; the width the copy book's record sets applies to the rest
+        // (5.0.9016: 3 of 26 wallets subscribed, the list would have been cut to a fifth).
+        com.lifecyclebot.engine.truth.NamedTraders9020.streamList9020(
+            com.lifecyclebot.engine.ExpertWallets7962.prioritise7962(requested)) { n -> com.lifecyclebot.engine.truth.HeliusCreditEconomy7881.streamWidth(n) }
     } catch (_: Throwable) { requested }
 
     fun updateWatchlist(newAccounts: List<String>) {

@@ -44,6 +44,8 @@ object LaunchFacts8840 {
         val creatorKnown: Boolean, val devInitPct: Double, val devHeldPct: Double, val devSoldFrac: Double, val devSold10mFrac: Double,
         val bundleBuyers: Int, val bundlePct: Double, val sniperBuyers: Int, val sniperPct: Double,
         val top1Pct: Double, val top5Pct: Double, val uniqueBuyers: Int, val prints: Int,
+        /** V5.0.9020 — the largest holding among wallets NOT on the owner's named-trader list, and what named wallets hold inside the ten largest. */
+        val top1UnnamedPct: Double = Double.NaN, val namedTop10Pct: Double = Double.NaN,
     )
 
     /** Pure (V5.0.8853): a wallet's 64-bit key (FNV-1a, OwnBars8816.hash8816); 0 is reserved for an empty slot. */
@@ -124,10 +126,17 @@ object LaunchFacts8840 {
             val createdSec = if (created == Long.MIN_VALUE) Long.MIN_VALUE else created / 1000L
             var bundleN = 0; var bundleTok = 0.0; var sniperN = 0; var sniperTok = 0.0; var buyers = 0
             val held = DoubleArray(used); var h = 0
+            var maxUnnamed9020 = 0.0; var named9020: DoubleArray? = null; var namedN9020 = 0
             for (i in keys.indices) {
                 if (keys[i] == 0L) continue
                 if (bought[i] > 0.0) buyers++
-                held[h++] = maxOf(0.0, bought[i] - sold[i])
+                val holding9020 = maxOf(0.0, bought[i] - sold[i])
+                held[h++] = holding9020
+                if (!NamedTraders9020.isNamedKey9020(keys[i])) { if (holding9020 > maxUnnamed9020) maxUnnamed9020 = holding9020 }
+                else if (holding9020 > 0.0) {
+                    val a = named9020 ?: DoubleArray(NamedTraders9020.WALLETS_9020.size).also { named9020 = it }
+                    if (namedN9020 < a.size) a[namedN9020++] = holding9020
+                }
                 if (keys[i] == creatorKey || firstBuyMs[i] == Long.MAX_VALUE || createdSec == Long.MIN_VALUE) continue
                 val sec = firstBuyMs[i] / 1000L
                 if (sec == createdSec) { bundleN++; bundleTok += firstTokens[i] }
@@ -143,6 +152,9 @@ object LaunchFacts8840 {
                 else -> 0.0
             }
             var top5 = 0.0; for (k in 0 until minOf(5, held.size)) top5 += held[k]
+            // V5.0.9020 — named holdings that sit among the ten largest (held is sorted: the tenth largest is the bar)
+            var namedTop10 = 0.0
+            named9020?.let { a -> val bar = if (held.size > 10) held[9] else 0.0; for (k in 0 until namedN9020) if (a[k] >= bar) namedTop10 += a[k] }
             return Facts(
                 creatorKnown = creatorKey != 0L,
                 devInitPct = devInit,
@@ -153,6 +165,8 @@ object LaunchFacts8840 {
                 top1Pct = if (held.isEmpty()) Double.NaN else pct(held[0]),
                 top5Pct = if (held.isEmpty()) Double.NaN else pct(top5),
                 uniqueBuyers = buyers, prints = prints,
+                top1UnnamedPct = if (held.isEmpty()) Double.NaN else pct(maxUnnamed9020),
+                namedTop10Pct = if (held.isEmpty()) Double.NaN else pct(namedTop10),
             )
         }
     }
@@ -164,6 +178,7 @@ object LaunchFacts8840 {
         put2("devInitPct", f.devInitPct); put2("devHeldPct", f.devHeldPct); put2("devSoldFrac", f.devSoldFrac); put2("devSold10mFrac", f.devSold10mFrac)
         put("bundleBuyers", f.bundleBuyers); put2("bundlePct", f.bundlePct); put("sniperBuyers", f.sniperBuyers); put2("sniperPct", f.sniperPct)
         put2("top1Pct", f.top1Pct); put2("top5Pct", f.top5Pct); put("uniqueBuyers", f.uniqueBuyers); put("prints", f.prints)
+        put2("top1UnnamedPct", f.top1UnnamedPct); put2("namedTop10Pct", f.namedTop10Pct)   // V5.0.9020
     }
 
     // ── the creator's history ──

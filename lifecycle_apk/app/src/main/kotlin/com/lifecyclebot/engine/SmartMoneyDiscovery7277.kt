@@ -173,7 +173,8 @@ object SmartMoneyDiscovery7277 {
             .sortedByDescending { it.value.size }
         for ((wallet, hits) in candidates) {
             // V5.0.8713 — the cap is on the wallets this miner promotes; the board's fifty are not counted against it.
-            if ((engine?.getWallets()?.count { !CopyTradeEngine.isBoardWallet8713(it) } ?: 0) >= MAX_TRACKED_WALLETS) break
+            // V5.0.9020 — nor are the owner's named traders.
+            if ((engine?.getWallets()?.count { !CopyTradeEngine.isBoardWallet8713(it) && !CopyTradeEngine.isNamedWallet9020(it) } ?: 0) >= MAX_TRACKED_WALLETS) break
             try {
                 engine?.addWallet(wallet, "SMART_MONEY_x${hits.size}")
                 promoted.incrementAndGet()

@@ -74,7 +74,8 @@ class Aate9019FreshIsNotStaleTest {
         assertEquals("TOP_HOLDER_CONCENTRATION", g.holderBlock9019(42.0, -1.0))
         assertTrue("a launch nobody followed has no single-wallet reading", g.singleHolderPct9019("Aate9019NeverFollowed1111111111111111111111").isNaN())
         val s = src("engine/PreTradeHardGate.kt")
-        assertTrue(s.contains("if (holderBlock9019(topHolder, single9019) != null) {"))
+        // superseded by V5.0.9020: the top-10 share is read net of the owner's named traders before the same limit judges it
+        assertTrue(s.contains("if (holderBlock9019(top10J9020, single9019) != null) {"))
         assertTrue("the chain-proven RugCheck substitute keeps the 35 % figure", s.contains("topHolderPct < TOP_HOLDER_FATAL_PCT &&"))
     }
 

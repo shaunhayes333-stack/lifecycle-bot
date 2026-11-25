@@ -968,6 +968,7 @@ class BotService : Service() {
         for (s in sells) {
             try {
                 PipelineHealthCollector.labelInc("SMART_MONEY_PUSH_SELL_DETECTED_7745")
+                com.lifecyclebot.engine.truth.NamedTraders9020.noteSell9020(s.mint, s.wallet)   // V5.0.9020
                 val ts = status.tokens[s.mint] ?: continue
                 if (!ts.position.isOpen || s.soldFraction < 0.5) continue
                 val now = System.currentTimeMillis()
@@ -3924,7 +3925,7 @@ class BotService : Service() {
                 if (c.copyTradingEnabled || c.paperMode || copyProven7291 || copyRouteLive7962()) {
                     try {
                         com.lifecyclebot.engine.truth.SignalSourceProof7291.stamp(
-                            com.lifecyclebot.engine.truth.SignalSourceProof7291.Source.COPY, mint)
+                            com.lifecyclebot.engine.truth.NamedTraders9020.sourceFor9020(wallet), mint)   // V5.0.9020 — the named list is graded on its own record
                     } catch (_: Throwable) {}
                     try {
                         val label7277 = try { copyTradeEngine.getWallets().firstOrNull { it.address == wallet }?.label } catch (_: Throwable) { null } ?: wallet.take(8)
