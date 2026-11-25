@@ -14,8 +14,9 @@ class Aate8979DoctrineLockTextTest {
     private val d = RunnerDoctrine8584
 
     @Test fun aLaunchRiderBelowTenXShowsItsStopNotALock() {
-        assertEquals("rides to 10x · SL -20%", d.lockText8979("MOONSHOT", rider = true, pnlPct = 19.3, peakPct = 65.0, stopPct = 20.0))
-        assertEquals("rides to 10x · SL -15%", d.lockText8979("MOONSHOT", true, 19.3, 65.0, 20.0, laneStopPct = -15.0))
+        // superseded by V5.0.9011 — a rider's line arms at a 2x peak (was "rides to 10x")
+        assertEquals("rides to 2x · SL -20%", d.lockText8979("MOONSHOT", rider = true, pnlPct = 19.3, peakPct = 65.0, stopPct = 20.0))
+        assertEquals("rides to 2x · SL -15%", d.lockText8979("MOONSHOT", true, 19.3, 65.0, 20.0, laneStopPct = -15.0))
         assertTrue(d.lockText8979("MOONSHOT", true, 1_800.0, 1_900.0, 20.0)!!.startsWith("trail +"))
     }
 

@@ -33,8 +33,12 @@ class Aate8941LaunchRidersTest {
         assertFalse("at the stop it sells", held("TAKE_PROFIT", -30.0, 60.0, rider = true))
         assertFalse("a stop always sells", held("STOP_LOSS", 15.0, 60.0, rider = true))
         assertFalse("a rug exit always sells", held("RUG_DETECTED", 15.0, 60.0, rider = true))
-        assertTrue("a time exit inside the hour is held", held("MAX_HOLD_TIME", 40.0, 120.0, rider = true, heldMin = 30L))
-        assertFalse("past the hour it passes", held("MAX_HOLD_TIME", 40.0, 120.0, rider = true, heldMin = 61L))
+        // superseded by V5.0.9011 — the rider's own rule runs below a 2x peak (was 10x), so the hour is shown on a +80 % peak
+        // (was a +120 % peak, which now reads the doctrine line: 1.5x, so +40 % is under it and passes either side of the hour)
+        assertTrue("a time exit inside the hour is held", held("MAX_HOLD_TIME", 40.0, 80.0, rider = true, heldMin = 30L))
+        assertFalse("past the hour it passes", held("MAX_HOLD_TIME", 40.0, 80.0, rider = true, heldMin = 61L))
+        assertFalse("from a 2x peak the doctrine line decides: +40 % after +120 % is under 1.5x", held("MAX_HOLD_TIME", 40.0, 120.0, rider = true, heldMin = 30L))
+        assertTrue("and above the line it is held", held("TAKE_PROFIT", 60.0, 120.0, rider = true))
         assertFalse("a coin that never reached +50 % may still time out", held("MAX_HOLD_TIME", 10.0, 30.0, rider = true, heldMin = 30L))
         // from 10x the doctrine's own line again: 55 % of the peak multiple
         assertFalse(held("TAKE_PROFIT", 300.0, 1_000.0, rider = true))

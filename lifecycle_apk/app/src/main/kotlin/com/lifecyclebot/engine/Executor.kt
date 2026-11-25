@@ -25273,7 +25273,9 @@ class Executor(
         val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else Double.NaN
         val lane8630 = RunnerDoctrine8584.entryLane8630(ts)  // V5.0.8630 — the entry lane, folded
         // V5.0.8941 — a launch rider holds its profit exits above the lane stop until 10x; its time exit passes at the hour
+        // V5.0.9011 — until a 2x peak; from there the doctrine line holds them (DegenHarvest9011), and the ledger knows it was a rider
         val rider8941 = RunnerDoctrine8584.launchRider8941(ts)
+        DegenHarvest9011.noteRider9011(ts.position.positionId, rider8941)
         val held = RunnerDoctrine8584.holds8584(lane8630, reason, pnl, ts.position.peakGainPct, rider8941 = rider8941,
             heldMs8941 = if (ts.position.entryTime > 0L) System.currentTimeMillis() - ts.position.entryTime else 0L)
         if (held && door != null) {

@@ -4165,3 +4165,34 @@ so the limit is doing its job. RugCheck, the LP rule, Mayhem refusal, every stop
 
 **Read next.** `criticalProofPending9010{}`, `curveAmountAnsweredByFire9010`, the replay's grade of O9010A, launch buys landed.
 
+## §196 — V5.0.9011: DegenHarvest9011, the harvest module for +200 % winners
+
+**Why.** Owner, 25 Nov 19:37: a separate module, tied to what is built, for harvesting the big winners the bot already
+identifies. The exit doctrine (RunnerDoctrine8584) and the launch rider (8941) exist; what was missing was a plan by the
+winner's size and a record of what happens to a position once it is one.
+
+**Measured** (launch-hour paths, 22-25 Nov, bought at its open, 3 % cost and 3 % slip per sale):
+
+| Exits | Every entry | Winners that peaked +200..+900 % | Winners that peaked +900 %+ |
+|---|---|---|---|
+| Rider as built (nothing sells above the stop until 10x), curve under 3 SOL, n 754 | +22.7 % | n45, banked +199 %, 20 % ended under +50 % | n12, +1,335 % |
+| Doctrine line armed at a 2x peak, same entries | +21.6 % | n42, banked +204 %, 7 % ended under +50 % | n11, +1,310 % |
+| Rider as built, every at-its-open entry, n 1,344 | +17.2 % | n91, banked +216 %, 30 % ended under +50 % | n18, +1,645 % |
+| Doctrine line armed at a 2x peak, same entries | +17.2 % | n82, banked +227 %, 12 % ended under +50 % | n17, +1,648 % |
+
+The average is unchanged within its error; the round trips of 3x-10x winners fall by about two thirds.
+
+**What changed.**
+- `engine/DegenHarvest9011.kt`: `stage9011(peakPct)` (SEED under 2x, RUNNER 2x-10x, MOON 10x+), `RUNNER_FROM_PCT_9011 = 100`,
+  and the ledger (`onClose9011`, persisted under `degen_harvest_ledger_9011`): every LIVE terminal close whose own peak reached
+  +200 % — kept at +200 % or more, round trips (banked under +50 %), mean share of peak, by exit family.
+- `RunnerDoctrine8584.trailArm8941` and the rider branch of `holds8584`: a launch rider's line arms at a 2x peak (was 10x). Below
+  2x nothing changes (stop and safety only). Rungs below 10x still wait (`riderRungFloor8941`, `LAUNCH_RIDE_FROM_PCT_8941`).
+- `lockText8979`: a rider's card reads "rides to 2x" then "trail +y %".
+- Wiring: `RunnerCapture8017.onClose8017` books the close; `Executor.runnerDoctrineHolds8584` notes a rider; `DiagnosisBrief8438`
+  prints `degenHarvest9011[...]`.
+
+**Not changed.** Entries, stops, safety exits, the 10x-plus rungs and trail, non-rider doctrine positions, paper books.
+
+**Read next.** `degenHarvest9011[reached+200%= kept>=+200%= roundTrips(<+50%)= shareOfPeak= byExit{}]`.
+

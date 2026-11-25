@@ -159,9 +159,9 @@ object RunnerDoctrine8584 {
             else -> "SL —"
         }
         val peak = listOf(peakPct, pnlPct).filter { it.isFinite() }.maxOrNull() ?: return stopTxt
-        val arm = if (rider) LAUNCH_RIDE_FROM_PCT_8941 else TRAIL_ARM_PEAK_PCT_8630
+        val arm = if (rider) DegenHarvest9011.RUNNER_FROM_PCT_9011 else TRAIL_ARM_PEAK_PCT_8630   // V5.0.9011 — a rider's line arms at 2x
         if (peak >= arm) return "trail +${((lineWithStop8719(1.0 + peak / 100.0, stopPct) - 1.0) * 100.0).toInt()}%"
-        return if (rider) "rides to 10x · $stopTxt" else "$stopTxt · trail from +${arm.toInt()}%"
+        return if (rider) "rides to ${(1.0 + arm / 100.0).toInt()}x · $stopTxt" else "$stopTxt · trail from +${arm.toInt()}%"
     }
 
     /** V5.0.8979 — [ts]'s STOP / LOCK text under the doctrine at [pnlPct] / [peakPct]; null when the doctrine does not own it. */
@@ -214,7 +214,8 @@ object RunnerDoctrine8584 {
         if (peak < 1.5 && TIME_EXIT_8584.any { r.contains(it) }) return false
         // V5.0.8941 — a launch rider below a 10x peak: every profit exit is held while the price is above the lane stop (the
         // stop, every safety exit and the trail from 10x still sell); its time exit passes once the hour is up
-        if (rider8941 && stopPct.isFinite() && stopPct > 0.0 && peak < 1.0 + LAUNCH_RIDE_FROM_PCT_8941 / 100.0) {
+        // V5.0.9011 — below a 2x peak (DegenHarvest9011); from 2x the doctrine line below decides, as for any doctrine position
+        if (rider8941 && stopPct.isFinite() && stopPct > 0.0 && peak < 1.0 + DegenHarvest9011.RUNNER_FROM_PCT_9011 / 100.0) {
             if (heldMs8941 >= LAUNCH_HOUR_MS_8941 && TIME_EXIT_8584.any { r.contains(it) }) return false
             return now > 1.0 - stopPct.coerceAtMost(95.0) / 100.0
         }
@@ -256,9 +257,14 @@ object RunnerDoctrine8584 {
         else launchRider8941(ts.mint, entry - (nowMs - (ageMin * 60_000.0).toLong()))
     } catch (_: Throwable) { false }
 
-    /** V5.0.8941 — the trail's arming peak for [ts]: 10x for a launch rider, else the doctrine's +25 %. */
+    /**
+     * V5.0.8941 — the trail's arming peak for [ts]: for a launch rider, else the doctrine's +25 %.
+     * V5.0.9011 — a rider's is a 2x peak (DegenHarvest9011.RUNNER_FROM_PCT_9011; was 10x): one in five to one in three of
+     * the winners that peaked between 3x and 10x was carried back under +50 % with nothing under it but the entry stop.
+     * [LAUNCH_RIDE_FROM_PCT_8941] still holds the rider's rungs until 10x ([riderRungFloor8941]).
+     */
     fun trailArm8941(ts: com.lifecyclebot.data.TokenState): Double =
-        if (launchRider8941(ts)) LAUNCH_RIDE_FROM_PCT_8941 else TRAIL_ARM_PEAK_PCT_8630
+        if (launchRider8941(ts)) DegenHarvest9011.RUNNER_FROM_PCT_9011 else TRAIL_ARM_PEAK_PCT_8630
 
     /** V5.0.8941 — the rungs below 10x wait for a launch rider: the ladder index the rider's ladder counts from. */
     fun riderRungFloor8941(tiers: List<Pair<Double, Double>>): Int = tiers.count { it.first < LAUNCH_RIDE_FROM_PCT_8941 }
