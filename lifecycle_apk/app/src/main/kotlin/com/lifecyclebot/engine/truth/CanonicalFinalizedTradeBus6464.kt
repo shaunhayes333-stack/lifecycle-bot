@@ -413,11 +413,26 @@ object CanonicalFinalizedTradeBus6464 {
     fun seen(tradeId: String): Boolean = tradeId.isNotBlank() && canonicalSeen.containsKey(tradeId)
 
     /** Unique completed positions, never predicate-read or replay counters. */
-    fun terminalEnvelopes7863(mode: String, sinceMs: Long = 0L): List<Envelope> =
+    // V5.0.9026 — built once per bus revision and mode (it was filtered, sorted and de-duplicated over every stored close
+    // on each call: EntryEconomics8329.laneCloses8329 asks per candidate — 1.4 s of the owner's 30 s CPU sample). The
+    // newest envelope of a position is the same whether "since" is applied before or after the de-duplication.
+    fun terminalEnvelopes7863(mode: String, sinceMs: Long = 0L): List<Envelope> {
+        val key = mode.trim().lowercase()
+        val revision = canonicalRevision7493.get()
+        val cached = terminals9026[key]?.takeIf { it.revision == revision }?.list
+        val all = cached ?: terminalsOf9026(mode).also { if (canonicalRevision7493.get() == revision) terminals9026[key] = Terminals9026(revision, it) }
+        if (cached != null) terminalReuse9026.incrementAndGet() else terminalBuilds9026.incrementAndGet()
+        return if (sinceMs <= 0L) all else all.filter { it.atMs >= sinceMs }
+    }
+
+    private class Terminals9026(val revision: Long, val list: List<Envelope>)
+    private val terminals9026 = ConcurrentHashMap<String, Terminals9026>()
+    private val terminalReuse9026 = AtomicLong(0L); private val terminalBuilds9026 = AtomicLong(0L)
+    private fun terminalsOf9026(mode: String): List<Envelope> =
         canonicalSeen.values.asSequence().filter {
-            it.terminal && it.mode.equals(mode, true) && it.atMs >= sinceMs &&
-                it.realizedPnlSol.isFinite() && it.realizedReturnPct.isFinite()
+            it.terminal && it.mode.equals(mode, true) && it.realizedPnlSol.isFinite() && it.realizedReturnPct.isFinite()
         }.sortedByDescending { it.atMs }.distinctBy { it.positionId.ifBlank { it.tradeId } }.toList()
+    fun terminalCacheLine9026(): String = "terminals9026[reused=${terminalReuse9026.get()} built=${terminalBuilds9026.get()}]"
 
 
     /**
@@ -566,7 +581,7 @@ object CanonicalFinalizedTradeBus6464 {
         canonicalSeen.clear(); consumerAcks.clear(); consumerExcluded.clear(); exclusionReasons.clear()
         publishes.set(0L); duplicates.set(0L); canonicalRevision7493.set(0L)
         positionTerminals8136.clear(); positionDuplicates8136.set(0L)
-        consumerParityRevision7494.set(0L); parityCache7494.set(null); canonicalProjectionCache7497.set(null)
+        consumerParityRevision7494.set(0L); parityCache7494.set(null); canonicalProjectionCache7497.set(null); terminals9026.clear()
         retryRunning6486.set(false); deliveryInFlight6734.clear()
     }
 }

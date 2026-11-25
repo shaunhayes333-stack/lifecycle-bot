@@ -49,6 +49,9 @@ object SemanticPatternGraph {
     private const val MAX_EDGES = 1600
     private const val MAX_PRIOR_EDGE_SCAN = 80     // V5.0.4250 — avoid terminal-sell fanout churn
     private const val MAX_EDGES_PER_NODE = 48
+    private val TOKEN_SPLIT_9026 = Regex("[^a-z0-9_#$/.-]+")
+    private const val TOKEN_SETS_MAX_9026 = 2_000
+    private val tokenSets9026 = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
     private val nodes = CopyOnWriteArrayList<PatternNode>()
     private val edges = CopyOnWriteArrayList<PatternEdge>()
     fun nodeCount6512(): Int = nodes.size
@@ -100,7 +103,7 @@ object SemanticPatternGraph {
             nodes.asSequence()
                 .filter { mode == null || it.mode == mode }
                 .filter { lane.isBlank() || it.lane.equals(lane, ignoreCase = true) }
-                .map { it to jaccard(q, tokenSet(it.setup)) }
+                .map { it to jaccard(q, nodeTokens9026(it.setup)) }   // V5.0.9026
                 .filter { it.second >= 0.25 }
                 .sortedByDescending { it.second }
                 .take(limit.coerceIn(1, 40))
@@ -131,6 +134,7 @@ object SemanticPatternGraph {
     ): EntryBias {
         return try {
             val setupTokens = tokenSet(setup + " " + dnaKey)
+            val dnaTokens9026 = if (dnaKey.isNotBlank()) tokenSet(dnaKey) else emptySet()   // V5.0.9026 — once, not per node
             val deployerKey = deployer.trim().take(96)
             val sourceKey = source.uppercase().take(64)
             val laneKey = lane.uppercase().take(32)
@@ -139,10 +143,11 @@ object SemanticPatternGraph {
                     .filter { it.mode == mode && mode in setOf("LIVE", "PAPER") }
                     .filter { laneKey.isBlank() || it.lane.equals(laneKey, ignoreCase = true) }
                     .map { node ->
-                        val setupSim = jaccard(setupTokens, tokenSet(node.setup)).coerceIn(0.0, 1.0)
+                        val nodeTokens = nodeTokens9026(node.setup)   // V5.0.9026 — kept per stored setup
+                        val setupSim = jaccard(setupTokens, nodeTokens).coerceIn(0.0, 1.0)
                         val deployerHit = deployerKey.isNotBlank() && node.deployer == deployerKey
                         val sourceHit = sourceKey.isNotBlank() && node.source == sourceKey
-                        val dnaHit = dnaKey.isNotBlank() && tokenSet(node.setup).intersect(tokenSet(dnaKey)).isNotEmpty()
+                        val dnaHit = dnaKey.isNotBlank() && nodeTokens.any { it in dnaTokens9026 }
                         val weight = setupSim + (if (deployerHit) 1.20 else 0.0) + (if (sourceHit) 0.20 else 0.0) + (if (dnaHit) 0.25 else 0.0)
                         node to weight
                     }
@@ -261,13 +266,26 @@ object SemanticPatternGraph {
         }
     }
 
-    private fun tokenSet(s: String): Set<String> = s.lowercase()
-        .split(Regex("[^a-z0-9_#$/.-]+"))
+    // V5.0.9026 — the split pattern is compiled once, and a stored setup's token set is kept (entryDnaBias re-split every
+    // stored node's setup twice per node per call, compiling the pattern each time: 2.8 s of the owner's 30 s CPU sample).
+    // The same text always gives the same set; nothing read from the graph changes.
+
+    internal fun tokenSetUncached9026(s: String): Set<String> = s.lowercase()
+        .split(TOKEN_SPLIT_9026)
         .asSequence()
         .map { it.trim() }
         .filter { it.length >= 3 }
         .take(80)
         .toSet()
+
+    /** A stored node's setup text as tokens, kept (bounded: the graph holds at most [MAX_NODES] nodes). */
+    internal fun nodeTokens9026(setup: String): Set<String> {
+        tokenSets9026[setup]?.let { return it }
+        if (tokenSets9026.size >= TOKEN_SETS_MAX_9026) tokenSets9026.clear()
+        return tokenSetUncached9026(setup).also { tokenSets9026[setup] = it }
+    }
+
+    private fun tokenSet(s: String): Set<String> = tokenSetUncached9026(s)
 
     private fun jaccard(a: Set<String>, b: Set<String>): Double {
         if (a.isEmpty() || b.isEmpty()) return 0.0

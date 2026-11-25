@@ -4660,3 +4660,30 @@ The per-trade loss cap.
 
 **Read next run.** `fireClock9025[...]` (where the seconds from fire to buy go, how each fire ended), `launchFires9025[...]`,
 `signalReplay8828[... O9025A ...]` (the phone's own grade of the quiet open), `degenHarvest9011[reached+200%= ... recent9025{}]`.
+
+## §211 — V5.0.9026: the same question is answered once
+
+**Measured (5.0.9023, LIVE, 16.5 min; owner's 30 s CPU sample).** `GC count=1593 timeMs=757627 blocking=567
+blockingMs=372333 allocatedMB=145846`: collection ran 12.6 of 16.5 minutes, threads stood blocked on it 6.2 minutes,
+8.8 GB allocated a minute. `FLOOR lowest heap used in the 74 samples kept: 96MB` — the heap at 99 % is garbage in flight,
+not retained data. CPU sample (94.6 s of thread CPU over 30.1 s): `AATE-Entry` 26.1 s, `HeapTaskDaemon` 18.5 s,
+`shadow-choice-8399` 4.9 s. Inside the entry work (inclusive): `LanePlaybook7907.selectedSetup8094` 7.5 s (through
+`rankedSetup8153 -> strategyPick8153`, 7.2 s), `TokenMetricStageRouter.snapshotRead8950` 2.8 s (`FlatChart8027.deadTape8476`
+2.0 s), `SemanticPatternGraph.entryDnaBias` 2.8 s, `EntryEconomics8329.laneCloses8329` 1.4 s
+(`CanonicalFinalizedTradeBus6464.terminalEnvelopes7863` 1.2 s). `JobCost8813 allocMB` is process-wide
+(`art.gc.bytes-allocated` over the job's wall time), so it does not attribute allocation to a job.
+
+**Changes (no decision changes; each returns what the same inputs returned).**
+- `LanePlaybook7907.rankedPick9026`: the ranked pick behind `rankedSetup8153` kept per (mint, lane) for
+  `PICK_TTL_MS_9026` = 1 s while `inputKey8084(ts)` and `bookRevision8077` are unchanged (`pickFresh9026`), as
+  `options8153` already is. `strategyPick8153` with an explicit frame (CandidateAdmission8136) is untouched.
+  `pickMemo9026[hits= builds= kept=]`.
+- `strategyOptions8153`: the stage (`TokenMetricStageRouter.snapshot(ts).stage.name`) is read once per build, not once per
+  fired setup.
+- `CanonicalFinalizedTradeBus6464.terminalEnvelopes7863`: the per-mode projection is built once per
+  `canonicalRevision7493`; `sinceMs` filters the kept list. `terminals9026[reused= built=]`.
+- `SemanticPatternGraph`: split pattern compiled once (`TOKEN_SPLIT_9026`); a stored node's token set kept
+  (`nodeTokens9026`, at most 2,000 texts); the DNA key split once per call.
+
+**Read next run.** `pickMemo9026`, `terminals9026`, `HEAP LOG ... GC count / blockingMs / allocatedMB`, `avgCycle`, and a
+fresh CPU sample (Save, then the CPU-sample tap).

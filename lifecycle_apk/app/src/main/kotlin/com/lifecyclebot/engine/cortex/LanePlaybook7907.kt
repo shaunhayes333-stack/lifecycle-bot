@@ -1686,15 +1686,17 @@ object LanePlaybook7907 {
         if (hit != null) hit.opts else if (fired.isEmpty()) emptyList() else {
             // The band is read only when a fired setup has a timing record to look it up in.
             val band = timingBandOf8094(ts)
+            // V5.0.9026 — the coin's stage is one read for every fired setup (it was rebuilt, with its chart scan, per setup)
+            val stage9026 by lazy(LazyThreadSafetyMode.NONE) {
+                try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
+            }
             val opts = synchronized(this) {
                 fired.mapNotNull { id ->
                     val st = stat(lane, id)?.takeIf { it.n >= 1.0 }
                     val tm = if (st == null || band == TIMING_UNKNOWN_8094) null else timingBooks8094[lane]?.get("$id|$band")?.takeIf { it.n >= 1.0 }
                     // 8851: same fired setup at the SAME decision stage, from independently graded 1/5/15m marks.
                     // Combined with 8528 sub-minute timing, bounded to ranking only (no profit proof or veto).
-                    val early = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.timingAdjustment8528(
-                        lane, id, band, try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name }
-                        catch (_: Throwable) { "" })
+                    val early = com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.timingAdjustment8528(lane, id, band, stage9026)
                     if (st == null && early == 0.0) null else com.lifecyclebot.engine.truth.StrategyRank8153.Option8153(
                         id = id, n = st?.n?.toInt() ?: 0, meanPct = st?.mean() ?: Double.NaN,
                         sePct = if (st != null && st.n > 1.0) kotlin.math.sqrt(st.variance() / st.n) else Double.POSITIVE_INFINITY,
@@ -1732,9 +1734,55 @@ object LanePlaybook7907 {
             default8323, opts8323) { id -> memo8323.getOrPut(id) { LaneCheatSheet8323.effectiveVerdict8323(lane, id, ts.mint, nowMs) } }
     } catch (_: Throwable) { null }
 
+    /*
+     * V5.0.9026 §THE_SAME_QUESTION_IS_ANSWERED_ONCE — owner, 26 Nov: "runners being missed left and right". 9025 measured
+     * what the misses cost: a launch bought 10 s old +16 %, 60 s old +3.6 %, 180 s old -7.3 %; the one armed fire that
+     * bought landed 88 s after its trigger. The 03:49 capture (5.0.9023, 16.5 min) says where the bot's seconds go:
+     * GC count=1593 timeMs=757,627 blockingMs=372,333 — collection ran for 12.6 of the 16.5 minutes and threads stood
+     * blocked on it for 6.2 — while the lowest heap in the session was 96 MB: the heap is not full of what the bot keeps,
+     * it is full of what it throws away (145,846 MB allocated, 8.8 GB a minute). The owner's 30 s CPU sample: the entry
+     * thread 26.1 s (87 % of one core), the collector 18.5 s, and inside the entry work
+     *   LanePlaybook7907.selectedSetup8094     7.5 s  — the ranked pick rebuilt (features, cheat sheet, ranking) for every
+     *                                                    gate that asks which setup a coin trades as; 8153 kept the option
+     *                                                    list for a second and left the pick over it unkept;
+     *   TokenMetricStageRouter.snapshot        2.8 s  — 2.0 s of it the dead-tape scan, once per FIRED SETUP inside the
+     *                                                    option build;
+     *   SemanticPatternGraph.entryDnaBias      2.8 s  — a regex compiled and every stored setup re-split per node per call;
+     *   EntryEconomics8329.laneCloses8329      1.4 s  — every finalized close filtered, sorted and de-duplicated per candidate.
+     * Each is the same answer computed again inside one second on unchanged inputs. The pick is now kept exactly as the
+     * options are: per (coin, lane), for [PICK_TTL_MS_9026], while the coin's input key (inputKey8084: price, flow, bars,
+     * holders, the shared evidence revision) and the book revision are unchanged. Nothing is decided differently: a hit
+     * returns the pick the same inputs produced under a second ago.
+     */
+    private class Picked9026(val atMs: Long, val key: Long, val rev: Long, val pick: com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153?)
+    private val picks9026 = ConcurrentHashMap<String, Picked9026>()
+    private val pickHits9026 = AtomicLong(0); private val pickBuilds9026 = AtomicLong(0)
+    internal const val PICK_TTL_MS_9026 = 1_000L
+
+    /** Pure: a pick built at [atMs] on inputs [key] / book [rev] is still the answer at [nowMs] for inputs [nowKey] / book [nowRev]. */
+    internal fun pickFresh9026(atMs: Long, key: Long, rev: Long, nowMs: Long, nowKey: Long, nowRev: Long): Boolean =
+        key == nowKey && rev == nowRev && nowMs - atMs in 0L..PICK_TTL_MS_9026
+
+    private fun rankedPick9026(ts: TokenState, laneRaw: String, nowMs: Long): com.lifecyclebot.engine.truth.StrategyRank8153.Pick8153? {
+        val lane = canon(laneRaw)
+        val key = try { inputKey8084(ts) } catch (_: Throwable) { return strategyPick8153(ts, lane, nowMs) }
+        val rev = bookRevision8077.get()
+        val ck = "${ts.mint}|$lane"
+        val hit = picks9026[ck]
+        if (hit != null && pickFresh9026(hit.atMs, hit.key, hit.rev, nowMs, key, rev)) { pickHits9026.incrementAndGet(); return hit.pick }
+        val p = strategyPick8153(ts, lane, nowMs)
+        pickBuilds9026.incrementAndGet()
+        if (picks9026.size > 4_000) picks9026.entries.removeIf { nowMs - it.value.atMs > PICK_TTL_MS_9026 }
+        picks9026[ck] = Picked9026(nowMs, key, rev, p)
+        return p
+    }
+
+    /** Brief: how often the ranked pick was answered from the second's memo. */
+    fun pickMemoLine9026(): String = "pickMemo9026[hits=${pickHits9026.get()} builds=${pickBuilds9026.get()} kept=${picks9026.size}]"
+
     /** V5.0.8153 — the best SUPPORTED / VALID fired setup on its own record and timing band, else null (the default decides). */
     fun rankedSetup8153(ts: TokenState, laneRaw: String, nowMs: Long = System.currentTimeMillis()): String? {
-        val p = strategyPick8153(ts, laneRaw, nowMs) ?: return null
+        val p = rankedPick9026(ts, laneRaw, nowMs) ?: return null   // V5.0.9026 — kept for a second on unchanged inputs
         if (p.overDefault) try { PipelineHealthCollector.labelInc("SETUP_RANKED_OVER_DEFAULT_8153_${canon(laneRaw)}") } catch (_: Throwable) {}
         return p.id
     }
