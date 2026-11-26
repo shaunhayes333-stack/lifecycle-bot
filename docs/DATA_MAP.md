@@ -4923,3 +4923,14 @@ Specification step 02 (runtime hot paths).
 | Mint index | `engine/truth/CanonicalPositionAuthority6441.kt` `MintIndexed9036` (the `positions` map) | every `put` | mint -> position ids, filed before the row is written | none: the ledger rows and their writes are unchanged |
 | Per-mint lookups | `hasOpenMint` (both), `firstOpenForMint`, `hasFundedProtectiveQuarantine7807`, `lastClosedLiveAtMs8094` | the mint's own rows (each row's mint checked again) | nothing | same predicates as before over the same rows; a removed or replaced row's stale id is skipped |
 
+## §222 — V5.0.9037: the money first
+
+Source: the owner's engineering specification (27 Nov), section 13: the daily economic scorecard as the report's primary
+operating metrics. Read-only; nothing here sizes, admits or exits.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Equity line | `engine/truth/EconomicScorecard9037.kt` `block9037` (report section A, after the runtime line) | `LiveRiskPolicy7807.dayEquity9037` (the UTC-day opening and latest marked live equity the sizing and creed already keep), `CapitalDrawdown7948.flowsSince8136` | nothing | display: trading growth = (now - open - external flows) / open |
+| Close cards | `card9037` over `CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live")` | one row per closed live position: realised SOL, realised %, best excursion, proof state | nothing | display: today / 7 days / all kept: closes, chain-finalised count, net SOL, profit factor, expectancy, realised % in the owner's bands (loss, 0-19, 20-49, 50-99, 100-199, 200-499, 500-999, 1000+), median share banked of runs that reached +20 % |
+| Missed runners | the `funnel8297{...}` part of `RunnerCapture8017.statusLine` | | nothing | display |
+

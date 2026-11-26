@@ -347,6 +347,9 @@ object LiveRiskPolicy7807 {
     fun pickScoreboardEquity8308(markedEquitySol: Double, sizingEquitySol: Double): Double =
         if (markedEquitySol.isFinite() && markedEquitySol > 0.0) markedEquitySol else sizingEquitySol
 
+    /** V5.0.9037 — the UTC day, its opening and its latest marked live equity (EconomicScorecard9037). */
+    fun dayEquity9037(): Triple<String, Double, Double> = Triple(dayKey8057, dayStartEquity8057, dayLastEquity8057)
+
     /** V5.0.8057 — today's equity multiple against the 2x floor / 5x stretch (CapitalPreservationCreed6439). */
     fun dailyScoreLine8057(): String {
         val start = dayStartEquity8057; val now = dayLastEquity8057

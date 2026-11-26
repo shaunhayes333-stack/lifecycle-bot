@@ -223,6 +223,8 @@ object DiagnosisBrief8438 {
                 .append(if (oom) " lastCrash=OutOfMemoryError" else "").append(if (sick) " [FAULT runtime degraded]" else "").append('\n')
             if (sick) fixes += Fix8438(10_000.0, "FAULT",
                 "runtime degraded (heap ${"%.0f".format(heapPct)}%, cycle ${cycle}ms${if (oom) ", OutOfMemoryError" else ""}): every price, label and entry waits on the loop -> Memory guard (§7977) blobs8440 / census unattributedMb, the largest restored states")
+            // V5.0.9037 — the money first: equity, realised closes and missed runners (owner's specification, section 13)
+            try { sb.append(com.lifecyclebot.engine.truth.EconomicScorecard9037.block9037(nowMs)) } catch (_: Throwable) {}
             // V5.0.8894 — 5.0.8893 read "dead" while five providers failed on transport at once: the phone's network, not the gates
             val net8894 = NetworkVerdict8894.hosts8894()
             sb.append("               ").append(NetworkVerdict8894.line8894(net8894)).append('\n')
