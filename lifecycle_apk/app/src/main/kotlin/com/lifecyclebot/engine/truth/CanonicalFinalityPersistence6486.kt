@@ -91,7 +91,7 @@ object CanonicalFinalityPersistence6486 {
         if (consumer.isBlank() || positionId.isBlank()) return
         if (migrated8094) {
             val ex = excluded8094[consumer]?.remove(positionId) != null
-            if (acks8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(positionId) || ex) markDirty8094(consumer)
+            if (acks8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(IdPool9029.canon9029(positionId)) || ex) markDirty8094(consumer)
             return
         }
         val p = prefs ?: return
@@ -105,7 +105,7 @@ object CanonicalFinalityPersistence6486 {
         if (consumer.isBlank() || tradeId.isBlank()) return
         if (migrated8094) {
             val un = acks8094[consumer]?.remove(tradeId) == true
-            val prev = excluded8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap() }.put(tradeId, reason.intern())  // V5.0.8899
+            val prev = excluded8094.computeIfAbsent(consumer) { java.util.concurrent.ConcurrentHashMap() }.put(IdPool9029.canon9029(tradeId), reason.intern())  // V5.0.8899; V5.0.9029 — and one String per trade id
             if (prev != reason || un) markDirty8094(consumer)
             return
         }
@@ -170,11 +170,12 @@ object CanonicalFinalityPersistence6486 {
         if (raw.isNullOrBlank()) return emptySet<String>() to emptyMap()
         val o = JSONObject(raw)
         val a = o.optJSONArray("a")
-        val acks = HashSet<String>(); if (a != null) for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let(acks::add)
+        val acks = HashSet<String>(); if (a != null) for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotBlank() }?.let { acks.add(IdPool9029.canon9029(it)) }
         val x = o.optJSONObject("x"); val ex = HashMap<String, String>()
         // V5.0.8899 — one String per distinct reason (a handful), not one per excluded close: the 21 Nov 01:08 heap map traced
         // 16.1 MB to excluded8094, its reason values a separate String each. Equal text, so every reader is unchanged.
-        if (x != null) x.keys().forEach { k -> ex[k] = x.optString(k).intern() }
+        // V5.0.9029 — and one String per trade id across every consumer's set (IdPool9029)
+        if (x != null) x.keys().forEach { k -> ex[IdPool9029.canon9029(k)] = x.optString(k).intern() }
         return acks to ex
     }
 
@@ -195,11 +196,11 @@ object CanonicalFinalityPersistence6486 {
             when {
                 k.startsWith(ACK_PREFIX_6697) && v == true -> {
                     val rest = k.removePrefix(ACK_PREFIX_6697); val c = rest.substringBefore(':'); val id = rest.substringAfter(':', "")
-                    if (c.isNotBlank() && id.isNotBlank()) { acks8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(id); moved += k }
+                    if (c.isNotBlank() && id.isNotBlank()) { acks8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(IdPool9029.canon9029(id)); moved += k }
                 }
                 k.startsWith(EXCLUDED_PREFIX_6734) && v is String -> {
                     val rest = k.removePrefix(EXCLUDED_PREFIX_6734); val c = rest.substringBefore(':'); val id = rest.substringAfter(':', "")
-                    if (c.isNotBlank() && id.isNotBlank()) { excluded8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap() }[id] = v.intern(); moved += k }
+                    if (c.isNotBlank() && id.isNotBlank()) { excluded8094.computeIfAbsent(c) { java.util.concurrent.ConcurrentHashMap() }[IdPool9029.canon9029(id)] = v.intern(); moved += k }
                 }
             }
         }

@@ -28,8 +28,12 @@ object HeapMapCore8866 {
     class Result(val complete: Boolean, val text: String, val objects: Long, val bytes: Long, val classes: Int, val samples: Int, val stopped: String)
 
     private const val TOP_CLASSES = 70
-    private const val TOP_OWNERS = 45
+    // V5.0.9029 — 45 -> 160 owners: the 12:31 map (26 Nov) traced 461 MB and printed 45 owners holding 376 MB of it; the 85 MB
+    // below the cut (every owner under 1.7 MB) could not be read. And an owner of 5 %+ of the heap prints 12 chains, not 3:
+    // ROOT JAVA_FRAME was 123.3 MB with only 56 MB of it named.
+    private const val TOP_OWNERS = 160
     private const val CHAINS_PER_OWNER = 3
+    private const val CHAINS_WIDE_9029 = 12
     private const val MAX_NODES = 600_000
 
     // ── HPROF constants ──
@@ -727,7 +731,7 @@ object HeapMapCore8866 {
             for ((label, o) in owners.entries.sortedByDescending { it.value.weight }.take(TOP_OWNERS)) {
                 val est = (o.weight * scale).toLong()
                 out.append(String.format(Locale.US, "  %9s %6s n=%-6d %s\n", mb(est), pct(est), o.n, label))
-                for ((chain, c) in o.chains.entries.sortedByDescending { it.value.weight }.take(CHAINS_PER_OWNER)) {
+                for ((chain, c) in o.chains.entries.sortedByDescending { it.value.weight }.take(if (est >= bytes / 20) CHAINS_WIDE_9029 else CHAINS_PER_OWNER)) {
                     out.append(String.format(Locale.US, "      %9s n=%-5d %s\n", mb((c.weight * scale).toLong()), c.n, chain))
                 }
             }

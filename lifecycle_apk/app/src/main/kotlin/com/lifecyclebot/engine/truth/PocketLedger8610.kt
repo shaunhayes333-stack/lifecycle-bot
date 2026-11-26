@@ -32,7 +32,34 @@ object PocketLedger8610 {
 
     // The ledger worker files live labels; the dataset replay (DatasetReplay8863, V5.0.8863) files the stored ones from the
     // thread that reads the file. One at a time, under this map's own lock.
-    private val recent = LinkedHashMap<String, MutableSet<String>>()
+    // V5.0.9029 §THE_SEEN_SET_HOLDS_NUMBERS — owner, 26 Nov 19:16: "nope. full heaped out". The 12:31 heap map:
+    // PocketLedger8610.recent 12.0 MB — 32,768 observations, each a "mint|at|horizon" String keying its own LinkedHashSet of
+    // lane names (~366 B an observation) only to answer "was this observation already filed for this lane". It now holds the
+    // observation's 64-bit key ([obsKey9029]) and one bit per lane: the same answers, the same oldest-first eviction.
+    private val recent = LinkedHashMap<Long, Long>()
+    private val laneBit9029 = HashMap<String, Int>()   // lane -> its bit in the seen mask (guarded by [recent])
+
+    /** Pure (V5.0.9029): the 64-bit key of one observation (mint, decision time, horizon) — FNV-1a over the fields, then mixed. */
+    internal fun obsKey9029(mint: String, at: Long, horizon: Long): Long {
+        var h = -3750763034362895579L
+        for (c in mint) { h = h xor c.code.toLong(); h *= 1099511628211L }
+        h = (h xor at) * 1099511628211L
+        h = (h xor horizon) * 1099511628211L
+        h = h xor (h ushr 33); h *= -49064778989728563L
+        h = h xor (h ushr 33); h *= -4265267296055464877L
+        return h xor (h ushr 33)
+    }
+
+    /** V5.0.9029 — is this the first lane to file observation [key] (true), a new lane on a seen one (false), or a repeat (null)? */
+    internal fun noteSeen9029(key: Long, lane: String): Boolean? = synchronized(recent) {
+        val bit = 1L shl (laneBit9029.getOrPut(lane) { minOf(laneBit9029.size, 63) })
+        val seen = recent[key] ?: 0L
+        if ((seen and bit) != 0L) return@synchronized null
+        recent[key] = seen or bit
+        if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
+        seen == 0L
+    }
+    internal fun seenLine9029(): String = synchronized(recent) { "pocketSeen9029[observations=${recent.size} lanes=${laneBit9029.size}]" }
 
     private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
     private val cells = ConcurrentHashMap<String, Cell>()
@@ -132,14 +159,7 @@ object PocketLedger8610 {
 
     private fun record(mint: String, at: Long, horizon: Long, lane: String, bands: Map<String, String>, net: Double) {
         if (mint.isBlank() || lane.isBlank() || at <= 0L || horizon <= 0L) return
-        val id = "$mint|$at|$horizon"
-        val first = synchronized(recent) {
-            val lanes = recent.getOrPut(id) { mutableSetOf() }
-            val unseen = lanes.isEmpty()
-            if (!lanes.add(lane)) return
-            if (recent.size > MAX_RECENT_OBSERVATIONS) recent.entries.iterator().run { next(); remove() }
-            unseen
-        }
+        val first = noteSeen9029(obsKey9029(mint, at, horizon), lane) ?: return   // V5.0.9029 — a repeat is not filed twice
         add(cellKeys8815(horizon, lane, bands, market = first), managed8610(net))   // V5.0.8815 — cached keys
         if (first) bands["liq"]?.let { noteGap8823(horizon, it, net) }                // V5.0.8823 — one observation, once
         learned.incrementAndGet()

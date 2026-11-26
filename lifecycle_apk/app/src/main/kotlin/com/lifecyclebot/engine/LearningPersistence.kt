@@ -617,12 +617,15 @@ object LearningPersistence {
 
     /** One logical row. Large payloads go to BLOBPART rows `name#p<i>`; the BLOB row holds the part count. */
     private fun writeRow8086(d: SQLiteDatabase, name: String, json: String, now: Long) {
-        val pieces = if (json.length <= ROW_CHARS_8086) emptyList() else splitRow8086(json)
-        val parts = pieces.size
-        for (i in 0 until parts) d.execSQL(
-            "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOBPART',?,?,?)",
-            arrayOf("$name#p$i", pieces[i], now),
-        )
+        // V5.0.9029 §ONE_PIECE_AT_A_TIME — every piece of a long row was cut before the first was written (splitRow8086): a
+        // second whole copy of the row held through the write (the Cortex books: 18.5 MB of text, 73 pieces). Each piece is
+        // now cut, written and dropped ([eachPiece9029]: the same boundaries, the same rows).
+        val parts = if (json.length <= ROW_CHARS_8086) 0 else eachPiece9029(json) { i, piece ->
+            d.execSQL(
+                "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOBPART',?,?,?)",
+                arrayOf("$name#p$i", piece, now),
+            )
+        }
         d.execSQL(
             "INSERT OR REPLACE INTO kv (tracker, bucket, payload, updated) VALUES ('BLOB',?,?,?)",
             arrayOf(name, if (parts == 0) json else "$PART_PREFIX_8086$parts", now),
@@ -642,14 +645,20 @@ object LearningPersistence {
     /** Bounded pieces that never split a surrogate pair (a lone half would not survive UTF-8). */
     internal fun splitRow8086(json: String, max: Int = ROW_CHARS_8086): List<String> {
         val out = ArrayList<String>()
-        var i = 0
+        eachPiece9029(json, max) { _, piece -> out.add(piece) }
+        return out
+    }
+
+    /** V5.0.9029 — [splitRow8086]'s pieces handed to [use] one at a time, in order; returns how many. */
+    internal fun eachPiece9029(json: String, max: Int = ROW_CHARS_8086, use: (Int, String) -> Unit): Int {
+        var i = 0; var n = 0
         while (i < json.length) {
             var end = minOf(json.length, i + max)
             if (end < json.length && Character.isHighSurrogate(json[end - 1])) end--
-            out.add(json.substring(i, end))
-            i = end
+            use(n, json.substring(i, end))
+            i = end; n++
         }
-        return out
+        return n
     }
 
     /** Reads a row in slices so no single cursor row exceeds the CursorWindow. */

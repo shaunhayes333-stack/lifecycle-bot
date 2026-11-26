@@ -5481,8 +5481,8 @@ object Cortex7885 {
             // V5.0.8291 — a seat seeded from the hive is not echoed back as this install's own until it has 30 local scores.
             if (!hiveExportable8291(st.scored, inheritedSeed8291[id])) continue
             out["${CortexForwardEpoch8521.HIVE_PREFIX}S|$id"] = doubleArrayOf(st.scored.toDouble(), st.sseModel, st.sseBase, st.brierModel, st.brierBase, st.bins.size.toDouble())
-            for (i in st.bins.indices) {
-                val b = st.bins[i]
+            for (i in 0 until st.binCount9029()) {
+                val b = st.binRead9029(i)   // V5.0.9029 — an export reads the bins; it does not make them
                 if (b.n >= 1.0) out["${CortexForwardEpoch8521.HIVE_PREFIX}B|$id|$i"] = doubleArrayOf(b.n, b.sum, b.sumSq, b.wins, b.runners, 0.0)
             }
             if (out.size > 6_000) break
@@ -5525,7 +5525,7 @@ object Cortex7885 {
                 }
                 val st = ledger.seat(parts[0], parts.drop(1).joinToString("|"), bins)
                 // Seed an empty seat only. Replacing a local book invalidates outstanding label contributions.
-                if (st.scored > 0 || st.bins.any { it.n > 0.0 } || st.bins.size != bins) continue
+                if (st.scored > 0 || (0 until st.binCount9029()).any { st.binRead9029(it).n > 0.0 } || st.bins.size != bins) continue
                 // V5.0.8291 — the seed is the network's evidence scaled down to [HIVE_SEAT_SEED_8291] scores (its skill ratios, bin
                 // means and rates kept): under MIN_SCORED, so an inherited seat holds no authority until this install has graded
                 // it itself, and local grades outweigh the foreign ones from the first. It used to arrive at full network weight

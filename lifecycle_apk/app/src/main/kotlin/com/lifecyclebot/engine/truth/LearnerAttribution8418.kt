@@ -37,12 +37,13 @@ object LearnerAttribution8418 {
         private val current = LinkedHashSet<String>()
         private val prior = HashSet<String>()
 
-        @Synchronized fun loadPrior(ids: Collection<String>) { for (id in ids) if (id !in current) prior.add(id) }
+        // V5.0.9029 — one String per id across every learner's ledger (IdPool9029): the same close is in each of them
+        @Synchronized fun loadPrior(ids: Collection<String>) { for (id in ids) if (id !in current) prior.add(IdPool9029.canon9029(id)) }
 
         @Synchronized fun admit(id: String): Verdict8418 {
             if (id in current) return Verdict8418.DUPLICATE
             if (id in prior) return Verdict8418.REPLAY
-            current.add(id)
+            current.add(IdPool9029.canon9029(id))
             if (current.size > capacity) { val it = current.iterator(); it.next(); it.remove() }
             return Verdict8418.ADMIT
         }

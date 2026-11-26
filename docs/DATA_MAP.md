@@ -4738,3 +4738,51 @@ session's first sample; the retained set is about 300 MB at one hour.
 
 **Read next run.** `HEAP LOG GC ... blockingMs`, `FLOOR`, the next heap map's `ROOT JAVA_FRAME`, `snapshot8386[...]`,
 `SHADOW_SELL_REGRET_UNMEASURED_9028_*`.
+
+## §214 — V5.0.9029: what the heap holds is held once
+
+**Measured.** 5.0.9028, LIVE, emergency report after 23 min (`uptimeMs=1408454`): `reason=full_builder_timeout_8s`,
+`anrHints=86`, `cycles count=222 avgMs=6003 maxMs=16813`; owner: "nope. full heaped out". The report carries no heap log
+(the builder timed out), so the holders are read from the two heap maps of 26 Nov (12:31 on 9023, 14:46 on 9026, both at
+~33 min uptime). Live set excluding thread frames: 342 MB at both (485.0 - 18.5 garbage - 123.3 frames; 512.6 - 103.0
+garbage - 67.7 frames) of a 512 MB limit; frames (a snapshot in flight) add 68-123 MB. Class totals at 14:46:
+`CortexLedger7885$Stat` 57.9 MB / 632,331 objects for 78,877 seats; `byte[]` 211.8 MB / 2,067,830; `String` 1,952,422.
+Owners at 12:31: `CortexTiming7900.ledger` 23.7, `Cortex7885.ledger` 19.8, `ForwardOutcomeOutbox8404.rows` 15.7 (12.6 MB of
+it payload text), `PocketLedger8610.recent` 12.0, `CanonicalFinalityPersistence6486.excluded8094` 10.5 (5.6 MB key
+Strings), `LearnerAttribution8418.ledgers` 7.1 (3.8 MB id Strings). The map printed 45 owners (376 MB of 461 MB traced);
+`ROOT JAVA_FRAME` 123.3 MB showed three chains (56 MB). `jobCost8813 cortexCloseCommit:runs13 ... cortexSnapshot:runs4` in
+17 min (9023): about one full Cortex encode a minute; `CortexTiming7900` saves every 120 s, `CortexExit7897` every 30 s
+when dirty. `LearningPersistence.writeRow8086` cut every 256,000-character piece of a row before writing the first.
+
+**Changes (each keeps the same answers).**
+- `CortexLedger7885.Seat`: bins are made by their first write (`bins[i]`, unchanged for callers); reads go through
+  `binRead9029` / `binReadOrNull9029` (the shared empty book for an unmade bin). `detached8386` copies only made bins. A
+  book that holds nothing (unmade, or `Stat.holdsNothing9029`) is stored as the empty field (`EMPTY_ENC_9029`); `decode`
+  leaves an empty stored bin or side unmade (`emptyEnc9029`: the short form, the old 54-character zero form, or all
+  zeros). `census8904` adds `binsMade9029=<made>/<all>`; `estBytes8309` counts made books. Readers in
+  `Cortex7885.hiveSnapshot8001` / `hiveInherit8001` use the read view.
+- `LearningPersistence.eachPiece9029`: a long row's pieces are cut, written and dropped one at a time (same boundaries as
+  `splitRow8086`).
+- `CortexExit7897.persist`: the ledger is written with `CortexLedger7885.withLedger9028` (as the main and timing books
+  since 9028).
+- `ForwardOutcomeOutbox8404(capacity, readBack9029)`: a row whose payload is durable holds only its id
+  (`PARKED_9029`); the payload is read back from the labeler's row store (`ForwardReturnLabeler7731.readRow9029`) when it
+  is delivered or returned. A failed read waits; a store that answers and holds no such row releases the id
+  (`missingInStore`). Without `readBack9029` nothing changes. Status: `outbox9029[rows= holdingText= parkedEver=
+  missingInStore= readBack=]`.
+- `PocketLedger8610.recent`: `LinkedHashMap<Long, Long>` — the observation's 64-bit key (`obsKey9029`: FNV-1a over mint,
+  decision time, horizon, then mixed) and one bit per lane (`noteSeen9029`); was a String key and a LinkedHashSet of lane
+  names per observation (32,768 kept). Status: `pocketSeen9029[observations= lanes=]`.
+- `IdPool9029.canon9029`: one shared String per trade id across every consumer's ack / exclusion set
+  (`CanonicalFinalityPersistence6486`) and every learner's attribution ledger (`LearnerAttribution8418`). Bounded at 60,000
+  ids. Status: `idPool9029[ids= shared= first=]`.
+- `HeapMapCore8866`: `TOP_OWNERS` 45 -> 160; an owner of 5 %+ of the heap prints 12 chains (`CHAINS_WIDE_9029`).
+
+**Not measured yet.** How many bins are unmade (the stored blob is on the phone): the next report's
+`cortexSeats8904[... binsMade9029=]` gives it, and `snapshot8386[... parts8491=books=.../<KB>]` the new blob size.
+
+**Not changed.** What any book holds or returns, the snapshot cadence, the close commit, the LP / RugCheck / holder rules,
+gates, sizing, exits.
+
+**Read next run.** `HEAP LOG` (GC blockingMs, FLOOR), the heap map's 160 owners and `ROOT JAVA_FRAME` chains,
+`cortexSeats8904 binsMade9029`, `snapshot8386 parts8491`, `outbox9029[...]`, `pocketSeen9029`, `idPool9029`.

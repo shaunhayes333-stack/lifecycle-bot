@@ -67,6 +67,17 @@ class CortexLedger7885(
         internal val EMPTY_SIDE_ENC_8924: String = Stat().encode()
         /** Pure (V5.0.8924): a stored side holding nothing (every numeric field 0) — restored as an unmade side. */
         internal fun zeroEnc8924(s: String): Boolean = s.split(',').all { f -> f.toDoubleOrNull()?.let { it == 0.0 } ?: (f == "INDEPENDENT_CURVE_8365") }
+        /** V5.0.9029 — the text a book holding nothing is stored as (an unmade bin or side, or one whose every number is 0). */
+        internal const val EMPTY_ENC_9029 = ""
+        /** Pure (V5.0.9029): a stored bin or side that holds nothing — the short form, the empty book's own text, or all zeros. */
+        internal fun emptyEnc9029(s: String): Boolean {
+            if (s.isEmpty() || s == EMPTY_SIDE_ENC_8924) return true
+            // The first field is the count. A book that holds something almost always starts with a digit other than 0, and
+            // that is decided here without splitting the text (a restore reads several hundred thousand of these).
+            val c = s[0]
+            if (c != '0' && c != '-' && c != '.' && c != '+') return false
+            return zeroEnc8924(s)
+        }
         const val DECAY = 0.995  // V5.0.8082 §ADAPT_FASTER — voter skill memory ~200 grades (was ~500)
         const val MIN_SCORED = 60
         const val MIN_SKILL = 0.005
@@ -138,9 +149,10 @@ class CortexLedger7885(
 
         /** Pure. V5.0.8007 — a voter that lands in one bin 97%+ of the time cannot tell candidates apart. */
         fun discriminates8007(seat: Seat): Boolean {
-            val total = seat.bins.sumOf { it.n }
+            // V5.0.9029 — read views: counting the bins does not make them
+            var total = 0.0; var top = Double.NEGATIVE_INFINITY
+            for (i in 0 until seat.binCount9029()) { val n = seat.binRead9029(i).n; total += n; if (n > top) top = n }
             if (total < MIN_SCORED) return true
-            val top = seat.bins.maxOf { it.n }
             return top / total < 0.97
         }
 
@@ -317,6 +329,9 @@ class CortexLedger7885(
             out.logScale = logScale; out.witnessed8324 = witnessed8324; out.shadowWeight8404 = shadowWeight8404; out.readOffset8187 = readOffset8187
         }
         internal fun detached8386(): Stat = Stat(cap8187, runnerFloor8187).also { copyInto8386(it) }
+        /** V5.0.9029 — every stored number is 0: this book reads, and is stored, exactly like one that was never made. */
+        internal fun holdsNothing9029(): Boolean = n == 0.0 && sum == 0.0 && sumSq == 0.0 && runners == 0.0 && wins == 0.0 &&
+            logScale == 0.0 && witnessed8324 == 0.0 && shadowWeight8404 == 0.0
         fun encode(): String = "$n,$sum,$sumSq,$runners,$wins,$logScale,$witnessed8324,INDEPENDENT_CURVE_8365,$shadowWeight8404"  // V5.0.8365 independent proof epoch
         fun decode(s: String) {
             val f = s.split(','); if (f.size !in 4..9) return
@@ -334,7 +349,23 @@ class CortexLedger7885(
     /** One (voter, lane) seat. */
     class Seat(binCount: Int, cap8187: Double = LABEL_CAP_8187, floor8187: Double = RUNNER_GROSS_PCT) {
         // V5.0.8187 — every bin reads through the label cap (a realised-close ledger passes +inf).
-        val bins = Array(binCount) { Stat(cap8187, floor8187) }
+        // V5.0.9029 §A_BIN_IS_MADE_WHEN_IT_IS_WRITTEN — owner, 26 Nov 19:16, 5.0.9028 after 23 min: "nope. full heaped out". The
+        // 14:46 heap map: CortexLedger7885\$Stat 57.9 MB, 632,331 objects — the largest class after byte[] — for 78,877 seats:
+        // every seat made every bin's book when the seat was made (a crossed voter's seat has up to 36), each ~92 B, and each
+        // stored as 54 characters of zeros in the 18.5 MB books blob. 8924 did this for the two sides; this is the bins. A bin
+        // is made by its first write ([bins]\[i] is the write handle, unchanged for every caller); a read of an unmade bin
+        // ([binRead9029]) reads the shared empty book — the same numbers a made, never-written bin gave — and makes nothing.
+        private val made9029 = arrayOfNulls<Stat>(binCount)
+        val bins: List<Stat> = object : AbstractList<Stat>() {
+            override val size: Int get() = made9029.size
+            override fun get(index: Int): Stat = made9029[index] ?: Stat(cap8924, floor8924).also { made9029[index] = it }
+        }
+        fun binCount9029(): Int = made9029.size
+        /** V5.0.9029 — read-only view of bin [i]: an unmade bin reads as the empty book and is not made by the read. */
+        fun binRead9029(i: Int): Stat = made9029[i] ?: EMPTY_SIDE_8924
+        /** V5.0.9029 — [binRead9029], or null when [i] is not one of this seat's bins. */
+        fun binReadOrNull9029(i: Int): Stat? = if (i < 0 || i >= made9029.size) null else (made9029[i] ?: EMPTY_SIDE_8924)
+        fun binsMade9029(): Int { var c = 0; for (b in made9029) if (b != null) c++; return c }
         var scored = 0
         var sseModel = 0.0
         var sseBase = 0.0
@@ -382,12 +413,14 @@ class CortexLedger7885(
             out.scored = scored; out.sseModel = sseModel; out.sseBase = sseBase
             out.brierModel = brierModel; out.brierBase = brierBase; out.logLossModel = logLossModel; out.logLossBase = logLossBase
             above8924?.copyInto8386(out.above); below8924?.copyInto8386(out.below)
-            bins.forEachIndexed { i, b -> b.copyInto8386(out.bins[i]) }
+            for (i in made9029.indices) made9029[i]?.copyInto8386(out.bins[i])   // V5.0.9029 — only the bins that were made
         }
+        private fun enc9029(b: Stat?): String = if (b == null || b.holdsNothing9029()) EMPTY_ENC_9029 else b.encode()
         fun encode(): String = buildString {
             append(scored).append(';').append(sseModel).append(';').append(sseBase).append(';')
-            append(above8924?.encode() ?: EMPTY_SIDE_ENC_8924).append(';').append(below8924?.encode() ?: EMPTY_SIDE_ENC_8924)
-            for (b in bins) append(';').append(b.encode())
+            // V5.0.9029 — a book that holds nothing (unmade, or every number 0) is stored as the empty field
+            append(enc9029(above8924)).append(';').append(enc9029(below8924))
+            for (b in made9029) append(';').append(enc9029(b))
             append(';').append(brierModel).append(';').append(brierBase).append(';').append(logLossModel).append(';').append(logLossBase)
         }
 
@@ -397,9 +430,9 @@ class CortexLedger7885(
             scored = f[0].toIntOrNull() ?: 0
             sseModel = f[1].toDoubleOrNull() ?: 0.0
             sseBase = f[2].toDoubleOrNull() ?: 0.0
-            if (!zeroEnc8924(f[3])) above.decode(f[3])
-            if (!zeroEnc8924(f[4])) below.decode(f[4])   // V5.0.8924 — an empty stored side stays unmade
-            for (i in bins.indices) bins[i].decode(f[5 + i])
+            if (!emptyEnc9029(f[3])) above.decode(f[3])
+            if (!emptyEnc9029(f[4])) below.decode(f[4])   // V5.0.8924 — an empty stored side stays unmade
+            for (i in made9029.indices) if (!emptyEnc9029(f[5 + i])) bins[i].decode(f[5 + i])   // V5.0.9029 — and an empty stored bin
             val x = 5 + bins.size
             if (f.size >= x + 4) {
                 brierModel = f[x].toDoubleOrNull() ?: 0.0; brierBase = f[x + 1].toDoubleOrNull() ?: 0.0
@@ -440,16 +473,17 @@ class CortexLedger7885(
      */
     fun census8904(lock: Any): String = try {
         synchronized(lock) {
-            var regimeSeats = 0; var empty = 0; var sides8924 = 0
+            var regimeSeats = 0; var empty = 0; var sides8924 = 0; var binsMade9029 = 0L; var bins9029 = 0L
             val voters = HashSet<String>(); val laneSet = HashSet<String>(); val regimes = HashSet<String>()
             for ((k, s) in seats) {
                 val voter = k.substringBefore('|'); val rest = k.substringAfter('|', "")
                 voters += voter; laneSet += rest.substringBefore('@')
                 if ('@' in rest) { regimeSeats++; regimes += rest.substringAfter('@') }
-                if (s.scored == 0 && s.aboveRead8924().n <= 0.0 && s.belowRead8924().n <= 0.0 && s.bins.all { it.n <= 0.0 }) empty++
+                if (s.scored == 0 && s.aboveRead8924().n <= 0.0 && s.belowRead8924().n <= 0.0 && (0 until s.binCount9029()).all { s.binRead9029(it).n <= 0.0 }) empty++
                 sides8924 += s.sidesMade8924()
+                binsMade9029 += s.binsMade9029(); bins9029 += s.binCount9029()
             }
-            "seats=${seats.size} voters=${voters.size} lanes=${laneSet.size} regimes=${regimes.size} regimeSeats=$regimeSeats empty=$empty sidesMade8924=$sides8924/${seats.size * 2}"
+            "seats=${seats.size} voters=${voters.size} lanes=${laneSet.size} regimes=${regimes.size} regimeSeats=$regimeSeats empty=$empty sidesMade8924=$sides8924/${seats.size * 2} binsMade9029=$binsMade9029/$bins9029"
         }
     } catch (_: Throwable) { "seats=? (busy)" }
 
@@ -477,7 +511,7 @@ class CortexLedger7885(
         val (m, lr) = laneMean(lane, regime, shadowCredit8404)
         val st = seats["$voterId|$lane"]
         val bin = binOf(edges, raw)
-        val b = st?.bins?.getOrNull(bin)
+        val b = st?.binReadOrNull9029(bin)   // V5.0.9029 — a read does not make the bin
         val n = b?.n ?: 0.0
         // V5.0.7905 — Cortex v10: hierarchical prior (cell -> lane -> global). A
         // thin lane borrows the voter's cross-lane bin deviation, so what a voter
@@ -486,7 +520,7 @@ class CortexLedger7885(
         var pred = ((b?.sumWithShadowCredit8404(shadowCredit8404) ?: 0.0) + SHRINK_K * prior) / (n + SHRINK_K)  // V5.0.8187 — robust sum
         var runner = ((b?.runners ?: 0.0) + SHRINK_K * lr) / (n + SHRINK_K)
         if (regime.isNotBlank()) {
-            val rb = seats["$voterId|$lane@$regime"]?.bins?.getOrNull(bin)
+            val rb = seats["$voterId|$lane@$regime"]?.binReadOrNull9029(bin)
             if (rb != null && rb.n > 0.0) {
                 pred = (rb.sumWithShadowCredit8404(shadowCredit8404) + REGIME_K * pred) / (rb.n + REGIME_K)
                 runner = (rb.runners + REGIME_K * runner) / (rb.n + REGIME_K)
@@ -515,7 +549,7 @@ class CortexLedger7885(
         var n = 0.0; var deviationSum = 0.0
         for ((other, baseline) in lanes) {
             if (other == ownLane || other == GLOBAL || '@' in other || CrossAssetCortex7931.isCrossAssetLane(other)) continue
-            val cell = seats["$voterId|$other"]?.bins?.getOrNull(bin) ?: continue
+            val cell = seats["$voterId|$other"]?.binReadOrNull9029(bin) ?: continue
             if (cell.n <= 0.0 || baseline.n <= 0.0) continue
             // Centre inside each lane before pooling. A bin appearing mainly in a
             // profitable lane is not evidence that the feature predicts profit:
@@ -668,9 +702,10 @@ class CortexLedger7885(
             if (!raw.isFinite()) continue
             val st = seats["${voterIds[i]}|$lane"] ?: continue
             val bin = binOf(edges[i], raw)
-            revise(st.bins.getOrNull(bin), i * 4)
-            if (regime.isNotBlank()) revise(seats["${voterIds[i]}|$lane@$regime"]?.bins?.getOrNull(bin), i * 4 + 2)
-            if (lane != GLOBAL && !crossAsset) revise(seats["${voterIds[i]}|$GLOBAL"]?.bins?.getOrNull(bin), i * 4 + 3)
+            // V5.0.9029 — a revision of a bin that was never written is a no-op (Stat.revise: n <= 0), so it reads, not makes
+            revise(st.binReadOrNull9029(bin), i * 4)
+            if (regime.isNotBlank()) revise(seats["${voterIds[i]}|$lane@$regime"]?.binReadOrNull9029(bin), i * 4 + 2)
+            if (lane != GLOBAL && !crossAsset) revise(seats["${voterIds[i]}|$GLOBAL"]?.binReadOrNull9029(bin), i * 4 + 3)
             val p = trace.preds.getOrNull(i) ?: continue
             if (!p.isFinite()) continue
             val scoredAt = scoreAt.getOrNull(i) ?: continue
@@ -706,8 +741,9 @@ class CortexLedger7885(
      * returns -1 for this tick).
      */
     fun estBytes8309(): Long = try {
-        val bins = seats.values.firstOrNull()?.bins?.size ?: 6
-        seats.size.toLong() * (bins * 88L + 200L) + seats.values.sumOf { it.sidesMade8924() }.toLong() * 88L   // V5.0.8924 — the sides made + lanes.size.toLong() * 200L + pairs.size.toLong() * 180L
+        // V5.0.9029 — the bins that were made (each ~92 B) and a 4 B slot per bin, not every bin of every seat
+        seats.size.toLong() * 216L + seats.values.sumOf { (it.sidesMade8924() + it.binsMade9029()) * 92L + it.binCount9029() * 4L } +
+            lanes.size.toLong() * 200L + pairs.size.toLong() * 180L   // (these two terms sat inside the 8924 comment and were never added)
     } catch (_: Throwable) { -1L }
 
     /** Pure read: error correlation of two voters, 0 when unknown. */
@@ -824,9 +860,9 @@ class CortexLedger7885(
         for (v in votes) {
             if (!v.raw.isFinite()) continue
             val st = seats["${v.voterId}|$lane"] ?: continue
-            val skill = CortexRunOdds8325.runSkill8325(DoubleArray(st.bins.size) { st.bins[it].n }, DoubleArray(st.bins.size) { st.bins[it].runners }, lr)
+            val skill = CortexRunOdds8325.runSkill8325(DoubleArray(st.binCount9029()) { st.binRead9029(it).n }, DoubleArray(st.binCount9029()) { st.binRead9029(it).runners }, lr)
             if (!(skill > 0.0)) continue
-            val b = st.bins.getOrNull(binOf(v.edges, v.raw)) ?: continue
+            val b = st.binReadOrNull9029(binOf(v.edges, v.raw)) ?: continue
             reads.add(CortexRunOdds8325.RunVote8325(skill, b.n, b.runners))
         }
         val p = CortexRunOdds8325.pRun8325(lr, reads)

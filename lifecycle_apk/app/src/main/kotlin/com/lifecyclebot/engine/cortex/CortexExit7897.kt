@@ -625,18 +625,21 @@ object CortexExit7897 {
     // V5.0.8567 — not @Synchronized: the books are encoded under the lock, the disk write happens outside it (a reader of
     // this object no longer waits on the save; 8562 Cortex encode 75 s, assessLockWait max 11 s).
     private val persisting8567 = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var persistLen9029 = 0   // V5.0.9029 — the last saved text's length: the next buffer's size
     private fun persist() {
         if (!loaded) return
         if (!persisting8567.compareAndSet(false, true)) return
         try {
+            // V5.0.9029 — the ledger is written straight into one sized buffer, as the main and timing books are since 9028
+            // (CortexLedger7885.appendJson9028); it went through a JSONObject tree and a doubling buffer on every save.
             val json = synchronized(this) {
-                org.json.JSONObject().put("target8091", TARGET_8091).put("ledger", ledger.encode()).put("calibration", calibration.encode()).put("pending7960", encodePending7960())
+                CortexLedger7885.withLedger9028("ledger", ledger, org.json.JSONObject().put("target8091", TARGET_8091).put("calibration", calibration.encode()).put("pending7960", encodePending7960())
                     .put("truth8153", org.json.JSONObject().also { j -> truthBooks8153.forEach { (k, b) -> j.put(k, b.encode()) } })
                     .put("books", org.json.JSONObject().also { j ->
                     books.forEach { (k, b) ->
                         j.put(k, (b.byBucket.map { it.encode() } + b.positions.map { s -> s.toList().takeLast(200).joinToString(",") { it.replace(",", "").replace("|", "") } }).joinToString("|"))
                     }
-                }).toString()
+                }), CortexLedger7885.sizeHint9028(persistLen9029, ledger.seatCount9028())).also { persistLen9029 = it.length }
             }
             LearningPersistence.save(PERSIST_KEY, json)
             lastPersistMs8091 = System.currentTimeMillis()

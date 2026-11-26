@@ -53,8 +53,15 @@ data class ForwardOutcomeDelivery8404(
  * [revisions8977] (each episode's revision ids, in the order they were held). Same rows, same order, same answers: the first
  * revision returned is still the first held, the drain still rotates past its cursor in key order; only the scans and copies
  * are gone. Every change to [rows] goes through [hold8977] / [drop8977], so the indexes cannot drift.
+ *
+ * V5.0.9029 §A_DURABLE_ROW_IS_READ_BACK_NOT_HELD — owner, 26 Nov 19:16: "nope. full heaped out". The 12:31 heap map:
+ * ForwardReturnLabeler7731.forwardOutbox8404 > rows 15.7 MB — every staged payload (a frozen assessment, ~1 KB of text) held
+ * as a String until its hour target, though each was already a row in the labeler's SQLite store. With [readBack9029] given,
+ * a row whose payload is durable keeps only its id here (the held text is the empty [PARKED_9029]); the payload is read
+ * back from the store when it is delivered or returned. A row not yet durable always holds its text, and without
+ * [readBack9029] (tests, the preferences fallback) nothing changes. Same ids, same order, same payloads.
  */
-internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
+internal class ForwardOutcomeOutbox8404(private val capacity: Int, private val readBack9029: ((String) -> String?)? = null) {
     private val rows = LinkedHashMap<String, String>()
     private val durable = HashSet<String>()
     private val acknowledged = HashSet<String>()
@@ -64,6 +71,8 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
 
     companion object {
         internal const val REVISION_MARK_8977 = "|R|"
+        /** V5.0.9029 — the text a durable row holds once its payload is left to the store (no real payload is empty). */
+        internal const val PARKED_9029 = ""
 
         /** Pure: the episode a revision id belongs to ("<episode>|R|<observedAt>|<horizon>"), or null for a first value. */
         internal fun episodeOf8977(id: String): String? {
@@ -98,36 +107,57 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
         episodeOf8977(id)?.let { ep -> revisions8977[ep]?.let { set -> set.remove(id); if (set.isEmpty()) revisions8977.remove(ep) } }
     }
 
+    /** V5.0.9029 — the payload of a held row: its text here, or (parked) read back from the durable store. */
+    private fun raw9029(id: String): String? {
+        val held = rows[id] ?: return null
+        if (held.isNotEmpty()) return held
+        return try { readBack9029?.invoke(id)?.takeIf { it.isNotEmpty() } } catch (_: Exception) { null }
+    }
+    /** V5.0.9029 — a durable row gives up its text when a store can return it. */
+    private fun park9029(id: String) {
+        if (readBack9029 != null && id in durable && rows.containsKey(id)) { rows[id] = PARKED_9029; parked9029++ }
+    }
+    private var parked9029 = 0L
+    private var missing9029 = 0L
+    @Synchronized fun parkedLine9029(): String = "outbox9029[rows=${rows.size} holdingText=${rows.values.count { it.isNotEmpty() }} parkedEver=$parked9029 missingInStore=$missing9029 readBack=${readBack9029 != null}]"
+
     @Synchronized fun restore(saved: Map<String, String>) {
-        saved.forEach { (id, raw) -> hold8977(id, raw); durable.add(id) }
+        saved.forEach { (id, raw) -> hold8977(id, raw); durable.add(id); park9029(id) }
     }
     @Synchronized fun contains(id: String): Boolean = rows.containsKey(id)
-    @Synchronized fun payload(id: String): String? = rows[id]
+    @Synchronized fun payload(id: String): String? = raw9029(id)
     /** A fixed target is immutable even if its durable write/consumer acknowledgement has not finished yet. */
     @Synchronized fun firstRevisionForHorizon8521(episode: String, horizonMs: Long): Pair<String, String>? {
         if (episode.isEmpty() || episode.contains(REVISION_MARK_8977)) {   // not an indexable episode: the pre-8977 scan
             val prefix = episode + REVISION_MARK_8977
-            return rows.entries.firstOrNull { it.key.startsWith(prefix) && horizonOf8977(it.key) == horizonMs }?.let { it.key to it.value }
+            return rows.keys.firstOrNull { it.startsWith(prefix) && horizonOf8977(it) == horizonMs }?.let { id -> raw9029(id)?.let { id to it } }
         }
         val ids = revisions8977[episode] ?: return null
-        for (id in ids) if (horizonOf8977(id) == horizonMs) return rows[id]?.let { id to it }
+        for (id in ids) if (horizonOf8977(id) == horizonMs) return raw9029(id)?.let { id to it }
         return null
     }
     @Synchronized fun size(): Int = rows.size
 
     @Synchronized fun stage(id: String, payload: () -> String?, write: (String, String) -> Boolean): Boolean {
+        if (rows.containsKey(id) && id in durable) return true
+        return stageRaw9029(id, payload, write) != null
+    }
+
+    /** The staged payload (held, just written, or read back), or null when the row could not be staged or read. */
+    private fun stageRaw9029(id: String, payload: () -> String?, write: (String, String) -> Boolean): String? {
         if (!rows.containsKey(id)) {
-            if (rows.size >= capacity) return false
-            hold8977(id, payload() ?: return false)
+            if (rows.size >= capacity) return null
+            hold8977(id, payload() ?: return null)
         }
-        if (id in durable) return true
-        if (!write(id, rows.getValue(id))) return false
-        durable.add(id)
-        return true
+        if (id in durable) return raw9029(id)
+        val raw = rows.getValue(id)          // not durable, so never parked: the text is here
+        if (!write(id, raw)) return null
+        durable.add(id); park9029(id)
+        return raw
     }
 
     @Synchronized fun stagePayload(id: String, payload: () -> String?, write: (String, String) -> Boolean): String? =
-        if (stage(id, payload, write)) rows[id] else null
+        stageRaw9029(id, payload, write)
 
     /**
      * V5.0.8418 §OUTBOX_PER_OBSERVATION — 440f2009b stages every due horizon (15m/30m/1h/4h/24h) of every observation, so one
@@ -166,13 +196,20 @@ internal class ForwardOutcomeOutbox8404(private val capacity: Int) {
         if (batch.size < want) for (id in sorted8977.headSet(cursor, true)) { if (batch.size >= want) break; batch.add(id) }
         for (id in batch) {
             cursor = id
-            val raw = rows[id] ?: continue
+            val held = rows[id] ?: continue
             try {
                 if (id !in durable) {
-                    if (!write(id, raw)) continue
-                    durable.add(id)
+                    if (!write(id, held)) continue
+                    durable.add(id); park9029(id)
                 }
                 if (id !in acknowledged) {
+                    // V5.0.9029 — a parked row's payload is read back for its delivery. A read that fails waits for a later
+                    // pass; a store that answers and holds no such row has nothing left to deliver, and the id is released.
+                    val raw = if (held.isNotEmpty()) held else {
+                        val back = try { readBack9029?.invoke(id) } catch (_: Exception) { continue }
+                        if (back.isNullOrEmpty()) { missing9029++; drop8977(id); durable.remove(id); acknowledged.remove(id); continue }
+                        back
+                    }
                     if (!consume(raw)) continue
                     acknowledged.add(id)
                 }

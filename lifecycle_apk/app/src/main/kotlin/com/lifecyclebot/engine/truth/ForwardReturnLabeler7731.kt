@@ -3178,6 +3178,16 @@ object ForwardReturnLabeler7731 {
         return ok
     }
 
+    /**
+     * V5.0.9029 — one durable row read back (the SQLite store, else a row the preferences file still holds). Throws while
+     * neither is open: a read that could not be made is not an answer that the row is gone.
+     */
+    private fun readRow9029(key: String): String? {
+        val store = rowStore8409; val p = prefs
+        if (store == null && p == null) throw IllegalStateException("row store not open")
+        return store?.read(key) ?: p?.getString(key, null)
+    }
+
     private fun removeRows8409(keys: Collection<String>): Boolean {
         if (keys.isEmpty()) return true
         val store = rowStore8409
@@ -3196,7 +3206,8 @@ object ForwardReturnLabeler7731 {
 
     private fun rowStoreLine8409(): String = "rows8409[store=${if (rowStore8409 != null) "sqlite" else "prefs"} migrated=${rowsMigrated8409.get()} failures=${rowStoreFailures8409.get()}]"
     // One first value, one immutable hour target, and at most one coalesced later checkpoint per observation.
-    private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731 * 3)
+    // V5.0.9029 — a durable payload is left in the row store and read back when it is delivered (the outbox held 15.7 MB of them)
+    private val forwardOutbox8404 = com.lifecyclebot.engine.cortex.ForwardOutcomeOutbox8404(MAX_PENDING_7731 * 3) { id -> readRow9029(FORWARD_PREFIX_8404 + id) }
 
     private fun writeForward8404(id: String, raw: String): Boolean =
         putRow8409(FORWARD_PREFIX_8404 + id, raw)   // V5.0.8409 — one row transaction, not a checkpoint-file rewrite
@@ -4050,7 +4061,7 @@ object ForwardReturnLabeler7731 {
     private fun terminalStatus8401(): String {
         val oldest = terminalOutbox8395.entries.asSequence().filterNot { deliveredTerminals8395.contains(it.key) }
             .mapNotNull { try { org.json.JSONObject(it.value).optLong("terminalAt").takeIf { at -> at > 0L } } catch (_: Exception) { null } }.minOrNull()
-        return "entryTarget8521=frozen ${rowStoreLine8409()} terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}]"
+        return "entryTarget8521=frozen ${rowStoreLine8409()} terminal8401[queued=${terminalOutbox8395.size} ack=${deliveredTerminals8395.size} oldestMs=${oldest?.let { System.currentTimeMillis() - it } ?: 0L} capacity=${terminalCapacityRefusals8401.get()} storageFailures=${terminalStorageFailures8401.get()}] ${forwardOutbox8404.parkedLine9029()}"
     }
 
     fun statusLine(): String {
