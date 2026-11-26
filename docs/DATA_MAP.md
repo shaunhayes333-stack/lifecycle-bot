@@ -4848,3 +4848,22 @@ picks a top tenth at +5.2 % +-3.9 (median -12.7 %, 16 % winners). Coins off pump
 +48.8 % +-6.9, median +34.0 %, 82 % winners; of the 578 such picks 331 read LP-unlocked, 215 LP-unread, 32 LP-locked.
 The LP rule (70 % locked) is the owner's and is unchanged.
 
+
+
+## §217 — V5.0.9032: a pump.fun coin's LP is not a question; the concentrated pools are read
+
+Owner, 26 Nov 21:56: "fix the lp rule on pumpfun coins. only mayhem coins have weird liq. open it up please. buys are meant
+to be instant same as sells. add the other sol pools". Source: the 26 Nov 21:03 report (the buy door's unread proofs:
+LP ownership 2,967 of 4,988; the LP reader asked 402 pools, 174 of programs it did not read).
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| pump.fun coin proof | `engine/truth/PumpFunCoin9032.kt` | mint suffix; the pump.fun program's own evidence (`CurveReserves7951.known7951`, `PumpCurveKeys7269.keyFor` / `isGraduated7392`); else one read of the mint's bonding-curve account (owner must be the pump.fun program); chain supply for Mayhem | in-memory set of proven mints; on a proof read: `SafetyRefreshQueue.request`, `TicketRetry8327.onProofLanded8330` | the LP question only |
+| LP rule | `engine/LiquidityOwnership8522.kt` `assess` | the pools' own answer (`assessPools9032`, unchanged), then `PumpFunCoin9032.lpByConstruction9032` | `Result(PROVEN, PUMP_FUN_LP_BY_CONSTRUCTION_9032)` only where the pools' answer was PENDING or BLOCKED | buy door and send check; an answer already PROVEN keeps its reason; coins that are not pump.fun coins keep the 70 % rule |
+| Safety report | `engine/TokenSafetyChecker.kt` | same proof | the provider's unlocked-LP flag and the lock-percentage band are not applied to such a coin | hard block list |
+| Concentrated pools | `engine/truth/ConcentratedLock9032.kt`, `PoolLock8895.readConcentrated9032` | Orca Whirlpool and Raydium CLMM: the pool account, each position's range and liquidity (24-byte slices), the venue's lock records | `Lock8895` (venue `ORCA_WHIRLPOOL` / `RAYDIUM_CLMM`, smallest locked share of any price range) | as every chain-read lock: 70 % or more proves an unread LP, never blocks |
+
+Not changed: Mayhem coins (still refused by `MayhemMode7943`); the curve's exit depth, pool depth, holders, RugCheck, mint
+and freeze authorities; the 70 % rule and the DLMM reader for coins off pump.fun. Buy latency: the executor's own
+start-to-broadcast was 2.5 s on the two landed buys (sells 2.4 s); the 12-16 s from seal to send is the door's proofs
+arriving after the gate's yes, and the LP proof was 59 % of them.

@@ -421,6 +421,9 @@ object PoolLock8895 {
                 readDlmm(mint, pool, type)
             }
             PUMP_AMM_PROGRAM_8937 -> readPumpSwap8937(mint, pool, data)   // V5.0.8937
+            // V5.0.9032 — the concentrated pools: positions and the venue's own lock records (ConcentratedLock9032)
+            OnChainDepth8038.ORCA_WHIRLPOOL_8418 -> readConcentrated9032(mint, pool, ConcentratedLock9032.whirlpoolPool9032(mint, data), whirlpool = true)
+            OnChainDepth8038.RAYDIUM_CLMM_8418 -> readConcentrated9032(mint, pool, ConcentratedLock9032.clmmPool9032(mint, data), whirlpool = false)
             else -> { other(pool, now); if (owner.isNotBlank()) countOther8937(owner) }
         }
     }
@@ -775,6 +778,44 @@ object PoolLock8895 {
         store(Lock8895(mint, pool, VENUE_PUMPSWAP_8937, pct, System.currentTimeMillis(), "burned/lp_supply"))
     }
 
+    /**
+     * V5.0.9032 — an Orca Whirlpool or a Raydium CLMM pool: every position's range and liquidity (24 bytes each), then the
+     * positions under a lock record, then the smallest locked fraction of any piece of the price axis that holds liquidity.
+     * A pool with more than [ConcentratedLock9032.MAX_POSITIONS_9032] positions is not proven, as the DLMM reader's cap.
+     */
+    private fun readConcentrated9032(mint: String, pool: String, isPool: Boolean, whirlpool: Boolean) {
+        val now = System.currentTimeMillis()
+        if (!isPool) { other(pool, now); return }
+        val venue = if (whirlpool) ConcentratedLock9032.VENUE_WHIRLPOOL_9032 else ConcentratedLock9032.VENUE_CLMM_9032
+        val program = if (whirlpool) OnChainDepth8038.ORCA_WHIRLPOOL_8418 else OnChainDepth8038.RAYDIUM_CLMM_8418
+        fun cfg(filters: JSONArray, at: Int, len: Int) = JSONObject().put("encoding", "base64").put("commitment", "confirmed").put("withContext", true)
+            .put("filters", filters).put("dataSlice", JSONObject().put("offset", at).put("length", len))
+        fun at(offset: Int, bytes: String) = JSONObject().put("memcmp", JSONObject().put("offset", offset).put("bytes", bytes))
+        val positionFilters = JSONArray()
+            .put(JSONObject().put("dataSize", if (whirlpool) ConcentratedLock9032.WHIRLPOOL_POSITION_SIZE_9032 else ConcentratedLock9032.CLMM_POSITION_SIZE_9032))
+            .put(at(if (whirlpool) 8 else 41, pool))
+        val head = gpa(program, cfg(positionFilters, if (whirlpool) ConcentratedLock9032.WHIRLPOOL_POSITION_SLICE_AT_9032 else ConcentratedLock9032.CLMM_POSITION_SLICE_AT_9032,
+            ConcentratedLock9032.POSITION_SLICE_LEN_9032)) ?: run { rpcFailed.incrementAndGet(); return }
+        if (head.length() > ConcentratedLock9032.MAX_POSITIONS_9032) { tooMany.incrementAndGet(); other(pool, now); return }
+        val positions = (0 until head.length()).mapNotNull { i ->
+            val o = head.optJSONObject(i) ?: return@mapNotNull null
+            val slice = OnChainDepth8038.accountData8418(o.optJSONObject("account"))
+            if (whirlpool) ConcentratedLock9032.whirlpoolPosition9032(o.optString("pubkey"), slice) else ConcentratedLock9032.clmmPosition9032(o.optString("pubkey"), slice)
+        }
+        if (positions.size != head.length()) { rpcFailed.incrementAndGet(); return }
+        if (positions.none { it.liquidity.signum() > 0 }) { store(Lock8895(mint, pool, venue, 0.0, now, "no positions with liquidity")); return }
+        // the lock records of this pool: Orca's LockConfig (whirlpool @72, position @8); Raydium's lock program (poolId @41, positionId @73)
+        val lockRows = if (whirlpool)
+            gpa(program, cfg(JSONArray().put(JSONObject().put("dataSize", ConcentratedLock9032.WHIRLPOOL_LOCK_SIZE_9032)).put(at(72, pool)), 8, 32))
+        else gpa(ConcentratedLock9032.CLMM_LOCK_PROGRAM_9032, cfg(JSONArray().put(at(41, pool)), 73, 32))
+        if (lockRows == null) { rpcFailed.incrementAndGet(); return }
+        val locked = (0 until lockRows.length()).mapNotNull { i ->
+            OnChainDepth8038.accountData8418(lockRows.optJSONObject(i)?.optJSONObject("account"))?.let { key(it, 0) }
+        }.toSet()
+        val pct = ConcentratedLock9032.lockedPct9032(positions, locked) ?: 0.0
+        store(Lock8895(mint, pool, venue, pct, System.currentTimeMillis(), "positions=${positions.size} locked=${positions.count { it.address in locked }} smallestLockedShare"))
+    }
+
     private fun countOther8937(program: String) {
         val k = program.take(8)
         (otherPrograms8937[k] ?: if (otherPrograms8937.size >= 16) otherPrograms8937.computeIfAbsent("OTHER") { AtomicLong(0L) }
@@ -834,7 +875,7 @@ object PoolLock8895 {
             "providerCorrected8937{${corrected8937.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "otherPrograms8937{${otherPrograms8937.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
             "rule=Meteora DAMM v2 permanent lock + vesting held past 24 h (8925) / DLMM positions locked 24 h+ (smallest locked share of any bin) / " +
-            "Raydium CPMM LP burned + Burn & Earn (8925) / Raydium AMM v4 LP burned (8926) / PumpSwap LP burned (8937), read on chain; " +
+            "Raydium CPMM LP burned + Burn & Earn (8925) / Raydium AMM v4 LP burned (8926) / PumpSwap LP burned (8937) / Orca Whirlpool and Raydium CLMM positions under a lock record, smallest locked share of any price range (9032), read on chain; " +
             ">=70 % proves the pool's LP, and from 8937 stands over a provider's lower figure for that same pool; an unlocked or " +
             "unreadable pool stays unproven and is not bought]"
 

@@ -179,6 +179,30 @@ object LiquidityOwnership8522 {
         expectedMint: String = "",
         chainLock8895: com.lifecyclebot.engine.truth.PoolLock8895.Lock8895? = null,
     ): Result {
+        val r = assessPools9032(report, selectedPoolAddress, activeCurveVerified, whitelisted, activeCurveAddress, nowMs, expectedMint, chainLock8895)
+        // V5.0.9032 — owner, 26 Nov 21:56: "fix the lp rule on pumpfun coins. only mayhem coins have weird liq. open it up".
+        // An answer that is already PROVEN stands as it was (the curve's own reason is read by the depth rules below it). An
+        // answer that would wait or refuse is PROVEN for a coin the pump.fun program made that is not Mayhem
+        // (truth.PumpFunCoin9032): its liquidity is in the program's custody on the curve and burned LP after graduation,
+        // whatever a provider reports for a pool. Only this question changes; depth, holders, RugCheck and authorities decide.
+        if (r.status == Status.PROVEN) return r
+        val mint9032 = expectedMint.ifBlank { report.lpOwnership8522.mint }
+        if (mint9032.isBlank() || !(try { com.lifecyclebot.engine.truth.PumpFunCoin9032.lpByConstruction9032(mint9032, nowMs) } catch (_: Throwable) { false })) return r
+        try { PipelineHealthCollector.labelInc("LP_PROVEN_PUMP_FUN_9032_WAS_${r.status.name}") } catch (_: Throwable) {}
+        return Result(Status.PROVEN, com.lifecyclebot.engine.truth.PumpFunCoin9032.REASON_9032, "pump.fun coin, not Mayhem; the pools' own answer was ${r.reason}")
+    }
+
+    /** The pools' own answer (provider report, curve custody, chain-read locks), as [assess] gave it before 9032. */
+    private fun assessPools9032(
+        report: SafetyReport,
+        selectedPoolAddress: String,
+        activeCurveVerified: Boolean,
+        whitelisted: Boolean,
+        activeCurveAddress: String,
+        nowMs: Long,
+        expectedMint: String,
+        chainLock8895: com.lifecyclebot.engine.truth.PoolLock8895.Lock8895?,
+    ): Result {
         val evidence = report.lpOwnership8522
         val hasProviderEvidence = evidence.mint.isNotBlank() || evidence.riskInventoryComplete ||
             evidence.pools.isNotEmpty() || evidence.explicitUnlocked

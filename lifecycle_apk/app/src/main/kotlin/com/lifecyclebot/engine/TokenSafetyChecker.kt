@@ -351,6 +351,18 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         liquidityHistory.remove(mint)
     }
 
+    /**
+     * V5.0.9032 — owner, 26 Nov 21:56: "fix the lp rule on pumpfun coins. only mayhem coins have weird liq." A pump.fun coin
+     * that is not Mayhem has no LP a dev can pull, on its curve or after it (truth.PumpFunCoin9032: a coin the program
+     * itself made, never the suffix alone), so a provider's unlocked-LP finding for one of its pools is not a rug flag and
+     * the lock-percentage band is not its LP question. True (and counted under [label]) when that answers for [mint].
+     */
+    private fun pumpLpAnswers9032(mint: String, label: String): Boolean {
+        val yes = try { com.lifecyclebot.engine.truth.PumpFunCoin9032.lpByConstruction9032(mint) } catch (_: Throwable) { false }
+        if (yes) try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+        return yes
+    }
+
     fun check(
         mint: String,
         symbol: String,
@@ -627,6 +639,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     lpUnlockedRisk = false
                     try { PipelineHealthCollector.labelInc("LP_UNLOCKED_FLAG_ANSWERED_BY_CHAIN_8937") } catch (_: Throwable) {}
                 }
+                if (lpUnlockedRisk && pumpLpAnswers9032(mint, "LP_UNLOCKED_FLAG_ANSWERED_PUMP_FUN_9032")) lpUnlockedRisk = false   // V5.0.9032
                 if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0
                 val lpUnlockedRugCombo = lpUnlockedRisk &&
                     (lowLiquidityRisk || currentLiquidityUsd in 0.0..2_500.0) &&
@@ -919,6 +932,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // ── 4. LP lock — V5.9.310: HARDEN to 70% threshold in LIVE + UNKNOWN→BLOCK
         // V5.6.8 CRITICAL FIX: Unlocked liquidity should be HARD BLOCK in live mode!
         when {
+            pumpLpAnswers9032(mint, "LP_LOCK_BAND_NOT_APPLIED_PUMP_FUN_9032") -> Unit   // V5.0.9032 — a pool's lock % is not this coin's LP question
             lpLockPct < 0 -> {
                 // V5.9.495o — operator: was hard-blocking live on UNKNOWN
                 // (RPC race). Demote to soft penalty in live; the LP-locked

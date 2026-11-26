@@ -2672,9 +2672,9 @@ object Cortex7885 {
         val ids = synchronized(this) { uncommittedCloseGrades8198.toList() }
         if (ids.isEmpty()) return
         val encode = snapshotEncoder8386(periodic = false) ?: return
-        val blobs = encode()
+        val snapshot9031 = encode()
         val dbAt = System.nanoTime()
-        val committed = LearningPersistence.commitOnce8090("CORTEX_CLOSE_BATCH_9031|${java.util.UUID.randomUUID()}", blobs)
+        val committed = LearningPersistence.commitOnce8090("CORTEX_CLOSE_BATCH_9031|${java.util.UUID.randomUUID()}", snapshot9031)
         snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
         lastFullEncodeEndMs9031 = System.currentTimeMillis()
         if (committed == LearningPersistence.Commit8090.RETRY) { inc("CORTEX_CLOSE_BATCH_RETRY_9031"); return }
