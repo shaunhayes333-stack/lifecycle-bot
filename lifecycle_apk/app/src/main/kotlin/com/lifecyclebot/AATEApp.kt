@@ -62,6 +62,7 @@ class AATEApp : Application() {
         // V5.0.8866 — a raw heap dump a killed process left in the private cache holds the wallet's keys: deleted first.
         try { com.lifecyclebot.engine.HeapMap8866.sweep8866(this) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.CpuSample8892.sweep8892(this) } catch (_: Throwable) {}   // V5.0.8892
+        try { com.lifecyclebot.engine.HotFrames9031.start9031() } catch (_: Throwable) {}   // V5.0.9031 — the running-code sampler
         // V5.0.7717 — load the previous process's crash verdict first, so a
         // startup crash in the last run keeps optional doctrine layers off in
         // this one and the report can print the trace.

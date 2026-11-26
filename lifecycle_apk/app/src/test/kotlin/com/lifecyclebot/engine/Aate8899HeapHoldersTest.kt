@@ -42,7 +42,8 @@ class Aate8899HeapHoldersTest {
         assertEquals("PAPER_NOT_LIVE_COST_EVIDENCE", ex["T1"])
         assertSame(ex["T1"], ex["T2"])
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/CanonicalFinalityPersistence6486.kt").readText()
-        assertTrue(src.contains(".put(tradeId, reason.intern())  // V5.0.8899"))
+        // superseded by V5.0.9029 (IdPool9029: the trade id is held once too); the reason is still interned
+        assertTrue(src.contains(".put(IdPool9029.canon9029(tradeId), reason.intern())  // V5.0.8899"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 88. What held the heap (8899)"))
     }
 }

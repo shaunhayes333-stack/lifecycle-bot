@@ -40,6 +40,12 @@ object FlatChart8027 {
         return (p.max() / lo - 1.0) * 100.0 < FLAT_RANGE_PCT
     }
 
+    /** V5.0.9031 — dead by the coin's remembered top: its accepted price AND cap both [DEAD_RATIO]x or more under it. */
+    private fun deadByMemory9031(ts: TokenState, count: Boolean = true): Boolean = try {
+        com.lifecyclebot.engine.truth.TopMemory9031.dead9031(ts.mint, ts.lastPrice,
+            try { com.lifecyclebot.engine.truth.TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { ts.lastMcap }, DEAD_RATIO, count)
+    } catch (_: Throwable) { false }
+
     /** Count distinct candles, then test their full range and the executable current price. */
     fun flatCandles8076(bars: List<Candle>, nowPrice: Double, nowMs: Long): Boolean {
         if (!nowPrice.isFinite() || nowPrice <= 0.0) return false
@@ -55,11 +61,22 @@ object FlatChart8027 {
         val now = ts.lastPrice
         if (!(now > 0.0)) return null
         val bars = try { synchronized(ts.history) { ts.history.filter { !it.synthetic }.toList() } } catch (_: Throwable) { return null }
-        if (bars.isEmpty()) return null
+        if (bars.isEmpty()) {   // V5.0.9031 — no candle held (a restart): the remembered top still answers
+            if (!deadByMemory9031(ts)) return null
+            deadRefused.incrementAndGet()
+            try {
+                PipelineHealthCollector.labelInc("LIVE_BUY_REFUSED_DEAD_RUNNER_8027"); PipelineHealthCollector.labelInc("DEAD_RUNNER_BY_MEMORY_9031")
+                ForensicLogger.lifecycle("LIVE_BUY_REFUSED_DEAD_RUNNER_8027", "mint=${ts.mint.take(10)} sym=${ts.symbol} now=$now bars=0 by=TOP_MEMORY_9031")
+            } catch (_: Throwable) {}
+            return "DEAD_RUNNER_8027"
+        }
         // The second-highest bar is the top: one rogue print cannot call a coin dead.
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         val why = when {
             deadRunner8027(peak, now) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
+            // V5.0.9031 — the same verdict from the top the bot remembers across restarts (TopMemory9031): the candles above
+            // forget a run from the morning (26 Nov: GFmaQA bought 46x under the top it had made 13 h earlier).
+            deadByMemory9031(ts) -> { deadRefused.incrementAndGet(); "DEAD_RUNNER_8027" }
             flatCandles8076(bars, now, nowMs) && deadTape8476(ts.mint, nowMs) -> {
                 flatRefused.incrementAndGet(); "FLATLINE_8027"
             }
@@ -88,10 +105,11 @@ object FlatChart8027 {
         val now = ts.lastPrice
         if (!(now > 0.0)) return null
         val bars = try { synchronized(ts.history) { ts.history.filter { !it.synthetic }.toList() } } catch (_: Throwable) { return null }
-        if (bars.isEmpty()) return null
+        if (bars.isEmpty()) return if (deadByMemory9031(ts, count = false)) "DEAD_RUNNER_8027" else null   // V5.0.9031
         val peak = bars.map { maxOf(it.highUsd, it.priceUsd) }.sortedDescending().let { if (it.size >= 2) it[1] else it[0] }
         return when {
             deadRunner8027(peak, now) -> "DEAD_RUNNER_8027"
+            deadByMemory9031(ts, count = false) -> "DEAD_RUNNER_8027"   // V5.0.9031 — the remembered top (the executor's check counts it)
             flatCandles8076(bars, now, nowMs) && deadTape8476(ts.mint, nowMs) -> "FLATLINE_8027"
             else -> null
         }

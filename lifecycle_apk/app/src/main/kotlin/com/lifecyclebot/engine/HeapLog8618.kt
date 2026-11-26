@@ -137,6 +137,7 @@ object HeapLog8618 {
                 .append(fam.take(12).joinToString(",") { "${it.key}:${it.value}" }).append('\n')
         } catch (_: Throwable) {}
         try { sb.append(cpuLine8622(nowMs)) } catch (_: Throwable) {}
+        try { sb.append(HotFrames9031.block9031()) } catch (_: Throwable) {}   // V5.0.9031 — which code is running
         sb.append("  SCREENS    ").append(try { ActivityCensus8865.statusLine8865() } catch (_: Throwable) { "unavailable" }).append('\n')   // V5.0.8865
         val snap = synchronized(samples) { samples.toList() }
         val first0 = first

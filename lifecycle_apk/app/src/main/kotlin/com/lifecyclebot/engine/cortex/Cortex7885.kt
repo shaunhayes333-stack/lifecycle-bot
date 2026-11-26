@@ -659,7 +659,7 @@ object Cortex7885 {
 
     private fun assessWaitLine8324(): String {
         val n = assessWaitN8324.get()
-        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms parts8491=$snapshotParts8491 closeCommits8818{encoded=$closeCommitsEncoded8818 joined=$closeCommitsJoined8818}] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
+        return "snapshot8386[g=$snapshotGeneration8386 wait=${snapshotWaitMs8386}ms hold=${snapshotHoldMs8386}ms encode=${snapshotEncodeMs8386}ms db=${snapshotDbMs8386}ms parts8491=$snapshotParts8491 closeCommits8818{encoded=$closeCommitsEncoded8818 joined=$closeCommitsJoined8818 paced9031=$closeCommitsPaced9031 batches9031=$closeBatches9031/$closesInBatches9031}] assessLockWait8324[mean=${if (n > 0) "%.1f".format(assessWaitNanos8324.get() / n / 1e6) else "-"}ms max=${"%.0f".format(assessWaitMaxNanos8324.get() / 1e6)}ms n=$n]"
     }
 
     // ── V5.0.8291 §CORE_VOTERS — the voters seated in a lane are never abstained by the read budget ──
@@ -2629,6 +2629,61 @@ object Cortex7885 {
     @Volatile private var closeCommitsJoined8818 = 0L    // written under persistLock8325
     @Volatile private var closeCommitsEncoded8818 = 0L
 
+    // ── V5.0.9031 §A_CLOSE_COMMIT_WAITS_ITS_TURN — the 26 Nov 21:03 report (13 min up): 13 close commits and 4 periodic
+    //    snapshots, each a whole-graph encode of 25 MB taking 50-62 s on that phone (encode=50448ms: books 10.7 MB, pending
+    //    11.0 MB, grades 3.9 MB), so the encoder ran without a pause, 51 MB of its buffers sat on thread frames in the heap
+    //    map, an assessment waited up to 32 s for the lock (assessLockWait8324 max=32046ms) and the finalized-trade bus thread
+    //    was held for the whole encode on every close. The periodic save (8652) and the shadow batch (8497) already wait a
+    //    multiple of the last save's cost; the close commit was the one path that did not.
+    //    A close commit that arrives inside [closeCommitGapMs9031] of the last whole-graph encode is not encoded on the bus
+    //    thread: its delivery answers RETRY at once (its grade is already in memory behind the uncommitted gate, exactly as
+    //    after a refused store), and the persist thread commits every waiting close together once the gap has passed — one
+    //    encode, one transaction, the same three blobs and every waiting receipt (commitOnce8090), so a receipt still exists
+    //    only with the state that holds its grade. An encode under [CLOSE_PACE_MIN_COST_MS_9031] is not paced at all: a
+    //    healthy phone commits each close at once as before. A forced (shutdown) flush commits the waiting closes at once. ──
+    internal const val CLOSE_PACE_MIN_COST_MS_9031 = 1_000L
+    internal const val CLOSE_PACE_MULT_9031 = 4L
+    internal const val CLOSE_PACE_CAP_MS_9031 = 5L * 60_000L
+    @Volatile private var lastFullEncodeEndMs9031 = 0L
+    @Volatile private var closeCommitsPaced9031 = 0L
+    @Volatile private var closeBatches9031 = 0L
+    @Volatile private var closesInBatches9031 = 0L
+    /** tradeId -> committed by a batch (9031) and not yet acknowledged to the bus: its redelivery is an ACK, not a duplicate. */
+    private val batchCommitted9031 = ConcurrentHashMap.newKeySet<String>()
+
+    /** Pure: how long after a whole-graph encode of [lastCostMs] a close commit waits before starting the next one. */
+    internal fun closeCommitGapMs9031(lastCostMs: Long): Long =
+        if (lastCostMs < CLOSE_PACE_MIN_COST_MS_9031) 0L else minOf(CLOSE_PACE_CAP_MS_9031, lastCostMs * CLOSE_PACE_MULT_9031)
+
+    /** Pure: is a close commit [sinceLastEncodeMs] after the last whole-graph encode still inside its gap? */
+    internal fun closeCommitPaced9031(lastCostMs: Long, sinceLastEncodeMs: Long): Boolean =
+        sinceLastEncodeMs >= 0L && sinceLastEncodeMs < closeCommitGapMs9031(lastCostMs)
+
+    private fun closeCommitPacedNow9031(nowMs: Long = System.currentTimeMillis()): Boolean =
+        lastFullEncodeEndMs9031 > 0L && closeCommitPaced9031(lastSaveCostMs8497(), nowMs - lastFullEncodeEndMs9031)
+
+    /**
+     * V5.0.9031 — every close graded in memory and waiting for its receipt, committed together. The caller holds
+     * [persistLock8325]. The ids are read under the Cortex lock before the snapshot is captured (also under it), so the
+     * snapshot's receipts cover each of them; they are marked committed only when the transaction answers committed.
+     */
+    private fun commitWaitingCloses9031() {
+        if (!loaded) return
+        val ids = synchronized(this) { uncommittedCloseGrades8198.toList() }
+        if (ids.isEmpty()) return
+        val encode = snapshotEncoder8386(periodic = false) ?: return
+        val blobs = encode()
+        val dbAt = System.nanoTime()
+        val committed = LearningPersistence.commitOnce8090("CORTEX_CLOSE_BATCH_9031|${java.util.UUID.randomUUID()}", blobs)
+        snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
+        lastFullEncodeEndMs9031 = System.currentTimeMillis()
+        if (committed == LearningPersistence.Commit8090.RETRY) { inc("CORTEX_CLOSE_BATCH_RETRY_9031"); return }
+        synchronized(this) { for (id in ids) { closeReceipts8198.add(id); uncommittedCloseGrades8198.remove(id); batchCommitted9031.add(id) } }
+        if (batchCommitted9031.size > 4096) batchCommitted9031.clear()
+        closeBatches9031++; closesInBatches9031 += ids.size
+        inc("CORTEX_CLOSE_BATCH_COMMITTED_9031")
+    }
+
     private fun snapshotEncoder8386(periodic: Boolean): (() -> MutableMap<String, String>)? {
         val started = System.nanoTime()
         return synchronized(this) {
@@ -2723,6 +2778,7 @@ object Cortex7885 {
         val dbAt = System.nanoTime()
         val committed = LearningPersistence.commitOnce8090(receipt, blobs)
         snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
+        lastFullEncodeEndMs9031 = System.currentTimeMillis()   // V5.0.9031 — the next close commit waits its gap from here
         return when (committed) {
             LearningPersistence.Commit8090.COMMITTED, LearningPersistence.Commit8090.ALREADY_COMMITTED -> true
             LearningPersistence.Commit8090.RETRY -> { inc("CORTEX_CLOSE_DURABLE_RETRY_8198"); false }
@@ -5171,6 +5227,12 @@ object Cortex7885 {
             val tradeId = env.tradeId
             // A close this process already committed durably is done, whatever the bus redelivers.
             if (tradeId in closeReceipts8198) {
+                // V5.0.9031 — committed with its batch while its delivery waited: this is its acknowledgement, not a duplicate.
+                if (batchCommitted9031.remove(tradeId)) {
+                    inc("CORTEX_CLOSE_DURABLE_ACKED_8198"); inc("CORTEX_CLOSE_BATCH_ACKED_9031")
+                    com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.ADMIT)
+                    return CloseDelivery8198.ACKED
+                }
                 inc("CORTEX_CLOSE_DUPLICATE_ACKED_8198")
                 com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.DUPLICATE)
                 return CloseDelivery8198.ACKED
@@ -5261,10 +5323,15 @@ object Cortex7885 {
             // receipt commit with the current graded state. Never acknowledge a scheduled write.
         }
         if (execRefresh8325) try { refreshExecutable8187(System.currentTimeMillis()) } catch (_: Throwable) {}
-        val durable = try { durableCloseCommit8198(closeReceipt8198(env.tradeId)) } catch (_: Throwable) { false }
+        // V5.0.9031 — inside the gap after a whole-graph encode this delivery does not encode on the bus thread: it answers
+        // RETRY and the persist thread commits every waiting close together (persistBlocking8094 -> commitWaitingCloses9031).
+        val paced9031 = closeCommitPacedNow9031()
+        if (paced9031) { closeCommitsPaced9031++; inc("CORTEX_CLOSE_COMMIT_PACED_9031"); persist() }
+        val durable = try { !paced9031 && durableCloseCommit8198(closeReceipt8198(env.tradeId)) } catch (_: Throwable) { false }
         return when (durable) {
             true -> synchronized(this) {
                 closeReceipts8198.add(env.tradeId)
+                batchCommitted9031.remove(env.tradeId)
                 uncommittedCloseGrades8198.remove(env.tradeId)
                 inc("CORTEX_CLOSE_DURABLE_ACKED_8198")
                 com.lifecyclebot.engine.truth.LearnerAttribution8418.observe8418("Cortex7885.close", mode, com.lifecyclebot.engine.truth.LearnerAttribution8418.Verdict8418.ADMIT)
@@ -5598,6 +5665,8 @@ object Cortex7885 {
         if (!loaded) return
         // 8198 — never write a snapshot that separates the graded state from its receipt: while a close grade
         // awaits its durable commit, the close commit itself carries the state (see durableCloseCommit8198).
+        // V5.0.9031 — closes that waited out the close-commit pace are committed here, together (commitWaitingCloses9031).
+        if (uncommittedCloseGrades8198.isNotEmpty() && (force8652 || !closeCommitPacedNow9031())) { commitWaitingCloses9031(); return }
         if (uncommittedCloseGrades8198.isNotEmpty()) return
         // V5.0.8429 — under memory pressure the grade book is encoded UNDER the Cortex lock (8418: one copy, not two), which on
         // the 8422 device (heap 94 %, CRITICAL the whole session) meant a multi-second lock hold on every periodic save
@@ -5627,6 +5696,7 @@ object Cortex7885 {
             val dbAt = System.nanoTime()
             if (!LearningPersistence.saveTogetherVerified8386(blobs)) inc("CHECKPOINT_RETRY_8386") else lastPeriodicSnapshotMs8429 = now8429
             snapshotDbMs8386 = (System.nanoTime() - dbAt) / 1_000_000
+            lastFullEncodeEndMs9031 = System.currentTimeMillis()   // V5.0.9031
 
         } catch (_: Throwable) {}
     } }

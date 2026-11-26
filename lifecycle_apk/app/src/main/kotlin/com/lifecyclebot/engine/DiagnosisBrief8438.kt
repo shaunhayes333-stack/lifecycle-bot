@@ -136,6 +136,7 @@ object DiagnosisBrief8438 {
             "\n               " + (try { com.lifecyclebot.engine.cortex.LanePlaybook7907.pickMemoLine9026() } catch (_: Throwable) { "pickMemo9026[?]" }) +   // V5.0.9026
             " " + (try { com.lifecyclebot.engine.truth.CanonicalFinalizedTradeBus6464.terminalCacheLine9026() } catch (_: Throwable) { "terminals9026[?]" }) +   // V5.0.9026
             "\n               " + (try { com.lifecyclebot.engine.truth.IdPool9029.line9029() } catch (_: Throwable) { "idPool9029[?]" }) +   // V5.0.9029
+            "\n               " + (try { com.lifecyclebot.engine.truth.TopMemory9031.line9031() } catch (_: Throwable) { "topMemory9031[?]" }) +   // V5.0.9031
             " " + (try { com.lifecyclebot.engine.truth.PocketLedger8610.seenLine9029() } catch (_: Throwable) { "pocketSeen9029[?]" }) +   // V5.0.9029
             " " + (try { ForwardReturnLabeler7731.deskSetupLine9013() } catch (_: Throwable) { "cryptoDeskSetups9013=?" })   // V5.0.9013
         // V5.0.8552 — the FDG's named zero sizes ride beside the funnel (kept out of the pure line)

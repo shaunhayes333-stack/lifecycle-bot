@@ -514,6 +514,7 @@ class PipelineHealthActivity : AppCompatActivity() {
             try {
                 val rt = Runtime.getRuntime()
                 appendLine("heap usedMB=${(rt.totalMemory() - rt.freeMemory()) shr 20} maxMB=${rt.maxMemory() shr 20} build=${try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }}")
+                try { append(com.lifecyclebot.engine.HotFrames9031.block9031(12)) } catch (_: Throwable) {}   // V5.0.9031
                 appendLine("lastCrashAnyBuild9030: " + com.lifecyclebot.engine.truth.StartupCrashGuard7717.priorCrashLine9030())
                 appendLine("processExits9030 (Android's record, newest first):")
                 appendLine(com.lifecyclebot.engine.truth.ProcessExits9030.block9030(com.lifecyclebot.AATEApp.appContextOrNull()))

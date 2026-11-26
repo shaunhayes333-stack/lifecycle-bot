@@ -153,7 +153,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
             }
         } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
         revision8401++; revisionFloor8418 = revision8401
-        store = cold; hot.clear(); preAttachReceipts.clear()
+        store = cold; hot.clear(); preAttachReceipts.clear(); keysSnap9031 = null
         keyIndex.clear(); try { keyIndex.addAll(cold.keys()) } catch (failure: Exception) { throw ShadowStorageUnavailable8397(failure) }
     }
 
@@ -233,7 +233,18 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
         // Busy writers win. An incomplete read must not masquerade as an empty cohort.
         throw ShadowStorageUnavailable8397()
     }
-    val keys: Set<String> @Synchronized get() = if (store == null) hot.keys.toSet() else (keyIndex + hot.keys)
+    // V5.0.9031 §THE_KEY_SET_IS_NOT_COPIED_PER_READ — the 26 Nov 21:00 heap map: 5.1 MB of dropped LinkedHashSets at one instant
+    // (40 % of the garbage it sampled), and the 9023 out-of-memory trace ended in this getter (ExploreShadow8347.bestCohort8360).
+    // It copied every key (7,824 on that phone) into a new set on each read, and the choice computer and the status walk read
+    // it per lane and per cohort dimension. Once a store is attached every hot key is in keyIndex (attach clears hot; a read
+    // or an append puts a key in both), and keyIndex only grows between attach / clear, so a copy taken at one size is the
+    // key set until the size changes. The copy is rebuilt then; with no store the hot keys are copied as before.
+    private var keysSnap9031: Set<String>? = null
+    val keys: Set<String> @Synchronized get() {
+        if (store == null) return hot.keys.toSet()
+        keysSnap9031?.let { if (keysSnapCurrent9031(it.size, keyIndex.size)) return it }
+        return (keyIndex + hot.keys).also { keysSnap9031 = it }
+    }
     @Synchronized fun containsKey(key: String): Boolean = hot.containsKey(key) || (store != null && key in keyIndex)
 
     /** One event's variants/cohorts are atomic and idempotent, including replay after a crash before ticket deletion. */
@@ -297,7 +308,7 @@ internal class ShadowCohortBook8397(private val fields: Int, private val maxRows
     fun laneRevision8418(lane: String): Long =
         maxOf(laneRevisions8418[lane.trim().uppercase()] ?: 0L, revisionFloor8418)
 
-    @Synchronized fun clear() { revision8401++; revisionFloor8418 = revision8401; hot.clear(); preAttachReceipts.clear(); keyIndex.clear() } // test-local reset; durable learning is never evicted
+    @Synchronized fun clear() { revision8401++; revisionFloor8418 = revision8401; hot.clear(); preAttachReceipts.clear(); keyIndex.clear(); keysSnap9031 = null } // test-local reset; durable learning is never evicted
 }
 
 /** V5.0.8418 — the lane a book key belongs to: `lane|E|X`, `C|lane|E|X|dim:value`, `U|<either>` (fill-rate rows). */
@@ -323,3 +334,6 @@ internal fun appendRow8949(raw: String?, rowText: String, maxRows: Int): String 
     while (drop > 0 && i < joined.length) { val ch = joined[i]; if (ch == ';' || ch == '\n') drop--; i++ }
     return joined.substring(i)
 }
+
+/** Pure (V5.0.9031): a key-set copy taken at [snapSize] is still the whole set while the index holds exactly that many keys. */
+internal fun keysSnapCurrent9031(snapSize: Int, indexSize: Int): Boolean = snapSize == indexSize

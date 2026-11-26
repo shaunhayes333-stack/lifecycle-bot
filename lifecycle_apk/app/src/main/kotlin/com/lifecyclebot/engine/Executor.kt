@@ -21099,6 +21099,7 @@ class Executor(
             // (TX fees), tokens never arrive. Now we escalate 200→350→500 bps just
             // like liveSell does, so memes actually fill instead of phantoming.
             val buyBaseSlippage = c.slippageBps.coerceAtLeast(200)
+            pumpNotTried9031.set(pumpBuyPlan == null)   // V5.0.9031 — read once by the Jupiter leg's no-quote branch
             val prepared8090 = if (pumpFirstResult == null) {
                 prepareJupiterBuy8090(ts, wallet, sol, effectiveSol, tradeKey, c, ::buyTerminalFail, sealedIntent7835, submission8397)
                     ?: return false
@@ -21115,7 +21116,7 @@ class Executor(
             val routerLabel: String
             // V5.0.7325 — a Raydium fill takes the same confirmed-buy path as Pump.
             val directFill7325 = pumpFirstResult ?: raydiumBuy7325
-            val directVenue7325 = if (pumpFirstResult != null) pumpVenue else "raydium"
+            val directVenue7325 = if (pumpFirstResult != null || prepared8090?.pumpFill9031 == true) pumpVenue else "raydium"
             if (directFill7325 != null) {
                 liveStage("TX_SUBMIT_START", "route=$directVenue7325")
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
@@ -31254,7 +31255,48 @@ class Executor(
         val directFill: Pair<String, Double>? = null,
         val useJito: Boolean = false,
         val jitoTip: Long = 0L,
+        val pumpFill9031: Boolean = false,   // V5.0.9031 — [directFill] came from the pump.fun curve route after Jupiter had no quote
     )
+
+    /** V5.0.9031 — this thread's live buy reached the Jupiter leg without the pump.fun curve route having been tried. */
+    private val pumpNotTried9031 = ThreadLocal<Boolean>()
+
+    /**
+     * V5.0.9031 §NO_QUOTE_ON_A_CURVE_IS_THE_CURVE'S_TURN — 26 Nov 20:53: J6WymB (pump.fun, 19 s old, $5.1k) passed the gate
+     * 2 s after its launch fire and its buy ended BUY_TERMINAL_ROUTE_FAIL:NO_QUOTE:JUPITER_QUOTE_EXHAUSTED; fireClock9025
+     * shows 2 of 9 fires ending GATE_ALLOWED_NOT_LANDED. The owner's route rule (8693) sends a pump.fun curve coin to
+     * PumpPortal only when Jupiter has no route; the order is chosen by a bounded quote probe before the buy, and a probe
+     * that has not answered (or answered for an aggregator that then cannot quote) leaves Jupiter first. Jupiter does not
+     * route a coin seconds old, so the ladder exhausted and the ticket ended, with the curve route never tried. A launch has
+     * no second attempt.
+     * When the Jupiter ladder ends with no quote for a coin on an active pump.fun curve, the curve route is tried in the same
+     * attempt: nothing was built, signed or sent by the Jupiter leg, so there is one spend. The same checks as the
+     * PumpPortal-first path stand before it: the processor's amount plan, the curve mark against the decision price (a
+     * consumed edge is not bought, EntryEconomics8329) and no route to a mint PumpPortal has just failed (pumpFallback8173).
+     * Null when the curve route is not allowed or did not fill; the caller then ends the ticket NO_QUOTE as before.
+     */
+    private fun pumpAfterNoQuote9031(
+        ts: TokenState, wallet: SolanaWallet, effectiveSol: Double, c: com.lifecyclebot.data.BotConfig, tradeKey: String,
+        intent8198: ExecutableOpenGate.ExecutionIntent, submission8397: BuySubmissionReceipt8397,
+    ): Pair<String, Double>? {
+        if (!onActivePumpCurve8693(ts.mint)) return null
+        if (try { com.lifecyclebot.engine.truth.LaunchCohort8173.pumpFallback8173(ts.mint) } catch (_: Throwable) { true }) return null
+        val plan = recalcBuyPlanForProcessor(ts = ts, wallet = wallet, processor = "PUMPPORTAL_BUY", requestedSol = effectiveSol,
+            priorityFeeSol = 0.0001, jitoTipLamports = effectiveJitoTipLamports(c, urgent = false), tradeKey = tradeKey, traderTag = "MEME") ?: return null
+        if (com.lifecyclebot.engine.truth.EntryEconomics8329.markRefusal8329(ts, intent8198, plan.solAmount) != null) {
+            try { PipelineHealthCollector.labelInc("BUY_PUMP_AFTER_NO_QUOTE_9031_EDGE_CONSUMED") } catch (_: Throwable) {}
+            return null
+        }
+        try {
+            PipelineHealthCollector.labelInc("BUY_PUMP_AFTER_NO_QUOTE_9031_TRIED")
+            ForensicLogger.lifecycle("BUY_PUMP_AFTER_NO_QUOTE_9031", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${plan.solAmount}")
+        } catch (_: Throwable) {}
+        val fill = tryPumpPortalBuy(ts = ts, wallet = wallet, solAmount = plan.solAmount, slipPct = costPumpBuySlip8151(ts, plan.solAmount),
+            priorityFeeSol = 0.0001, useJito = c.jitoEnabled, jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
+            tradeKey = tradeKey, traderTag = "MEME", submission8397 = submission8397)
+        try { PipelineHealthCollector.labelInc(if (fill != null) "BUY_PUMP_AFTER_NO_QUOTE_9031_FILLED" else "BUY_PUMP_AFTER_NO_QUOTE_9031_NOT_FILLED") } catch (_: Throwable) {}
+        return fill
+    }
 
     private fun prepareJupiterBuy8090(
         ts: TokenState, wallet: SolanaWallet, sol: Double, effectiveSol: Double,
@@ -31354,6 +31396,11 @@ class Executor(
         if (jq7325 == null) {
             raydiumBuy7325 = tryRaydiumBuy7325(ts, wallet, sol, tradeKey, submission8397, intent8198)
             if (raydiumBuy7325 != null) return JupiterBuyPreparation8090(directFill = raydiumBuy7325)
+            // V5.0.9031 — Jupiter has no quote: a coin on an active pump.fun curve takes the curve route in this same attempt.
+            if (pumpNotTried9031.get() == true) {
+                pumpNotTried9031.remove()
+                pumpAfterNoQuote9031(ts, wallet, effectiveSol, c, tradeKey, intent8198, submission8397)?.let { return JupiterBuyPreparation8090(directFill = it, pumpFill9031 = true) }
+            }
             onLog("🚫 BUY ABORTED: all slippage levels failed (${slippageLadder.joinToString()}bps): ${lastQuoteError?.message?.take(80)}", ts.mint)
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",

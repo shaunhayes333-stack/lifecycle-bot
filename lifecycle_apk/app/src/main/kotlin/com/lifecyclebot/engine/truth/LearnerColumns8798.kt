@@ -93,6 +93,8 @@ object LearnerColumns8798 {
 
     /** The extra columns of [ts] at [nowMs], from the frame [f] already computed for the same decision. */
     fun extract(ts: TokenState, f: LanePlaybook7907.F?, nowMs: Long): DoubleArray {
+        // V5.0.9031 — every decision's accepted price and cap feed the coin's remembered top (TopMemory9031, the dead-runner rule).
+        try { TopMemory9031.note9031(ts.mint, ts.lastPrice, try { TrustedMcap8019.mcap8019(ts) } catch (_: Throwable) { ts.lastMcap }, nowMs) } catch (_: Throwable) {}
         val x = DoubleArray(SIZE) { Double.NaN }
         fun put(name: String, v: Double) { INDEX[name]?.let { x[it] = v } }
         val mint = ts.mint

@@ -4828,3 +4828,23 @@ before (an older non-blank value written over a newer one is still possible and 
 
 **Read next run.** `Process exits recorded by Android (§9030)`, `Last crash, any build (§9030)`,
 `savedCredentials9030[...]`.
+
+## §216 — V5.0.9031: the code that runs is named; a close commit waits its turn; the top is remembered
+
+Source: the 26 Nov 21:03 report on 5.0.9030 (13 min up), its 21:00 heap map, and the edge dataset / research / authority
+exports of the same hour.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Running-code sampler | `engine/HotFrames9031.kt` (started by `AATEApp`) | every 500 ms the stack of each RUNNABLE thread (up to 24), waits and socket reads dropped | three in-memory tallies: app method on top, outermost app method, library call on top, plus thread family | none; printed by `HeapLog8618` (`HOT CODE`) and the emergency report; class and method names only |
+| Shadow cohort key set | `engine/truth/ShadowColdStore8397.kt` `ShadowCohortBook8397.keys` | `keyIndex`, `hot` | `keysSnap9031` (one copy per size of the index) | none; same set as before, not copied per read |
+| Close-commit pace | `engine/cortex/Cortex7885.kt` `closeCommitGapMs9031`, `commitWaitingCloses9031` | last whole-graph encode's cost and end time, `uncommittedCloseGrades8198` | one `commitOnce8090` transaction (receipt `CORTEX_CLOSE_BATCH_9031` + id) holding the three blobs and every waiting close receipt; `batchCommitted9031` | durability only: a close inside the gap answers RETRY and is committed by the persist thread with the others; under 1 s of encode cost nothing is paced |
+| Remembered top | `engine/truth/TopMemory9031.kt` (row `TOP_MEMORY_9031`) | each decision's accepted price and trusted cap (`LearnerColumns8798.extract`) | per coin: second-highest minute of price and of cap; 6,000 coins, saved at most every 5 min | `FlatChart8027` DEAD_RUNNER only: dead from memory when BOTH price and cap are 5x or more under their tops; nothing else reads it |
+| Curve route after no quote | `engine/Executor.kt` `pumpAfterNoQuote9031` | Jupiter ladder ended with no quote; active pump.fun curve (8693); `pumpFallback8173`; `EntryEconomics8329.markRefusal8329` | one PumpPortal buy in the same attempt | the owner's route rule 8693 (PumpPortal only for a curve coin Jupiter cannot route); every admission, gate, sizing and safety check has already passed |
+
+Measured, not changed: on 4.3 days of the device's own 15-minute labels (one read per coin per hour) pump.fun coins are
+n7,854, mean -1.1 % +-0.8, median -4.0 %, 2.0 % at +100 % or more; a walk-forward model on the 73 decision-time columns
+picks a top tenth at +5.2 % +-3.9 (median -12.7 %, 16 % winners). Coins off pump.fun: the same model's top tenth is
++48.8 % +-6.9, median +34.0 %, 82 % winners; of the 578 such picks 331 read LP-unlocked, 215 LP-unread, 32 LP-locked.
+The LP rule (70 % locked) is the owner's and is unchanged.
+
