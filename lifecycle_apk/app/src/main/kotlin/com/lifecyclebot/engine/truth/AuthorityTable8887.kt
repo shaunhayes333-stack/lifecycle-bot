@@ -60,7 +60,16 @@ object AuthorityTable8887 {
     /** One graded cell. */
     data class Cell8887(val horizonMs: Long, val lane: String, val factor: String, val value: String, val n: Int, val unpriced: Int,
                         val mean: Double, val median: Double, val exTop3: Double, val se: Double, val half1: Double, val half2: Double,
-                        val verdict: Verdict8887)
+                        val verdict: Verdict8887,
+                        // V5.0.9038 §THREE_RECORDS (owner's specification DL-03): the cell carried the priced mean and median beside
+                        // the worst-case (unpriced = total loss) ex-top-3, SE and halves, so one row mixed two series, and the LOSES
+                        // ranking used the worst-case SE against the priced mean. The priced series now has its own SE and halves,
+                        // the worst case its own mean, and the coverage is stated. The verdicts are computed exactly as before.
+                        val pricedSe9038: Double = Double.NaN, val pricedHalf1_9038: Double = Double.NaN, val pricedHalf2_9038: Double = Double.NaN,
+                        val worstMean9038: Double = Double.NaN) {
+        /** Share of the cell's reads that were priced, in percent (100 when n is 0). */
+        val coveragePct9038: Double get() = if (n > 0) (n - unpriced) * 100.0 / n else 100.0
+    }
 
     // ── pure ──
 
@@ -146,7 +155,8 @@ object AuthorityTable8887 {
             priced.size >= MIN_N_8887 && p[1].isFinite() && p[0] + z * p[1] < 0.0 && p[2] < 0.0 && p[3] < 0.0 -> Verdict8887.LOSES
             else -> Verdict8887.UNPROVEN
         }
-        return Cell8887(horizonMs, lane, factor, value, n, n - priced.size, p[0], median, exTop3, w[1], w[2], w[3], verdict)
+        return Cell8887(horizonMs, lane, factor, value, n, n - priced.size, p[0], median, exTop3, w[1], w[2], w[3], verdict,
+            pricedSe9038 = p[1], pricedHalf1_9038 = p[2], pricedHalf2_9038 = p[3], worstMean9038 = w[0])   // V5.0.9038
     }
 
     /** Pure: every cell of one horizon's [rows] (any order), graded; and the cut points used. */
@@ -247,7 +257,13 @@ object AuthorityTable8887 {
                     fun n(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
                     cells.put(JSONObject().put("lane", c.lane).put("factor", c.factor).put("value", c.value).put("n", c.n).put("unpriced", c.unpriced)
                         .put("mean", n(c.mean)).put("median", n(c.median)).put("exTop3", n(c.exTop3)).put("se", n(c.se))
-                        .put("half1", n(c.half1)).put("half2", n(c.half2)).put("verdict", c.verdict.name))
+                        .put("half1", n(c.half1)).put("half2", n(c.half2)).put("verdict", c.verdict.name)
+                        // V5.0.9038 — the three records, each from one series (the flat keys above are kept for older readers)
+                        .put("observed9038", JSONObject().put("n", c.n - c.unpriced).put("mean", n(c.mean)).put("median", n(c.median))
+                            .put("se", n(c.pricedSe9038)).put("half1", n(c.pricedHalf1_9038)).put("half2", n(c.pricedHalf2_9038)))
+                        .put("coverage9038", JSONObject().put("n", c.n).put("unpriced", c.unpriced).put("pricedPct", n(c.coveragePct9038)))
+                        .put("worstCase9038", JSONObject().put("mean", n(c.worstMean9038)).put("exTop3", n(c.exTop3)).put("se", n(c.se))
+                            .put("half1", n(c.half1)).put("half2", n(c.half2))))
                 }
                 val cuts = JSONObject()
                 t.cuts.forEach { (k, v) -> cuts.put(k, JSONArray(v.toList())) }
@@ -275,15 +291,16 @@ object AuthorityTable8887 {
             val t = tables[h] ?: return@joinToString "${h / 3_600_000L}h{-}"
             val graded = t.cells.values.filter { it.n >= MIN_N_8887 }
             val pays = graded.filter { it.verdict == Verdict8887.PAYS }.sortedByDescending { it.exTop3 - t.z * it.se }.take(3)
-            val loses = graded.filter { it.verdict == Verdict8887.LOSES }.sortedBy { it.mean + t.z * it.se }.take(3)
+            val loses = graded.filter { it.verdict == Verdict8887.LOSES }.sortedBy { it.mean + t.z * it.pricedSe9038 }.take(3)   // V5.0.9038 — the priced SE with the priced mean
             fun c(x: Cell8887) = "${x.lane}/${x.factor}=${x.value} n${x.n}" + (if (x.unpriced > 0) " unpriced${x.unpriced}" else "") +
-                " mean${"%+.1f".format(x.mean)} ex3${"%+.1f".format(x.exTop3)} med${"%+.1f".format(x.median)}"
+                " mean${"%+.1f".format(x.mean)} ex3${"%+.1f".format(x.exTop3)} med${"%+.1f".format(x.median)}" +
+                (if (x.unpriced > 0) " priced${"%.0f".format(x.coveragePct9038)}% worstMean${"%+.1f".format(x.worstMean9038)}" else "")   // V5.0.9038
             "${h / 3_600_000L}h{rows=${t.rows} graded=${t.k} z=${"%.2f".format(t.z)} pays=${graded.count { it.verdict == Verdict8887.PAYS }} " +
                 "loses=${graded.count { it.verdict == Verdict8887.LOSES }} best[${pays.joinToString("; ") { c(it) }}] worst[${loses.joinToString("; ") { c(it) }}]}"
         }
         val ago = if (lastRunMs > 0L) (now - lastRunMs) / 60_000L else -1L
         return "authority8887[$status runs=${runs.get()} failed=${failures.get()} agoMin=$ago $per rule=48 h of the device's decision reads per horizon, " +
-            "embargoed; PAYS = ex-top-3 mean > z SE and both halves > 0, LOSES = mean < -z SE and both halves < 0; z deflated across the cells graded]"
+            "embargoed; PAYS = ex-top-3 mean > z SE and both halves > 0 with every unpriced read a total loss, LOSES = mean < -z SE and both halves < 0 on the priced reads; z deflated across the cells graded; the export keeps observed, coverage and worst case apart (9038)]"
     }
 
     internal fun runForTest8887(nowMs: Long) = run8887(nowMs)

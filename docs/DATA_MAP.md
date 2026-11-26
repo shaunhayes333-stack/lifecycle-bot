@@ -4934,3 +4934,15 @@ operating metrics. Read-only; nothing here sizes, admits or exits.
 | Close cards | `card9037` over `CanonicalFinalizedTradeBus6464.terminalEnvelopes7863("live")` | one row per closed live position: realised SOL, realised %, best excursion, proof state | nothing | display: today / 7 days / all kept: closes, chain-finalised count, net SOL, profit factor, expectancy, realised % in the owner's bands (loss, 0-19, 20-49, 50-99, 100-199, 200-499, 500-999, 1000+), median share banked of runs that reached +20 % |
 | Missed runners | the `funnel8297{...}` part of `RunnerCapture8017.statusLine` | | nothing | display |
 
+## §223 — V5.0.9038: three records
+
+Source: the owner's engineering specification (27 Nov), DL-03. `AuthorityTable8887` grades PAYS with every unpriced read as a
+total loss and LOSES on the priced reads; that is unchanged. Its cell carried the priced mean and median beside the
+worst-case ex-top-3, SE and halves, and the LOSES ranking used the worst-case SE with the priced mean.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Cell | `engine/truth/AuthorityTable8887.kt` `Cell8887` (`pricedSe9038`, `pricedHalf1_9038`, `pricedHalf2_9038`, `worstMean9038`, `coveragePct9038`) | the cell's reads | | none: the verdicts are computed as before |
+| Export | `authority_8887.json`: `observed9038` (priced n, mean, median, SE, halves), `coverage9038` (n, unpriced, priced %), `worstCase9038` (mean, ex-top-3, SE, halves) | | the three records per cell; the flat keys are kept | display |
+| Brief | `statusLine8887` | | LOSES ranked by the priced mean and priced SE; a cell with unpriced reads shows its priced share and worst-case mean | display |
+
