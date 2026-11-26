@@ -24,7 +24,8 @@ class Aate9033BatchTurnsTest {
         assertEquals(JobCost8813.YIELDING_TURN_WAIT_MS_9033, JobCost8813.turnWaitMs9033("treeTrain", waitsForHeadroom = false))
         assertEquals("the Cortex snapshot is durability, not a batch job", 0L, JobCost8813.turnWaitMs9033("cortexSnapshot", true))
         assertEquals(0L, JobCost8813.turnWaitMs9033("coingeckoCoinList", true))
-        assertEquals(setOf("datasetSeed", "treeParse", "treeTrain", "strategyLab", "authorityTable8887"), JobCost8813.GATED_9033)
+        // superseded by V5.0.9035 — the launch replay, the heaviest batch thread of the 23:38 CPU sample, joins the five
+        assertEquals(setOf("datasetSeed", "treeParse", "treeTrain", "strategyLab", "authorityTable8887", "launchReplay"), JobCost8813.GATED_9033)
         // the edge model's replay runs inside the model's load lock: a reader of the model would wait behind the turn
         assertFalse("edgeReplay" in JobCost8813.GATED_9033)
         assertFalse("edgeConvictionSeed" in JobCost8813.GATED_9033)

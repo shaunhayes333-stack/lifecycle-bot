@@ -4900,3 +4900,15 @@ Source: the 26 Nov 23:38 report (`hotFrames9031[samples=686 ... costMs=2415.1`) 
 |---|---|---|---|---|
 | Sampler wait | `engine/HotFrames9031.kt` `gapAfter9031` (`GAP_CAP_MS_9034` = 2 min, was 10 s) | the last sample's cost | the wait before the next sample | none: a sample that costs 2.4 s is followed by 48 s of wait (was 10 s), so the sampler stays under 5 % of the time when the runtime is slow |
 | Test clock | `Aate9032PumpLpAndPoolsTest` | | | test only: the test noted a curve frame at a negative time (its clock is 30,000,000 ms; "nine hours ago"), which `CurveReserves7951` refuses. The one failed test of the 9032 and 9033 runs; the product code was not at fault and is unchanged |
+
+## §220 — V5.0.9035: the launch replay takes its turn
+
+Source: the CPU sample saved with the 26 Nov 23:38 report (30.1 s of wall, 75.7 s of thread CPU): collector 15.9 s,
+entry workers 11.8 s, `launch-replay-8744` 6.6 s (of which `RunnerModel8861.evaluate8861` > `TreeRanker8737.train8737`
+3.7 s), `shadow-choice-8399` 3.4 s. The launch replay is started by a status line (the report, the lab's brief) when
+30 minutes have passed, replays about 1,750 launches against about 1,500 rules, and was not in `jobCost8813`.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Launch replay | `engine/truth/LaunchReplay8744.kt` `maybeRun8744` inside `JobCost8813.measureBackground8817("launchReplay")`; `GATED_9033` | unchanged | a `launchReplay` row on the job-cost line | scheduling only: it runs when no other batch job does (the §9033 turn and its limits); what it computes is unchanged; its thread was already at the lowest priority |
+

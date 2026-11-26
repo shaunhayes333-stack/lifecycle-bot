@@ -93,7 +93,7 @@ object JobCost8813 {
     //    snapshot and close commit (durability), and the edge model's replay and conviction seed (they run inside the
     //    model's load lock, which every reader of the model waits on; neither ran in that report). A job started inside
     //    another on the same thread is part of that job's turn. ──
-    internal val GATED_9033 = setOf("datasetSeed", "treeParse", "treeTrain", "strategyLab", "authorityTable8887")
+    internal val GATED_9033 = setOf("datasetSeed", "treeParse", "treeTrain", "strategyLab", "authorityTable8887", "launchReplay")   // launchReplay: V5.0.9035
     internal const val TURN_WAIT_MAX_MS_9033 = 20L * 60_000L
     internal const val YIELDING_TURN_WAIT_MS_9033 = 3L * 60_000L
     internal const val HEADROOM_WAIT_MAX_MS_9033 = 10L * 60_000L
@@ -148,7 +148,7 @@ object JobCost8813 {
     }
 
     fun turnsLine9033(): String = "batchTurns9033[waitedForTurn=${turnWaits9033.get()} turnWaitS=${turnWaitedMs9033.get() / 1000} headroomWaitS=${headroomWaitedMs9033.get() / 1000} " +
-        "ranWithoutTurn=${withoutTurn9033.get()} rule=the dataset-seed, tree, strategy-lab and authority-table jobs run one at a time; a job nothing waits for " +
+        "ranWithoutTurn=${withoutTurn9033.get()} rule=the dataset-seed, tree, strategy-lab, authority-table and launch-replay jobs run one at a time; a job nothing waits for " +
         "first waits up to ${HEADROOM_WAIT_MAX_MS_9033 / 60_000} min while memory pressure is HARD or CRITICAL; no wait is unbounded]"
 
     // ── V5.0.8866 §A_JOB_THE_DECISION_WAITS_FOR_YIELDS_WITHOUT_STARVING ──
