@@ -41,8 +41,9 @@ class Aate9037ScorecardTest {
         // runs that reached +20 %: 400 (banked 385 = 96 %) and 200 (banked 25 = 12.5 %); the median of two is their mean
         assertEquals(2, c.runs20)
         assertEquals((385.0 / 400.0 + 25.0 / 200.0) / 2.0, c.medianShareOfRun, 1e-9)
+        // superseded by V5.0.9040 — the card line also prints the chain-finalised closes' own net (0.10 - 0.01 + 0.02)
         val line = EconomicScorecard9037.cardLine9037("today", c)
-        assertTrue(line, line.contains("closes=4 (chain-finalised 3)") && line.contains("pf=3.00") && line.contains("200-499:1"))
+        assertTrue(line, line.contains("closes=4 (chain-finalised 3, net +0.1100)") && line.contains("pf=3.00") && line.contains("200-499:1"))
         assertEquals("today closes=0", EconomicScorecard9037.cardLine9037("today", EconomicScorecard9037.card9037(emptyList())))
         assertTrue(EconomicScorecard9037.card9037(listOf(Row9037(1L, 0.01, 5.0, Double.NaN, ""))).profitFactor.isInfinite())
     }

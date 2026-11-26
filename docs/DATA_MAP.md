@@ -4952,3 +4952,16 @@ worst-case ex-top-3, SE and halves, and the LOSES ranking used the worst-case SE
 by earlier tests, so the ledger refused it (INVARIANT_VIOLATION, the one failure of the 9036-9038 runs). The test now books
 its rows with `paperMode = false` and the mode override, as `Repair6489AcceptanceTest` does. Product code unchanged.
 
+## §225 — V5.0.9040: the owner takes the decision it was handed; the growth is reconciled
+
+Source: the 9039 report (27 Nov 02:51), as the owner's directive of 27 Nov 03:04 quotes it: FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715
+(6) blocking opens after FDG approval (directive P0.2), and money9037 printing tradingGrowth=+92.31 % (open 0.1951, now
+0.3752, flows 0) on a day whose live closes realised -0.0260 SOL (directive P0.9).
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Lane handoff | `engine/truth/CausalFeedbackAuthority6715.kt` `admit` (`laneHandoffClean9040`, `handoffClean9040`, `ScopeState.lastTerminalAtMs9040`) | the stamp's lane and time; the executing lane's scopes' last terminal time | the stamp re-made on the executing lane; `CAUSAL_LANE_HANDOFF_RESTAMPED_9040` | a decision stamped on one meme lane and executed by another goes on only when no close landed in the executing lane's scopes since the stamp; a later close there, a mint change or a mode change still blocks |
+| Day opening parts | `engine/truth/EconomicScorecard9037.kt` `noteDayOpen9040` (from `LiveRiskPolicy7807.noteEquity8057`) | the opening equity, the open positions' unrealised value, the time | `money_day_open_9040` | display only |
+| Growth split | `block9037` -> `money9040` line (`Split9040`, `reconciled9040`, `splitLine9040`) | realised closes since the opening, the unrealised change, external flows | nothing | display: change = realised + open positions + flows + UNRECONCILED; growth is called trading growth only when UNRECONCILED is within 0.005 SOL or 2 % of the opening. Nothing sizes from it |
+| Card | `cardLine9037` | | the chain-finalised closes' own net | display |
+

@@ -48,6 +48,8 @@ object CausalFeedbackAuthority6715 {
         var terminalEpoch: Long = 0L,
         var learningRevision: Long = 0L,
         var cleanLearnedCloses: Int = 0,
+        /** V5.0.9040 — when this scope last took a terminal (a close landed in it); 0 = never in this process. */
+        var lastTerminalAtMs9040: Long = 0L,
         // V5.0.6721 §COHORT_LOSER_ADVISORY — track wins/losses per scope so
         // admit() can emit COHORT_LOSER_ADVISORY_6721 when a cohort has
         // enough closes to be judged AND its winrate is below the crypto-
@@ -142,6 +144,13 @@ object CausalFeedbackAuthority6715 {
         }
     }
 
+    /** V5.0.9040 — no close has landed in any of [laneKeys] since [stampedAtMs] (caller holds the lock). */
+    private fun laneHandoffClean9040(laneKeys: List<String>, stampedAtMs: Long): Boolean =
+        laneKeys.all { k -> handoffClean9040(state(k).lastTerminalAtMs9040, stampedAtMs) }
+
+    /** Pure (V5.0.9040): a scope whose last terminal is at or before the decision's stamp holds nothing the decision missed. */
+    internal fun handoffClean9040(lastTerminalAtMs: Long, stampedAtMs: Long): Boolean = lastTerminalAtMs <= stampedAtMs
+
     /** V5.0.8304 — does [attemptId] carry a decision stamp (read-only). */
     fun hasStamp8304(attemptId: String): Boolean = synchronized(lock) { ticketStamps.containsKey(attemptId) }
 
@@ -211,6 +220,19 @@ object CausalFeedbackAuthority6715 {
                 releaseAttemptLocked(attemptId, removeStamp = true)
                 emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} reason=IDENTITY_DRIFT_MINT")
                 return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
+            }
+            // V5.0.9040 §THE_OWNER_TAKES_THE_DECISION_IT_WAS_HANDED — a decision stamped on one meme lane and executed by the
+            // lane the owner election chose was blocked as identity drift and sent back to revalidate, after its FDG allow:
+            // the 9039 report's FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715 (6), on the way from approval to the buy. The rule this
+            // stamp keeps is that the decision knew every close in the scope it executes in. When no close has landed in the
+            // executing lane's scopes since the decision was stamped, the decision knew all of them: it is re-stamped on that
+            // lane and goes on. A close that landed there after the stamp still blocks, as does any change of mint or mode.
+            if (stamp.mode == nm && stamp.mint == mint && stamp.lane != nl && laneHandoffClean9040(keys(nm, nl, stamp.scoreBand), stamp.stampedAtMs)) {
+                val handed = stamp
+                stamp = handed.copy(lane = nl, scopes = keys(nm, nl, handed.scoreBand).associateWith { k -> state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) } })
+                ticketStamps[attemptId] = stamp
+                try { PipelineHealthCollector.labelInc("CAUSAL_LANE_HANDOFF_RESTAMPED_9040") } catch (_: Throwable) {}
+                emit("CAUSAL_LANE_HANDOFF_RESTAMPED_9040", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} ${handed.lane}->$nl")
             }
             if (stamp.mode != nm || stamp.lane != nl) {
                 // V5.0.8963 — which lane the decision was stamped on and which lane executed it: the drift's cause, counted
@@ -564,6 +586,7 @@ object CausalFeedbackAuthority6715 {
                 s.openPositions.remove(env.positionId)
                 invalidated.addAll(s.reservedAttempts)
                 s.terminalEpoch += 1L
+                s.lastTerminalAtMs9040 = System.currentTimeMillis()   // V5.0.9040
             }
             invalidated.forEach { aid ->
                 // V5.0.7807 — the pending decision is invalidated for ADMISSION,

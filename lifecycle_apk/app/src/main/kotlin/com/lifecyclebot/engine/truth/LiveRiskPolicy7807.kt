@@ -324,6 +324,7 @@ object LiveRiskPolicy7807 {
         if (day != dayKey8057 || dayStartEquity8057 <= 0.0) {
             dayKey8057 = day; dayStartEquity8057 = equitySol
             try { com.lifecyclebot.engine.LearningPersistence.save(DAY_START_KEY_8308, "$day,$equitySol") } catch (_: Throwable) {}
+            try { EconomicScorecard9037.noteDayOpen9040(day, equitySol, nowMs) } catch (_: Throwable) {}   // V5.0.9040 — the opening's parts
         }
         dayLastEquity8057 = equitySol
     }
