@@ -509,27 +509,96 @@ object ConfigStore {
         )
     }
 
+    // ── V5.0.9030 §A_SAVE_NEVER_ERASES_A_SAVED_CREDENTIAL ───────────────────────────────────────────────────────────────
+    // Owner, 26 Nov 19:44: "its randomly dropping the connected wallet pumpfun api and others".
+    //
+    // Every settings write stores the WHOLE config: seventeen callers read a BotConfig, change one field and save all of
+    // it, so every other field is written back as that caller last saw it. A caller holding an older or an unread config
+    // writes its blank over a saved key:
+    //  - UiState.config is `BotConfig()` (no wallet key, no PumpPortal key) until the screen's first poll has been built;
+    //    the settings sheet (sheet.setConfig(state.config)), the token cards (state.config.copy(activeToken = ..)) and
+    //    the data-keys card (vm.ui.value.config) all saved from it;
+    //  - load() serves the snapshot from BEFORE a write to a reader that arrives while the write runs (8864), and the
+    //    background writers (LlmParameterTuner, AdvisorKeyAuthority8353, AutoPipelineAdvisor6462) save what they read.
+    // With the loop stalled on memory (9026: threads blocked 87 % of the run) the gap between such a read and its save
+    // is seconds to minutes instead of milliseconds. 8286 fixed this for the market-data keys ("8282 lost the Codex key
+    // this way"); the wallet key, the treasury key and the provider keys were still written unconditionally — and
+    // TreasuryWalletManager.init GENERATES A NEW treasury wallet when it finds that key blank.
+    //
+    // A credential is now erased only by a save that says so ([saveClearing9030]: change key, disconnect, "Clear API
+    // keys"). A save whose value for it is blank — or is this build's own default while a different value is saved —
+    // leaves the saved one; a new non-blank value is written as before.
+    const val CRED_PRIVATE_KEY_9030 = "private_key_b58"
+    const val CRED_TREASURY_KEY_9030 = "treasury_private_key_b58"
+    const val CRED_TELEGRAM_TOKEN_9030 = "telegram_bot_token"
+    const val CRED_TELEGRAM_CHAT_9030 = "telegram_chat_id"
+    const val CRED_HELIUS_9030 = "helius_api_key"
+    const val CRED_BIRDEYE_9030 = "birdeye_api_key"
+    const val CRED_GROQ_9030 = "groq_api_key"
+    const val CRED_GEMINI_9030 = "gemini_api_key"
+    const val CRED_PUMP_PORTAL_9030 = "pump_portal_api_key"
+    const val CRED_JUPITER_9030 = "jupiter_api_key"
+    /** The keys the "Clear API keys" action erases (MainActivity.clearApiKeys). */
+    val API_KEY_CLEARS_9030: Set<String> = setOf(CRED_HELIUS_9030, CRED_BIRDEYE_9030, CRED_GROQ_9030, CRED_GEMINI_9030,
+        CRED_JUPITER_9030, CRED_TELEGRAM_TOKEN_9030, CRED_TELEGRAM_CHAT_9030)
+
+    private val clearing9030 = ThreadLocal<Set<String>>()
+    private val kept9030 = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val cleared9030 = java.util.concurrent.atomic.AtomicLong()
+
+    /**
+     * Pure (V5.0.9030): does the saved credential stay? Yes when this save did not ask to clear it, a value is saved, and
+     * the incoming value would lose it — blank, or this build's own [default] for the field. [saved] null = the saved
+     * value could not be read: a blank is then not written either.
+     */
+    internal fun keepSavedCredential9030(saved: String?, incoming: String, default: String, clear: Boolean): Boolean {
+        if (clear) return false
+        if (saved == null) return incoming.isBlank()
+        if (saved.isBlank() || incoming == saved) return false
+        return incoming.isBlank() || (default.isNotBlank() && incoming == default)
+    }
+
+    /** V5.0.9030 — a save that may erase the named credentials ([CRED_PRIVATE_KEY_9030] ...): the owner's explicit action. */
+    fun saveClearing9030(ctx: Context, cfg: BotConfig, clears: Set<String>) {
+        clearing9030.set(clears)
+        try { save(ctx, cfg) } finally { clearing9030.remove() }
+    }
+
+    fun credentialLine9030(): String = "savedCredentials9030[keptOverBlank{${kept9030.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} ownerClears=${cleared9030.get()} " +
+        "rule=a save with a blank (or this build's default) for a wallet or provider key leaves the saved key; only change key, disconnect and Clear API keys erase one]"
+
     private fun writeStores8864(ctx: Context, cfg: BotConfig) {
-        secrets(ctx).edit().apply {
-            putString("private_key_b58",     cfg.privateKeyB58)
+        val s9030 = secrets(ctx)
+        val clears9030 = clearing9030.get() ?: emptySet()
+        if (clears9030.isNotEmpty()) cleared9030.incrementAndGet()
+        s9030.edit().apply {
+            // V5.0.9030 — a credential is written when it carries a value, and erased only by a save that names it
+            fun writes9030(name: String, incoming: String, default: String = ""): Boolean {
+                val saved = try { s9030.getString(name, "").orEmpty() } catch (_: Throwable) { null }
+                if (!keepSavedCredential9030(saved, incoming, default, name in clears9030)) return true
+                kept9030.computeIfAbsent(name) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SAVED_CREDENTIAL_KEPT_OVER_BLANK_9030_$name") } catch (_: Throwable) {}
+                return false
+            }
+            if (writes9030(CRED_PRIVATE_KEY_9030, cfg.privateKeyB58)) putString(CRED_PRIVATE_KEY_9030, cfg.privateKeyB58)
             // V5.9.495z26 — treasury wallet private key (encrypted alongside trading key)
-            putString("treasury_private_key_b58", cfg.treasuryPrivateKeyB58)
-            putString("telegram_bot_token",  cfg.telegramBotToken)
-            putString("telegram_chat_id",    cfg.telegramChatId)
+            if (writes9030(CRED_TREASURY_KEY_9030, cfg.treasuryPrivateKeyB58)) putString(CRED_TREASURY_KEY_9030, cfg.treasuryPrivateKeyB58)
+            if (writes9030(CRED_TELEGRAM_TOKEN_9030, cfg.telegramBotToken)) putString(CRED_TELEGRAM_TOKEN_9030, cfg.telegramBotToken)
+            if (writes9030(CRED_TELEGRAM_CHAT_9030, cfg.telegramChatId)) putString(CRED_TELEGRAM_CHAT_9030, cfg.telegramChatId)
             putBoolean("telegram_trade_alerts", cfg.telegramTradeAlerts)
             // V4.0: Discord
-            putString("discord_webhook_url", cfg.discordWebhookUrl)
+            if (writes9030("discord_webhook_url", cfg.discordWebhookUrl)) putString("discord_webhook_url", cfg.discordWebhookUrl)
             putBoolean("discord_trade_alerts", cfg.discordTradeAlerts)
-            putString("helius_api_key",      cfg.heliusApiKey)
-            putString("birdeye_api_key",     cfg.birdeyeApiKey)
-            putString("groq_api_key",        cfg.groqApiKey)
-            putString("gemini_api_key",      cfg.geminiApiKey)
-            putString("pump_portal_api_key", cfg.pumpPortalApiKey)
-            putString("jupiter_api_key",     cfg.jupiterApiKey)
+            if (writes9030(CRED_HELIUS_9030, cfg.heliusApiKey, DefaultKeys.HELIUS)) putString(CRED_HELIUS_9030, cfg.heliusApiKey)
+            if (writes9030(CRED_BIRDEYE_9030, cfg.birdeyeApiKey, DefaultKeys.BIRDEYE)) putString(CRED_BIRDEYE_9030, cfg.birdeyeApiKey)
+            if (writes9030(CRED_GROQ_9030, cfg.groqApiKey, DefaultKeys.GROQ)) putString(CRED_GROQ_9030, cfg.groqApiKey)
+            if (writes9030(CRED_GEMINI_9030, cfg.geminiApiKey)) putString(CRED_GEMINI_9030, cfg.geminiApiKey)
+            if (writes9030(CRED_PUMP_PORTAL_9030, cfg.pumpPortalApiKey)) putString("pump_portal_api_key", cfg.pumpPortalApiKey)
+            if (writes9030(CRED_JUPITER_9030, cfg.jupiterApiKey, DefaultKeys.JUPITER)) putString(CRED_JUPITER_9030, cfg.jupiterApiKey)
             // V5.9.915 — operator-hardcoded fallback LLM keys
-            putString("openrouter_api_key",  cfg.openRouterApiKey)
-            putString("cerebras_api_key",    cfg.cerebrasApiKey)
-            putString("mistral_api_key",     cfg.mistralApiKey)
+            if (writes9030("openrouter_api_key", cfg.openRouterApiKey, DefaultKeys.OPENROUTER)) putString("openrouter_api_key", cfg.openRouterApiKey)
+            if (writes9030("cerebras_api_key", cfg.cerebrasApiKey, DefaultKeys.CEREBRAS)) putString("cerebras_api_key", cfg.cerebrasApiKey)
+            if (writes9030("mistral_api_key", cfg.mistralApiKey, DefaultKeys.MISTRAL)) putString("mistral_api_key", cfg.mistralApiKey)
             putString("llm_extra_endpoints", cfg.llmExtraEndpoints)
             putString("turso_db_url",        TursoDefaults.validOrDefaultUrl(cfg.tursoDbUrl))
             putString("turso_auth_token",    TursoDefaults.validOrDefaultToken(cfg.tursoAuthToken))

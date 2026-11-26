@@ -681,7 +681,7 @@ class WalletActivity : AppCompatActivity() {
         btnChangeKey.setOnClickListener {
             // Clear saved key — force user to re-paste it
             val cfg2 = ConfigStore.load(this)
-            vm.saveConfig(cfg2.copy(privateKeyB58 = ""))
+            vm.saveConfig(cfg2.copy(privateKeyB58 = ""), clears9030 = setOf(ConfigStore.CRED_PRIVATE_KEY_9030))   // V5.0.9030 — an explicit erase
             vm.disconnectWallet()
             etPrivKeyInput.setText("")
             etPrivKeyInput.hint = "Paste your base58 private key"

@@ -215,6 +215,19 @@ object StartupCrashGuard7717 {
         return s
     }
 
+    /**
+     * V5.0.9030 — the last recorded crash whatever build it was on. [lastCrashSummary] hides a crash from an earlier build
+     * (7828), and the owner installs a new build after a bad run: 26 Nov 14:24 printed "none recent" beside
+     * lastCrashAgeMin=146, so the trace of the 5.0.9023 process that died at 11:58 never reached a report.
+     */
+    fun priorCrashLine9030(nowMs: Long = System.currentTimeMillis()): String {
+        if (!loaded) return "guard not initialised"
+        if (lastCrashMs <= 0L) return "none recorded"
+        val ageMin = (nowMs - lastCrashMs).coerceAtLeast(0L) / 60_000L
+        return "build=$lastCrashBuild ageMin=$ageMin uptimeAtCrashMs=$lastCrashUptimeMs thread=$lastCrashThread\n" +
+            lastCrashHead.lines().take(12).joinToString("\n") { "      $it" }
+    }
+
     /** Operator-facing: the last crash, for the top of the pipeline report. */
     fun lastCrashSummary(): String {
         if (!loaded) return "guard not initialised"

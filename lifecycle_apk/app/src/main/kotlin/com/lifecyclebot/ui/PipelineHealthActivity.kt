@@ -509,6 +509,16 @@ class PipelineHealthActivity : AppCompatActivity() {
             appendLine("reason=$reason generatedAtMs=${System.currentTimeMillis()}")
             appendLine("uptimeMs=${snap.nowMs - snap.startedAtMs} anrHints=${snap.anrHints} maxFrameGapMs=${snap.maxFrameGapMs}")
             appendLine("cycles count=${snap.cycleCount} avgMs=$avgCycle maxMs=${snap.maxCycleMs} recent=${snap.recentCycleMsSamples.takeLast(20).joinToString(",")}")
+            // V5.0.9030 — the short report also says why the process last died and how full the heap is: it is the only
+            // report left when the full builder times out, and it carried neither.
+            try {
+                val rt = Runtime.getRuntime()
+                appendLine("heap usedMB=${(rt.totalMemory() - rt.freeMemory()) shr 20} maxMB=${rt.maxMemory() shr 20} build=${try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "?" }}")
+                appendLine("lastCrashAnyBuild9030: " + com.lifecyclebot.engine.truth.StartupCrashGuard7717.priorCrashLine9030())
+                appendLine("processExits9030 (Android's record, newest first):")
+                appendLine(com.lifecyclebot.engine.truth.ProcessExits9030.block9030(com.lifecyclebot.AATEApp.appContextOrNull()))
+                appendLine(com.lifecyclebot.data.ConfigStore.credentialLine9030())
+            } catch (_: Throwable) {}
             appendLine()
             appendLine("===== PHASE COUNTS =====")
             appendLine(top(snap.phaseCounts))

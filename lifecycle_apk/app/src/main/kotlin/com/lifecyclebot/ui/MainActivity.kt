@@ -2436,7 +2436,8 @@ for legal compliance.
         etGeminiKey     = try { findViewById(R.id.etGeminiKey) } catch (_: Exception) { EditText(this) }
         etJupiterKey    = try { findViewById(R.id.etJupiterKey) } catch (_: Exception) { EditText(this) }
         // V5.0.7962 — chart / market-data keys on this card.
-        DataKeysCard7962.bind(this, { vm.ui.value.config }) { c -> vm.saveConfig(c, allowRestart = false) }
+        // V5.0.9030 — the card saves on top of the STORED config: vm.ui.value.config is an empty BotConfig() until the first poll
+        DataKeysCard7962.bind(this, { ConfigStore.load(this) }) { c -> vm.saveConfig(c, allowRestart = false) }
         switchNotifications = try { findViewById(R.id.switchNotifications) } catch (_: Exception) { android.widget.Switch(this) }
         switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
         switchDarkMode  = try { findViewById(R.id.switchDarkMode) } catch (_: Exception) { androidx.appcompat.widget.SwitchCompat(this) }
@@ -10484,7 +10485,8 @@ This cannot be undone!
                 else -> ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
             }
             setOnClickListener {
-                vm.saveConfig(state.config.copy(activeToken = ts.mint), allowRestart = false)
+                // V5.0.9030 — on top of the stored config, not the config this card was drawn with (it wrote that copy's keys back)
+                vm.saveConfig(ConfigStore.load(this@MainActivity).copy(activeToken = ts.mint), allowRestart = false)
                 etActiveToken.setText(ts.mint)
                 settingsPopulated = false
             }
@@ -10617,7 +10619,7 @@ This cannot be undone!
     }
 
     private fun saveSettings() {
-        DataKeysCard7962.save(this, { vm.ui.value.config }, { c -> vm.saveConfig(c, allowRestart = false) }, includePumpPortal = false)  // V5.0.7962
+        DataKeysCard7962.save(this, { ConfigStore.load(this) }, { c -> vm.saveConfig(c, allowRestart = false) }, includePumpPortal = false)  // V5.0.7962 · V5.0.9030 stored config
         val stored8742 = ConfigStore.load(this)   // V5.0.8742 — the keys as saved now (another screen may have changed them)
         val wl = etWatchlist.text.toString()
             .split(",").map { it.trim() }.filter { it.isNotBlank() }
@@ -10987,8 +10989,8 @@ This cannot be undone!
             etTgChatId.setText("")
 
             // Save empty values
-            val state = vm.ui.value
-            val cfg = state.config.copy(
+            // V5.0.9030 — on top of the stored config, and named as an erase so the store accepts the blanks
+            val cfg = ConfigStore.load(this).copy(
                 heliusApiKey = "",
                 birdeyeApiKey = "",
                 groqApiKey = "",
@@ -10997,7 +10999,7 @@ This cannot be undone!
                 telegramBotToken = "",
                 telegramChatId = "",
             )
-            vm.saveConfig(cfg)
+            vm.saveConfig(cfg, clears9030 = ConfigStore.API_KEY_CLEARS_9030)
 
             Toast.makeText(this, "API keys cleared", Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {}
@@ -11012,16 +11014,18 @@ This cannot be undone!
      * Replaces the inline settings card for cleaner UI.
      */
     private fun showSettingsBottomSheet() {
-        val state = vm.ui.value
         val sheet = SettingsBottomSheet.newInstance()
-        sheet.setConfig(state.config)
+        // V5.0.9030 — the sheet is filled from the STORED config: the screen's copy is an empty BotConfig() until its first
+        // poll is built, and a sheet opened then showed blank keys and saved them (the wallet key with them).
+        val shown9030 = ConfigStore.load(this)
+        sheet.setConfig(shown9030)
 
         // Wire up callbacks
         sheet.onSettingsSaved = { newConfig ->
             vm.saveConfig(newConfig)
             settingsPopulated = false
             // Refresh UI with new active token if changed
-            if (newConfig.activeToken != state.config.activeToken) {
+            if (newConfig.activeToken != shown9030.activeToken) {
                 etActiveToken.setText(newConfig.activeToken)
             }
             // V5.9.362 — apply Markets Trader per-asset switches (Perps/Stocks/

@@ -349,7 +349,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveConfig(cfg: BotConfig, allowRestart: Boolean = true) {
+    fun saveConfig(cfg: BotConfig, allowRestart: Boolean = true, clears9030: Set<String> = emptySet()) {
         // V5.9.702 — ANR FIX: saveConfig was called from MainActivity.onPause/onStop
         // (main thread). The previous body did runBlocking { withContext(IO) { load() } }
         // which parked the main thread for the full disk-read duration — observed up to
@@ -381,7 +381,9 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     // NOTE: Telegram settings and sound do NOT require a restart.
 
                 // Always save the config on IO thread (no longer blocks main thread).
-                ConfigStore.save(ctx, cfg)
+                // V5.0.9030 — a saved wallet or provider key is erased only when this save names it ([clears9030]: change key,
+                // Clear API keys); a blank from a screen that had not read the saved config leaves the saved key.
+                if (clears9030.isEmpty()) ConfigStore.save(ctx, cfg) else ConfigStore.saveClearing9030(ctx, cfg, clears9030)
 
                 // Apply saved keys immediately. A provider-key edit must not
                 // wait for (or depend on) a bot restart before Sentient Mind
@@ -527,7 +529,8 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 // saveConfig is already async (viewModelScope.launch) — call directly.
                 // We pass the cfg here; saveConfig will re-load inside its own launch,
                 // so just fire a direct save of the scrubbed config to avoid a double-load.
-                ConfigStore.save(ctx, cfg.copy(privateKeyB58 = ""))
+                // V5.0.9030 — disconnect is the owner erasing the wallet key: the save says so
+                ConfigStore.saveClearing9030(ctx, cfg.copy(privateKeyB58 = ""), setOf(ConfigStore.CRED_PRIVATE_KEY_9030))
             } catch (_: Exception) {}
         }
     }

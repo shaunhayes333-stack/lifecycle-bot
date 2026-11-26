@@ -4786,3 +4786,45 @@ gates, sizing, exits.
 
 **Read next run.** `HEAP LOG` (GC blockingMs, FLOOR), the heap map's 160 owners and `ROOT JAVA_FRAME` chains,
 `cortexSeats8904 binsMade9029`, `snapshot8386 parts8491`, `outbox9029[...]`, `pocketSeen9029`, `idPool9029`.
+
+## §215 — V5.0.9030: a save never erases a saved key; the report says why the process died
+
+**Reported.** Owner, 26 Nov 19:44 (5.0.9028): "its randomly dropping the connected wallet pumpfun api and others". No report
+shows the drop itself; two mechanisms are established and both are addressed.
+
+**Measured: the process dies and nothing records why.** `guard=[build=5.0.9026 uptimeMs=630212 ... lastCrashAgeMin=146]`
+beside `Last crash (§7717): none recent` (26 Nov 14:24): an uncaught exception killed the 5.0.9023 process at 11:58 (the
+12:31 heap map: `uptimeS=2014`), in the run the owner described as six hours. The same field across reports puts crashes
+at 24 Nov 11:48, 25 Nov 14:45, 26 Nov 00:25 and 26 Nov 11:58; each trace was hidden because a new build was installed
+before the next report (`crashIsOperatorCurrent7828`). A process death drops the wallet signer and every socket at once.
+Deaths that are not Java exceptions (low-memory kill, ANR kill, native crash) were recorded nowhere.
+
+**Established in code: a stale settings save writes blanks over saved keys.** `ConfigStore.save` writes the whole
+`BotConfig`; `writeStores8864` wrote `private_key_b58`, `treasury_private_key_b58`, the provider keys and the Telegram
+fields unconditionally. Callers that saved a config they had not read from the store: `sheet.setConfig(state.config)`,
+`state.config.copy(activeToken = ..)` and `DataKeysCard7962` on `vm.ui.value.config` — `UiState.config` is `BotConfig()`
+until the first poll is built. `SnapshotCache8864.get` serves the pre-write snapshot to a reader that arrives during a
+write, and `LlmParameterTuner`, `AdvisorKeyAuthority8353`, `AutoPipelineAdvisor6462` save what they read.
+`TreasuryWalletManager.init` generates a new treasury keypair when the stored one is blank. 8286 had fixed this class of
+loss for the market-data keys only.
+
+**Changes.**
+- `ConfigStore.keepSavedCredential9030(saved, incoming, default, clear)`: a credential write is skipped when a value is
+  saved and the incoming one is blank or the build's default (`DefaultKeys.*`), unless the save names it. Applied in
+  `writeStores8864` to the wallet key, treasury key, Telegram token / chat id, Discord webhook, Helius, Birdeye, Groq,
+  Gemini, PumpPortal, Jupiter, OpenRouter, Cerebras, Mistral. Label `SAVED_CREDENTIAL_KEPT_OVER_BLANK_9030_<name>`; status
+  `savedCredentials9030[keptOverBlank{...} ownerClears=]`.
+- `ConfigStore.saveClearing9030(ctx, cfg, clears)` / `BotViewModel.saveConfig(.., clears9030)`: the explicit erases —
+  `WalletActivity` change key, `BotViewModel.disconnectWallet`, `MainActivity.clearApiKeys` (`API_KEY_CLEARS_9030`).
+- `MainActivity`: the settings sheet, the token cards, the data-keys card and Clear API keys start from
+  `ConfigStore.load(this)`.
+- `ProcessExits9030`: `ActivityManager.getHistoricalProcessExitReasons` (Android 11+) as report rows
+  (`LOW_MEMORY 42min ago process=main status=0 pss=815MB rss=900MB`). `StartupCrashGuard7717.priorCrashLine9030`: the last
+  recorded crash of any build. Both print at the top of the full report and in the emergency report, which also gains
+  `heap usedMB= maxMB= build=`.
+
+**Not changed.** What any setting does; the restart rule in `BotViewModel.saveConfig`; a new non-blank value is written as
+before (an older non-blank value written over a newer one is still possible and is not addressed here).
+
+**Read next run.** `Process exits recorded by Android (§9030)`, `Last crash, any build (§9030)`,
+`savedCredentials9030[...]`.

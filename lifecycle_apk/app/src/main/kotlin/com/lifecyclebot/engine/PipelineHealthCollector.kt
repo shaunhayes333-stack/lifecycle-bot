@@ -1841,6 +1841,14 @@ object PipelineHealthCollector {
                 com.lifecyclebot.engine.truth.StartupCrashGuard7717.lastCrashSummary()
             ).append("\n")
         } catch (_: Throwable) {}
+        // V5.0.9030 — why the process last died, whatever the build: the recorded Java crash, and Android's own exit history
+        // (low-memory kill, ANR, native crash). A dead process is the wallet and every feed dropping at once.
+        try {
+            sb.append("  Last crash, any build (§9030): ").append(com.lifecyclebot.engine.truth.StartupCrashGuard7717.priorCrashLine9030()).append("\n")
+            sb.append("  Process exits recorded by Android (§9030), newest first:\n")
+                .append(com.lifecyclebot.engine.truth.ProcessExits9030.block9030(com.lifecyclebot.AATEApp.appContextOrNull())).append("\n")
+            sb.append("  ").append(com.lifecyclebot.data.ConfigStore.credentialLine9030()).append("\n")
+        } catch (_: Throwable) {}
         sb.append("  Session completed trades: ${s.canonicalTradeCounts.sessionCompletedTrades}\n")
         sb.append("  Lifetime completed trades: ${s.canonicalTradeCounts.lifetimeCompletedTrades}\n")
         sb.append("  Open positions: ${s.canonicalTradeCounts.openTrades}\n")
