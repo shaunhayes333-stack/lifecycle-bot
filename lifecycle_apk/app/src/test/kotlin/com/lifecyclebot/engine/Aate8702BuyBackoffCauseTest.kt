@@ -17,11 +17,13 @@ class Aate8702BuyBackoffCauseTest {
         val mint = "BACKOFF8702MINT"
         val first = ExecutionAttemptLease.acquire(side = "BUY", mint = mint, symbol = "T", processor = "MOONSHOT", mode = "LIVE", generation = 8702L)
         assertTrue(first.allowed)
-        ExecutionAttemptLease.terminalFail(first.key, "BUY", mint, "T", "DEFERRED_DATA_SAFETY_PROOF_8270", "MOONSHOT")
+        // superseded by V5.0.9041 — a DEFERRED_DATA ending no longer sets a backoff (it is counted, never a failed coin);
+        // the backoff example is a real execution failure
+        ExecutionAttemptLease.terminalFail(first.key, "BUY", mint, "T", "BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_Price_impact_too_high", "MOONSHOT")
         val second = ExecutionAttemptLease.acquire(side = "BUY", mint = mint, symbol = "T", processor = "MOONSHOT", mode = "LIVE", generation = 8702L)
         assertEquals("BACKOFF_ACTIVE", second.reason)
         val report = ExecutionAttemptLease.formatForReport()
-        assertTrue(report, report.contains("buyFails8702{") && report.contains("DEFERRED_DATA_SAFETY_PROOF_8270="))
-        assertTrue(report, report.substringAfter("backoffEndedTicketAfter8702{").contains("DEFERRED_DATA_SAFETY_PROOF_8270="))
+        assertTrue(report, report.contains("buyFails8702{") && report.contains("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_Price_impact_too_high="))
+        assertTrue(report, report.substringAfter("backoffEndedTicketAfter8702{").contains("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_Price_impact_too_high="))
     }
 }

@@ -221,6 +221,21 @@ object ExecutionAttemptLease {
             return
         }
         if (side.equals("BUY", true)) { count8702(buyFails8702, reason); noteBuyTerminal8726(n, mint, symbol, processor, reason) }
+        // V5.0.9041 §MISSING_DATA_IS_NOT_A_FAILED_COIN — 9039 (27 Nov 02:51): six DEFERRED_DATA_SAFETY_PROOF_8270 and four
+        // DEFERRED_DATA_TOKEN_MAP_8080 endings set this backoff (failures 4, 296 s left on 2mp24h), and the backoff then ended
+        // 30 later sealed tickets on the same coins (backoffEndedTicketAfter8702: 18 + 12) — of 27 SHITCOIN and 7 EXPRESS
+        // tickets dropped after FDG approval, the largest cause. Nothing was quoted, built or sent on a data deferral: a
+        // proof or a route that has not arrived yet says nothing about the coin, and when it lands (TicketRetry8327's
+        // proof resume) the backoff still refused the buy. A data ending now closes the attempt with no backoff and no
+        // failure counted; a failure the mint already carries (a real route, chase or economics failure) keeps its own
+        // backoff and count untouched. The ticket still ends and its claim is still released (Executor.buyTerminalFail).
+        if (side.equals("BUY", true) && dataEnding9041(reason)) {
+            if (old != null) states[key] = old.copy(activeUntilMs = 0L, lastReason = reason, symbol = symbol)
+            dataEndings9041.incrementAndGet()
+            emit("BUY_TERMINAL_DATA_NO_BACKOFF_9041", side, mint, symbol, "reason=$reason processor=$processor failures=${old?.failures ?: 0}")
+            emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=DATA_NO_BACKOFF reason=$reason")
+            return
+        }
         val backoff = backoffFor(failures, side)
         if (old != null) {
             states[key] = old.copy(
@@ -236,6 +251,11 @@ object ExecutionAttemptLease {
         emit("${side.uppercase()}_TERMINAL_FAIL", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")
         emit("EXEC_RETRY_BACKOFF_SET", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")
     }
+
+    /** Pure (V5.0.9041): a buy that ended on data that had not arrived (a named DEFERRED_DATA outcome), not on the coin. */
+    internal fun dataEnding9041(reason: String): Boolean = reason.trim().startsWith("DEFERRED_DATA_")
+    private val dataEndings9041 = AtomicLong(0L)
+    fun dataEndings9041(): Long = dataEndings9041.get()
 
     fun isActiveKey6514(key: String): Boolean {
         val n = now(); pruneExpired(n)
@@ -264,7 +284,7 @@ object ExecutionAttemptLease {
         val top = states.values.sortedByDescending { maxOf(it.activeUntilMs, it.backoffUntilMs) }.take(5)
             .joinToString(" · ") { st -> "${st.side}:${st.mint.take(6)}:${st.lastProcessor}:f${st.failures}:ttl=${maxOf(st.activeUntilMs, st.backoffUntilMs) - n}ms" }
         return "buy=$buy sell=$sell backoff=$backs" + (if (top.isNotBlank()) " | $top" else "") +
-            " buyFails8702{${line8702(buyFails8702)}} backoffEndedTicketAfter8702{${line8702(buyBackoffHits8702)}}"
+            " buyFails8702{${line8702(buyFails8702)}} backoffEndedTicketAfter8702{${line8702(buyBackoffHits8702)}} dataEndingsNoBackoff9041=${dataEndings9041.get()}"
     }
 
     // ── V5.0.8726 — each failed LIVE buy, with the facts it failed on ──

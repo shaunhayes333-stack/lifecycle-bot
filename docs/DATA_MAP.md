@@ -4965,3 +4965,13 @@ Source: the 9039 report (27 Nov 02:51), as the owner's directive of 27 Nov 03:04
 | Growth split | `block9037` -> `money9040` line (`Split9040`, `reconciled9040`, `splitLine9040`) | realised closes since the opening, the unrealised change, external flows | nothing | display: change = realised + open positions + flows + UNRECONCILED; growth is called trading growth only when UNRECONCILED is within 0.005 SOL or 2 % of the opening. Nothing sizes from it |
 | Card | `cardLine9037` | | the chain-finalised closes' own net | display |
 
+## §226 — V5.0.9041: missing data is not a failed coin
+
+Source: the 9039 report (27 Nov 02:51), Execution leases: `buyFails8702{DEFERRED_DATA_SAFETY_PROOF_8270=6,
+DEFERRED_DATA_TOKEN_MAP_8080=4,...} backoffEndedTicketAfter8702{DEFERRED_DATA_SAFETY_PROOF_8270=18,DEFERRED_DATA_TOKEN_MAP_8080=12,...}`;
+ticketExec8304: SHITCOIN 28 tickets, 1 buy (BUY_LEASE_BACKOFF_ENDS_TICKET_8545 the first drop, 10); EXPRESS 7 tickets, 0.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Data ending | `engine/ExecutionAttemptLease.kt` `terminalFail` (`dataEnding9041`) | the ending's reason | the attempt closed with no backoff and no failure counted; `dataEndingsNoBackoff9041` | a buy that ended on a named DEFERRED_DATA outcome (a proof or a route not arrived; nothing quoted, built or sent) no longer sets the mint's backoff; a failure the mint already carries keeps its own backoff and count; real failures (route, chase, economics, impact) back off as before. The ticket still ends and its claim is still released |
+
