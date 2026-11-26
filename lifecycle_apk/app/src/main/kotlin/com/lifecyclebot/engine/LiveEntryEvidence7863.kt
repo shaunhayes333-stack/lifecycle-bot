@@ -26,7 +26,7 @@ internal data class LiveEntryEvidence7863(
             val stage = if (meme) TokenMetricStageRouter.snapshot(ts, now, flow) else null
             val wait = stage?.let {
                 val observed = TokenMetricStageRouter.entryWait8506(TokenMetricStageRouter.laneFit(ts, lane, now, flow, it), flow)
-                com.lifecyclebot.engine.truth.AdmissionEdge8180.remainingLiveWait(ts.mint, lane, intent.candidateVersion, it.stage.name, observed, now, intent.admissionProof)
+                com.lifecyclebot.engine.truth.AdmissionEdge8180.waitAfterGate9027(ts.mint, lane, intent.candidateVersion, it.stage.name, observed, now, intent.admissionProof)   // V5.0.9027
             }
             val receipt = if (stage != null && flow != null && wait == null)
                 com.lifecyclebot.engine.truth.EntryReceipt8500.atEntry8506(ts, lane, intent.candidateVersion, now, stage, flow.move) else null

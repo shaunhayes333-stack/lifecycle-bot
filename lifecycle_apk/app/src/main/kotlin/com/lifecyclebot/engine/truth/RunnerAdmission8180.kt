@@ -134,6 +134,61 @@ object AdmissionEdge8180 {
 
     private val DANGER_STAGES_8607 = setOf("DUMPING", "RUG_PRONE", "PEAK_EXHAUSTION")
 
+    /**
+     * V5.0.9027 §THE_GATE_DECIDED_THE_AUTHORIZER_DOES_NOT_DECIDE_AGAIN — owner, 26 Nov: "its gone backwards again".
+     * 5.0.9026, LIVE, first 10.5 min: the meme lanes raised 138 buy intents (SHITCOIN 45, MOONSHOT 11, EXPRESS 82; 9023
+     * raised 21 in 16.5 min) — every one of them a candidate the final gate had just ALLOWED (TradeAuthorizer.authorize is
+     * called on canExecute() only) — and all 138 ended at the authorizer's entry-wait check:
+     * AUTH_ENTRY_NO_PHASE_TRIGGER_8506 52, AUTH_ENTRY_FLOW_UNOBSERVED_8506 40, AUTH_ENTRY_NO_RECLAIM_8506 44,
+     * AUTH_ENTRY_STAGE_UNRESOLVED_8506 2. Sized 0, tickets 0, buys 0. [remainingLiveWait] settles a soft wait only on an
+     * ADMIT proof stamped for the exact candidate generation; with no such proof the authorizer re-imposed, as a wall, a
+     * wait that the admission and the gate both treat as a learned door (LaneAuthority8577: advisory unless its own
+     * graded record protects). The owner's research export of the same capture (pump.fun coins, MOONSHOT / SHITCOIN /
+     * EXPRESS, one read per coin-hour, each lane's exits): the lane fired on stage NO_SETUP n120 +11.3 +-6.0 % (halves
+     * +16 / +6); the lane fired with flow unobserved n1668 +4.8 +-1.8 % (halves +5 / +4); danger stages (DUMPING /
+     * PEAK_EXHAUSTION) n803 +3.4 +-2.5 %, without the best three +0.3 %. The soft waits were not refusing losers; the
+     * danger stages earn their wall.
+     *
+     * After the gate's ALLOW a soft wait binds exactly as LaneAuthority8577 says any learned door binds: when its own
+     * record protects ([binds], default LaneAuthority8577.binding8577 on "ENTRY_<wait>_8506"). A danger stage, RUG_PRONE
+     * and every non-soft wait return as before; a current ADMIT proof settles as before. Counted by wait and by why the
+     * proof was not there ([waitLine9027]).
+     */
+    fun waitAfterGate9027(mint: String, lane: String, version: Long, stage: String, wait: String?, nowMs: Long,
+                          admittedProof: Proof8198? = proof8198("LIVE", mint, lane, version, nowMs),
+                          binds: (String) -> Boolean = { try { LaneAuthority8577.binding8577(it) } catch (_: Throwable) { true } }): String? {
+        val w = remainingLiveWait(mint, lane, version, stage, wait, nowMs, admittedProof) ?: return null
+        if (w !in SOFT_WAITS_9027 || stage in DANGER_STAGES_8607) return w
+        if (binds("ENTRY_${w}_8506")) { noteWait9027("BOUND_BY_RECORD:$w"); return w }
+        noteWait9027("ADVISORY_AFTER_GATE:$w:${whyNoProof9027(mint, lane, version, nowMs, admittedProof)}")
+        return null
+    }
+
+    internal val SOFT_WAITS_9027 = setOf("NO_PHASE_TRIGGER", "NO_RECLAIM", "NO_BUY_VOLUME", "NO_IGNITION", "FLOW_UNOBSERVED", "STAGE_UNRESOLVED")
+
+    /** Pure-ish: why [remainingLiveWait] found no settling proof for this candidate. */
+    internal fun whyNoProof9027(mint: String, lane: String, version: Long, nowMs: Long, passed: Proof8198?): String {
+        if (version <= 0L) return "NO_VERSION"
+        if (passed != null) return "PROOF_NOT_CURRENT"
+        val p = admitted[key8198("LIVE", mint, lane)] ?: return "NO_ADMIT_PROOF"
+        return when {
+            p.candidateVersion != version -> "OTHER_GENERATION"
+            nowMs - p.atMs !in 0L..TTL_MS_8180 -> "PROOF_EXPIRED"
+            else -> "PROOF_NOT_CURRENT"
+        }
+    }
+
+    private val waits9027 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private fun noteWait9027(k: String) {
+        if (waits9027.size > 200) waits9027.clear()
+        waits9027.computeIfAbsent(k) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+    }
+
+    /** Brief: the soft entry waits met after the gate's ALLOW, by outcome, wait and why no proof settled them. */
+    fun waitLine9027(): String = "entryWaitAfterGate9027[{" +
+        waits9027.entries.sortedByDescending { it.value.get() }.take(12).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
+        "} rule=after the gate's ALLOW a soft entry wait binds only when its own graded record protects; danger stages (DUMPING / RUG_PRONE / PEAK_EXHAUSTION) and non-soft waits bind as before]"
+
     /** Was this exact candidate (mode, mint, lane, generation) admitted on a specific proven edge inside the TTL? */
     fun admitted8180(mode: String, mint: String, lane: String, candidateVersion: Long, nowMs: Long = System.currentTimeMillis()): Boolean =
         proof8198(mode, mint, lane, candidateVersion, nowMs)?.specificEdge == true

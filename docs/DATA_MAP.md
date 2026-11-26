@@ -4687,3 +4687,28 @@ not retained data. CPU sample (94.6 s of thread CPU over 30.1 s): `AATE-Entry` 2
 
 **Read next run.** `pickMemo9026`, `terminals9026`, `HEAP LOG ... GC count / blockingMs / allocatedMB`, `avgCycle`, and a
 fresh CPU sample (Save, then the CPU-sample tap).
+
+## §212 — V5.0.9027: the gate decided; the authorizer does not decide again
+
+**Measured (5.0.9026, LIVE, first 10.5 min).** Lane liveness: `SHITCOIN buyIntentN=45`, `MOONSHOT buyIntentN=11`,
+`EXPRESS buyIntentN=82` (9023: 21 intents in 16.5 min); `sizedN=0 ticketN=0 execN=0` for all three;
+`preSizeRefusals7809`: `AUTH_ENTRY_NO_PHASE_TRIGGER_8506` 52, `AUTH_ENTRY_NO_RECLAIM_8506` 44,
+`AUTH_ENTRY_FLOW_UNOBSERVED_8506` 40, `AUTH_ENTRY_STAGE_UNRESOLVED_8506` 2 = 138, every intent. `FDG allow/block 127 / 879`,
+`EXEC attempt 0`. `FDG/LANE_REALISED_LOSING_PROBE_OCCUPIED_8424` 93 with no live position open.
+
+**Record (research export of the same capture; pump.fun coins, MOONSHOT/SHITCOIN/EXPRESS, one read per coin-hour, each
+lane's exits).** Lane fired on stage NO_SETUP n120 +11.3 +-6.0 % (ex-top-3 +3.5, halves +16/+6); lane fired with flow
+unobserved n1668 +4.8 +-1.8 % (halves +5/+4); flow observed n265 +12.0 +-4.0 %; lane fired on DUMPING / PEAK_EXHAUSTION n803
++3.4 +-2.5 % (ex-top-3 +0.3, halves 0/+7).
+
+**Changes.**
+- `AdmissionEdge8180.waitAfterGate9027`: used by `TradeAuthorizer.authorize` (called on the gate's ALLOW only) and
+  `LiveEntryEvidence7863.capture` (the sealed intent). A soft wait (`SOFT_WAITS_9027`) left unsettled by
+  `remainingLiveWait` binds only when `LaneAuthority8577.binding8577("ENTRY_<wait>_8506")` (its graded record protects).
+  Danger stages (DUMPING / RUG_PRONE / PEAK_EXHAUSTION), RUG_PRONE and non-soft waits return unchanged.
+  `entryWaitAfterGate9027[{ADVISORY_AFTER_GATE:<wait>:<why no proof>=n, BOUND_BY_RECORD:<wait>=n}]`; why =
+  NO_VERSION / NO_ADMIT_PROOF / OTHER_GENERATION / PROOF_EXPIRED / PROOF_NOT_CURRENT.
+- `TradeAuthorizer.releasePrimaryAfterAuthFailure`: frees the lane's probe slot (`LaneRealisedProbe8424.release9024`).
+
+**Not changed.** The admission's own entry-wait door, the gate, safety, sizing, the per-trade loss cap, the LP / RugCheck /
+holder rules.

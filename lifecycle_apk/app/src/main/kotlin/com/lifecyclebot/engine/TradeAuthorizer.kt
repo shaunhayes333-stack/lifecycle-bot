@@ -390,6 +390,9 @@ object TradeAuthorizer {
             try { ToolkitSignalSheet.recordDeskStage(requestedBook.name, "AUTH_REJECT", causalAttempt6613) } catch (_: Throwable) {}
             // V5.0.7809 — the post-election refusal, by name, for the funnel (Field Manual L468).
             try { ToolkitSignalSheet.recordPreSizeRefusal7809(requestedBook.name, "AUTH_$reason") } catch (_: Throwable) {}
+            // V5.0.9027 — an allowed candidate the authorizer then refuses frees its lane's probe slot (9024 freed it on the
+            // gate's refusal and on a dropped ticket; this third ending held it 90 s: 93 PROBE_OCCUPIED in 10.5 min on 9026)
+            try { com.lifecyclebot.engine.truth.LaneRealisedProbe8424.release9024(requestedBook.name, mint, reason) } catch (_: Throwable) {}
             try {
                 com.lifecyclebot.engine.market.SpecialistCandidateBooks7803.markLost(
                     requestedBook.name, mint, candidateVersion7624, reason,
@@ -451,7 +454,8 @@ object TradeAuthorizer {
         // chart: refuse it here, before the seal, so it never costs a sealed ticket (8302: MOONSHOT FLATLINE_8027 post-ticket).
         if (!isPaperMode && TokenMetricStageRouter.memeEntry8506(requestedBook.name, mint)) {
             val (fit, observedWait) = TokenMetricStageRouter.entryRead8506(tokenState7835, requestedBook.name, now)
-            val wait = com.lifecyclebot.engine.truth.AdmissionEdge8180.remainingLiveWait(
+            // V5.0.9027 — the gate allowed this candidate: a soft wait binds here only as it binds everywhere else (its record)
+            val wait = com.lifecyclebot.engine.truth.AdmissionEdge8180.waitAfterGate9027(
                 mint, requestedBook.name, candidateVersion7624, fit.stage.name, observedWait, now)
             if (wait != null) {
                 val reason = "ENTRY_${wait}_8506"
