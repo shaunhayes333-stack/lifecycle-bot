@@ -4912,3 +4912,14 @@ entry workers 11.8 s, `launch-replay-8744` 6.6 s (of which `RunnerModel8861.eval
 |---|---|---|---|---|
 | Launch replay | `engine/truth/LaunchReplay8744.kt` `maybeRun8744` inside `JobCost8813.measureBackground8817("launchReplay")`; `GATED_9033` | unchanged | a `launchReplay` row on the job-cost line | scheduling only: it runs when no other batch job does (the §9033 turn and its limits); what it computes is unchanged; its thread was already at the lowest priority |
 
+## §221 — V5.0.9036: one mint, one lookup
+
+Source: the 26 Nov 23:38 report, HOT CODE: `CanonicalPositionAuthority6441.hasOpenMint` 2.7 % of running stacks (third app
+method), CPU sample 0.67 s of 30 s as the deepest app frame. It walked every ledger row (3,120) per question about one mint.
+Specification step 02 (runtime hot paths).
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Mint index | `engine/truth/CanonicalPositionAuthority6441.kt` `MintIndexed9036` (the `positions` map) | every `put` | mint -> position ids, filed before the row is written | none: the ledger rows and their writes are unchanged |
+| Per-mint lookups | `hasOpenMint` (both), `firstOpenForMint`, `hasFundedProtectiveQuarantine7807`, `lastClosedLiveAtMs8094` | the mint's own rows (each row's mint checked again) | nothing | same predicates as before over the same rows; a removed or replaced row's stale id is skipped |
+

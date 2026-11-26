@@ -32,7 +32,8 @@ class Aate6631InvariantBrokenPurgeCoverageTest {
         assertTrue("V5.0.6743 §B: valuation surface must use the economic-validity gate",
             src.contains("openPositionsForValuation(): List<Position> = positions.values.filter { isEconomicallyValidOpen6631(it) }"))
         assertTrue("V5.0.6743 §B: hasOpenMint must use the truth predicate (exit visibility)",
-            src.contains("hasOpenMint(mint: String): Boolean = positions.values.any {") &&
+            // superseded by V5.0.9036 — the same predicate over the mint's own rows (MintIndexed9036), not every row
+            src.contains("hasOpenMint(mint: String): Boolean = positions.ofMint9036(mint).any {") &&
                 src.contains("isOpenLifecycleWithQty6743(it)"))
         // Gate must include the operator's required rejection reasons.
         assertTrue("V5.0.6631 §B: gate must reject quarantined rows",

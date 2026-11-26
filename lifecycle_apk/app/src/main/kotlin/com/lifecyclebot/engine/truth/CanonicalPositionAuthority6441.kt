@@ -127,7 +127,35 @@ object CanonicalPositionAuthority6441 {
         return ExitEligibility6570(reason == "ELIGIBLE", pos, reason)
     }
 
-    private val positions = ConcurrentHashMap<String, Position>()
+    private val positions = MintIndexed9036()   // V5.0.9036 — a ConcurrentHashMap that also knows each mint's position ids
+
+    /**
+     * V5.0.9036 §ONE_MINT_ONE_LOOKUP — the 26 Nov 23:38 report: `hasOpenMint` was 2.7 % of every running stack the sampler
+     * saw (HOT CODE, the third app method), because it walked every position the ledger holds (3,120 on that phone, closed
+     * ones included) to answer a question about one mint, and it is asked per mint per cycle by thirteen callers.
+     * This map files each position id under its mint when the row is written. The ledger is unchanged: the same map, the
+     * same rows, the same writes ([put] is the only way a row enters; `positions[id] = row` is a put). A lookup reads the
+     * ids filed under the mint and checks each row it gets back (the row's mint, then the caller's own predicate), so an id
+     * whose row was removed or replaced is skipped, never counted. The id is filed BEFORE the row is written, so a reader
+     * can never find a written row missing from the index. Ids are not unfiled on removal (removals are rare: paper rows
+     * at a mode switch, a replaced row); a stale id costs one map read.
+     */
+    internal class MintIndexed9036 : ConcurrentHashMap<String, Position>() {
+        private val byMint = ConcurrentHashMap<String, MutableSet<String>>()
+        override fun put(key: String, value: Position): Position? {
+            byMint.computeIfAbsent(value.mint) { ConcurrentHashMap.newKeySet() }.add(key)
+            return super.put(key, value)
+        }
+        override fun clear() { super.clear(); byMint.clear() }   // resetForTest only, under the ledger lock
+        /** The rows filed under [mint] that still carry it. */
+        fun ofMint9036(mint: String): List<Position> {
+            val ids = byMint[mint] ?: return emptyList()
+            val out = ArrayList<Position>(minOf(ids.size, 8))
+            for (id in ids) { val p = get(id); if (p != null && p.mint == mint) out.add(p) }
+            return out
+        }
+        fun indexedMints9036(): Int = byMint.size
+    }
     private val mutationKeys = ConcurrentHashMap<String, Long>()   // key -> whenMs (idempotency)
     private val lock = ReentrantLock()
 
@@ -1215,7 +1243,7 @@ object CanonicalPositionAuthority6441 {
 
     /** V5.0.7807 — true when a funded LIVE quarantine row protects [mint]. */
     fun hasFundedProtectiveQuarantine7807(mint: String): Boolean =
-        mint.isNotBlank() && positions.values.any { it.mint == mint && isFundedProtectiveQuarantine7807(it) }
+        mint.isNotBlank() && positions.ofMint9036(mint).any { it.mint == mint && isFundedProtectiveQuarantine7807(it) }   // V5.0.9036
 
     // ─────────────────────────────────────────────────────────────────────
     // V5.0.7809 §EXIT_SCOPE_IS_PROTECTIVE_INVENTORY (Field Manual L39, L407).
@@ -1604,15 +1632,15 @@ object CanonicalPositionAuthority6441 {
     fun openCountForValuation(): Int = openPositionsForValuation().size
     /** V5.0.8094 — latest CLOSED live canonical row time for [mint] (0 = none). */
     fun lastClosedLiveAtMs8094(mint: String): Long =
-        positions.values.filter { it.mint == mint && it.mode.equals("live", true) && it.lifecycle == Lifecycle.CLOSED }
+        positions.ofMint9036(mint).filter { it.mint == mint && it.mode.equals("live", true) && it.lifecycle == Lifecycle.CLOSED }   // V5.0.9036
             .maxOfOrNull { it.lastMutationMs } ?: 0L
 
-    fun hasOpenMint(mint: String): Boolean = positions.values.any {
+    fun hasOpenMint(mint: String): Boolean = positions.ofMint9036(mint).any {   // V5.0.9036 — the mint's rows, not every row
         it.mint == mint && isOpenLifecycleWithQty6743(it)
     }
 
     /** Executable ownership must never be inferred from an opposite-mode holding. */
-    fun hasOpenMint(mint: String, mode: String): Boolean = positions.values.any {
+    fun hasOpenMint(mint: String, mode: String): Boolean = positions.ofMint9036(mint).any {   // V5.0.9036
         it.mint == mint && it.mode.equals(mode, ignoreCase = true) && isOpenLifecycleWithQty6743(it)
     }
 
@@ -1645,7 +1673,7 @@ object CanonicalPositionAuthority6441 {
     /** Look up one mint without allowing PAPER to mask a LIVE row (or vice versa). */
     fun firstOpenForMint(mint: String, mode: String?): Position? {
         if (mint.isBlank()) return null
-        val values = positions.values
+        val values = positions.ofMint9036(mint)   // V5.0.9036 — the mint's rows, not every row
         for (p in values) {
             if (p.mint != mint) continue
             if (mode != null && !p.mode.equals(mode, ignoreCase = true)) continue
