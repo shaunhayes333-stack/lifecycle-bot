@@ -4946,3 +4946,9 @@ worst-case ex-top-3, SE and halves, and the LOSES ranking used the worst-case SE
 | Export | `authority_8887.json`: `observed9038` (priced n, mean, median, SE, halves), `coverage9038` (n, unpriced, priced %), `worstCase9038` (mean, ex-top-3, SE, halves) | | the three records per cell; the flat keys are kept | display |
 | Brief | `statusLine8887` | | LOSES ranked by the priced mean and priced SE; a cell with unpriced reads shows its priced share and worst-case mean | display |
 
+## §224 — V5.0.9039: the 9036 test opens without paper cash
+
+`Aate9036MintIndexTest` opened its second paper row with `paperMode = true`; the shared test ledger's paper cash was spent
+by earlier tests, so the ledger refused it (INVARIANT_VIOLATION, the one failure of the 9036-9038 runs). The test now books
+its rows with `paperMode = false` and the mode override, as `Repair6489AcceptanceTest` does. Product code unchanged.
+

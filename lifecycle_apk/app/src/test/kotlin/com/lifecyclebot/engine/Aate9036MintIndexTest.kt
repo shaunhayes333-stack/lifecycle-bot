@@ -16,7 +16,9 @@ class Aate9036MintIndexTest {
     private fun open(mint: String, id: String, qty: Long, mode: String) = CanonicalPositionAuthority6441.openPosition(
         idempotencyKey = "OPEN9036:$id", positionId = id, mint = mint, symbol = "M9036", lane = "SHITCOIN", runId = "r9036",
         entryCostSol = 0.1, openedQtyRaw = BigInteger.valueOf(qty), tokenDecimals = 0, feesSol = 0.0,
-        paperMode = mode == "paper", modeOverride = mode,
+        // V5.0.9039 — paperMode=false: the test ledger's paper cash is whatever earlier tests left (the 9036-9038 runs
+        // refused the second open for cash, INVARIANT_VIOLATION); modeOverride still books the row in [mode]
+        paperMode = false, modeOverride = mode,
     )
 
     @Test fun theIndexAnswersExactlyWhatTheFullWalkAnswered() {
@@ -32,7 +34,7 @@ class Aate9036MintIndexTest {
         // the same answer the full walk gives, for every mint the ledger holds
         for (p in CanonicalPositionAuthority6441.openPositions()) assertTrue(p.mint, CanonicalPositionAuthority6441.hasOpenMint(p.mint, p.mode))
         // a row sold to nothing is no longer open, through the index as through the walk
-        val sold = CanonicalPositionAuthority6441.partialSell("SELL9036:$sfx", "LOT-A:$sfx", BigInteger.valueOf(100L), 0.2, 0.1, 0.0, paperMode = true)
+        val sold = CanonicalPositionAuthority6441.partialSell("SELL9036:$sfx", "LOT-A:$sfx", BigInteger.valueOf(100L), 0.2, 0.1, 0.0, paperMode = false)
         assertTrue(sold.name, sold == CanonicalPositionAuthority6441.MutateResult.APPLIED)
         assertFalse(CanonicalPositionAuthority6441.hasOpenMint(a, "paper"))
         assertTrue(CanonicalPositionAuthority6441.hasOpenMint(b, "paper"))
@@ -59,5 +61,6 @@ class Aate9036MintIndexTest {
     @Test fun theBuildIsRecorded() {
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## §221 — V5.0.9036: one mint, one lookup"))
         assertTrue(File("../../.github/workflows/build.yml").readText().contains("--tests '*Aate9036*'"))
+        assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## §224 — V5.0.9039: the 9036 test opens without paper cash"))
     }
 }
