@@ -69,9 +69,87 @@ object JobCost8813 {
 
     /** [measure8813] at Android's background thread priority for the job's duration (the previous priority restored). */
     inline fun <T> measureBackground8817(name: String, block: () -> T): T {
-        val before = lowerPriority8817()
-        try { return measure8813(name, block) } finally { restorePriority8817(before) }
+        val turn9033 = heavyEnter9033(name, waitsForHeadroom = true)   // V5.0.9033 — one batch job at a time, and not into a full heap
+        try {
+            val before = lowerPriority8817()
+            try { return measure8813(name, block) } finally { restorePriority8817(before) }
+        } finally { heavyExit9033(turn9033) }
     }
+
+    // ── V5.0.9033 §THE_BATCH_JOBS_TAKE_TURNS — the 26 Nov 23:38 report (5.0.9031, 76 min up): heap 509/512 MB, the collector
+    //    blocking for 3,643 s of 4,578 s, the bot cycle 16.7 s, 21 of 40 launch fires never judged and no buy landed. This
+    //    meter's own rows: datasetSeed 532 s of wall for 27 s of its own CPU, treeParse 856 s / 24 s, treeTrain 750 s / 31 s,
+    //    strategyLab 970 s / 28 s (failed, twice), authorityTable8887 265 s / 10 s. Their allocation rows sum to 71 of the
+    //    109 GB the process allocated, but that column is an upper bound (everything the process allocated while the job
+    //    ran) and these jobs ran over one another, so the rows count each other. What is measured: five jobs that need
+    //    10 to 31 s of CPU each held their parsed rows (the dataset file is 108 MB, the research file 77 MB) for 4 to 16
+    //    minutes, overlapping, in a 512 MB heap the trading loop shares. On the run before they took 7 to 29 s each.
+    //    Nothing ordered them: each has its own thread and started when its own clock said so.
+    //    Now the five jobs measured there ([GATED_9033]) take turns: one runs, the next waits ([heavyEnter9033]). A job
+    //    nothing waits for (measureBackground8817) first waits, before it asks for its turn, while memory pressure is HARD
+    //    or CRITICAL, up to [HEADROOM_WAIT_MAX_MS_9033]; a job the decision waits for (measureYielding8866: the tree's
+    //    refit) takes its turn but does not wait for headroom, and waits for the turn at most [YIELDING_TURN_WAIT_MS_9033].
+    //    No wait is unbounded and no job is dropped: past its limit a job runs as it did before. Not gated: the Cortex
+    //    snapshot and close commit (durability), and the edge model's replay and conviction seed (they run inside the
+    //    model's load lock, which every reader of the model waits on; neither ran in that report). A job started inside
+    //    another on the same thread is part of that job's turn. ──
+    internal val GATED_9033 = setOf("datasetSeed", "treeParse", "treeTrain", "strategyLab", "authorityTable8887")
+    internal const val TURN_WAIT_MAX_MS_9033 = 20L * 60_000L
+    internal const val YIELDING_TURN_WAIT_MS_9033 = 3L * 60_000L
+    internal const val HEADROOM_WAIT_MAX_MS_9033 = 10L * 60_000L
+    internal const val HEADROOM_STEP_MS_9033 = 3_000L
+    private val heavyTurn9033 = java.util.concurrent.Semaphore(1, true)
+    private val heavyDepth9033 = ThreadLocal<Int>()
+    private val turnWaits9033 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val turnWaitedMs9033 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val headroomWaitedMs9033 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val withoutTurn9033 = java.util.concurrent.atomic.AtomicLong(0L)
+
+    /** Pure: does a job that waits for headroom keep waiting at this [pressure] after [waitedMs]? */
+    fun headroomWaits9033(pressure: String, waitedMs: Long, waitsForHeadroom: Boolean): Boolean =
+        waitsForHeadroom && waitedMs in 0L until HEADROOM_WAIT_MAX_MS_9033 && (pressure.equals("HARD", true) || pressure.equals("CRITICAL", true))
+
+    /** Pure: how long [name] waits for its turn; 0 for a job that is not a gated batch job. */
+    fun turnWaitMs9033(name: String, waitsForHeadroom: Boolean): Long =
+        if (name !in GATED_9033) 0L else if (waitsForHeadroom) TURN_WAIT_MAX_MS_9033 else YIELDING_TURN_WAIT_MS_9033
+
+    /** Test seam: the memory pressure this meter reads (null: the memory guard's own). */
+    @Volatile internal var pressureForTest9033: String? = null
+    private fun pressureName9033(): String = pressureForTest9033 ?: try { MemoryGuard7977.pressure8144().name } catch (_: Throwable) { "NORMAL" }
+
+    /** Takes the batch turn for [name] (waiting as the rule above says). True when this call holds the turn and must release it. */
+    @PublishedApi internal fun heavyEnter9033(name: String, waitsForHeadroom: Boolean): Boolean {
+        val maxWait = turnWaitMs9033(name, waitsForHeadroom)
+        if (maxWait <= 0L) return false
+        val depth = heavyDepth9033.get() ?: 0
+        if (depth > 0) { heavyDepth9033.set(depth + 1); return false }   // inside a job on this thread that already holds the turn
+        // headroom first, and without the turn: a job asleep here holds nothing another job waits for
+        var waited = 0L
+        while (headroomWaits9033(pressureName9033(), waited, waitsForHeadroom)) {
+            try { Thread.sleep(HEADROOM_STEP_MS_9033) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            waited += HEADROOM_STEP_MS_9033
+        }
+        if (waited > 0L) headroomWaitedMs9033.addAndGet(waited)
+        val t0 = System.currentTimeMillis()
+        val got = try {
+            if (heavyTurn9033.tryAcquire()) true
+            else { turnWaits9033.incrementAndGet(); heavyTurn9033.tryAcquire(maxWait, java.util.concurrent.TimeUnit.MILLISECONDS) }
+        } catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
+        turnWaitedMs9033.addAndGet(System.currentTimeMillis() - t0)
+        if (got) heavyDepth9033.set(1) else withoutTurn9033.incrementAndGet()
+        return got
+    }
+
+    /** Ends what [heavyEnter9033] began: releases the turn it took, or steps out of a job nested in one. */
+    @PublishedApi internal fun heavyExit9033(heldTurn: Boolean) {
+        if (heldTurn) { heavyDepth9033.remove(); heavyTurn9033.release(); return }
+        val depth = heavyDepth9033.get() ?: 0
+        if (depth > 1) heavyDepth9033.set(depth - 1)
+    }
+
+    fun turnsLine9033(): String = "batchTurns9033[waitedForTurn=${turnWaits9033.get()} turnWaitS=${turnWaitedMs9033.get() / 1000} headroomWaitS=${headroomWaitedMs9033.get() / 1000} " +
+        "ranWithoutTurn=${withoutTurn9033.get()} rule=the dataset-seed, tree, strategy-lab and authority-table jobs run one at a time; a job nothing waits for " +
+        "first waits up to ${HEADROOM_WAIT_MAX_MS_9033 / 60_000} min while memory pressure is HARD or CRITICAL; no wait is unbounded]"
 
     // ── V5.0.8866 §A_JOB_THE_DECISION_WAITS_FOR_YIELDS_WITHOUT_STARVING ──
     // Android puts a thread at nice >= 10 (THREAD_PRIORITY_BACKGROUND; Java priority below NORM) into the background CPU
@@ -86,8 +164,11 @@ object JobCost8813 {
 
     /** [measure8813] at nice [YIELDING_NICE_8866] for the job's duration (the previous priority restored). */
     inline fun <T> measureYielding8866(name: String, block: () -> T): T {
-        val before = yieldingPriority8866()
-        try { return measure8813(name, block) } finally { restorePriority8817(before) }
+        val turn9033 = heavyEnter9033(name, waitsForHeadroom = false)   // V5.0.9033 — takes its turn; the decision waits for it, so no headroom wait
+        try {
+            val before = yieldingPriority8866()
+            try { return measure8813(name, block) } finally { restorePriority8817(before) }
+        } finally { heavyExit9033(turn9033) }
     }
 
     /** Sets the calling thread to [YIELDING_NICE_8866]; returns its previous priority (null when unknown). */
@@ -130,7 +211,7 @@ object JobCost8813 {
                 "cpuTotal=${a.cpuMs / 1000}s")
         } }.sortedByDescending { it.second }
         return "jobCost8813[backgroundRuns8817=${backgroundRuns8817.get()} yieldingRuns8866=${yieldingRuns8866.get()} " + (if (rows.isEmpty()) "no runs yet" else rows.joinToString(" | ") { it.third }) +
-            " rule=per heavy job: process MB allocated while it ran (upper bound: other threads allocate too), wall ms, its own thread CPU]"
+            " rule=per heavy job: process MB allocated while it ran (upper bound: other threads allocate too), wall ms, its own thread CPU] " + turnsLine9033()
     }
 
     internal fun resetForTest8813() { jobs.clear() }

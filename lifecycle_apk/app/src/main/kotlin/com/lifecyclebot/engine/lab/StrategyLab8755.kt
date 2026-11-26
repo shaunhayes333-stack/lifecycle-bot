@@ -138,7 +138,16 @@ object StrategyLab8755 {
         val o = JSONObject().put("family", s.family.name).put("lane", s.lane).put("source", s.source)
         when (s.family) {
             Family.SCORE -> o.put("scoreMin", s.scoreMin)
-            Family.CELL -> o.put("conds", JSONArray().apply { s.conds.forEach { put(JSONObject().put("f", it.feature).put("lo", it.lo).put("hi", it.hi)) } })
+            // V5.0.9033 — an open side is left out, which is what the reader takes a missing bound to mean. JSON has no
+            // infinity and put() throws on one: the miner's one-sided boxes ("feature <= x", lo = -infinity) threw here the
+            // first time one passed the held-out bar, in registerMined, before gradeLab — the 26 Nov 23:38 report's
+            // "failed:JSONException", twice, with live{cells=0 runner=- launch=- base=-}.
+            Family.CELL -> o.put("conds", JSONArray().apply { s.conds.forEach { c ->
+                val j = JSONObject().put("f", c.feature)
+                if (c.lo.isFinite()) j.put("lo", c.lo)
+                if (c.hi.isFinite()) j.put("hi", c.hi)
+                put(j)
+            } })
             Family.RUNNER -> o.put("pct", s.runnerPct)
             Family.LAUNCH -> s.launch?.let { r -> o.put("capUsd", r.capUsd).put("minBuys", r.minBuys).put("takeX", r.takeX).put("stopPct", r.stopPct)
                 .put("ladder", r.ladder.name).put("delayMs", r.delayMs).put("totalBuys", r.totalBuys) }   // V5.0.8824
@@ -214,14 +223,33 @@ object StrategyLab8755 {
     @Volatile private var lastRunMs = 0L
     private val running = AtomicBoolean(false)
     private val served = AtomicLong(); private val minedTested = AtomicLong()
+    private val deferred9033 = AtomicLong()
+    @Volatile private var deferSinceMs9033 = 0L
+    internal const val DEFER_MAX_MS_9033 = 60L * 60_000L
+    /** Pure (V5.0.9033): a due cycle does not start at this memory pressure, for at most [DEFER_MAX_MS_9033]. */
+    internal fun deferredForMemory9033(pressure: String, deferredForMs: Long): Boolean =
+        (pressure.equals("HARD", true) || pressure.equals("CRITICAL", true)) && deferredForMs in 0L until DEFER_MAX_MS_9033
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "strategy-lab-8755").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
 
     // ── the cycle ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** LlmLabEngine.tick: run the grading cycle in the background when due. Never blocks. */
     fun maybeRun8755(nowMs: Long = System.currentTimeMillis()) {
+        // V5.0.9033 — 26 Nov 23:38: the second run took 16 minutes of wall for 28 s of its own CPU, in a heap at its limit.
+        // A cycle that is due while memory pressure is HARD or CRITICAL waits for a tick that is not, for at most
+        // [DEFER_MAX_MS_9033]; its hour is not spent (lastRunMs is not moved), so it runs as soon as there is room.
+        if (nowMs - lastRunMs >= RUN_EVERY_MS && !running.get()) {
+            val since = deferSinceMs9033
+            val pressure = try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name } catch (_: Throwable) { "NORMAL" }
+            if (deferredForMemory9033(pressure, if (since == 0L) 0L else nowMs - since)) {
+                if (since == 0L) deferSinceMs9033 = nowMs
+                status = "deferred: memory pressure $pressure (${deferred9033.incrementAndGet()} ticks)"
+                return
+            }
+        }
         if (nowMs - lastRunMs < RUN_EVERY_MS || !running.compareAndSet(false, true)) return
         lastRunMs = nowMs
+        deferSinceMs9033 = 0L
         exec.execute {
             try { com.lifecyclebot.engine.JobCost8813.measureBackground8817("strategyLab") { run(nowMs) } }   // V5.0.8813 — measured
             catch (t: Throwable) { status = "failed:${t.javaClass.simpleName}" } finally { running.set(false) }

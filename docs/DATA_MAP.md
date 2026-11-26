@@ -4867,3 +4867,26 @@ Not changed: Mayhem coins (still refused by `MayhemMode7943`); the curve's exit 
 and freeze authorities; the 70 % rule and the DLMM reader for coins off pump.fun. Buy latency: the executor's own
 start-to-broadcast was 2.5 s on the two landed buys (sells 2.4 s); the 12-16 s from seal to send is the door's proofs
 arriving after the gate's yes, and the LP proof was 59 % of them.
+
+## §218 — V5.0.9033: the batch jobs take turns
+
+Source: the 26 Nov 23:38 report on 5.0.9031 (76 min up): heap 509/512 MB, the collector blocking for 3,643 s of 4,578 s,
+bot cycle 16.7 s, 21 of 40 launch fires never judged, no buy landed. `jobCost8813` (wall / the job's own CPU):
+datasetSeed 532 s / 27 s, treeParse 856 s / 24 s, treeTrain 750 s / 31 s, strategyLab 970 s / 28 s (failed twice,
+`failed:JSONException`), authorityTable8887 265 s / 10 s. The allocation column is an upper bound and these rows
+overlap, so it is not used here. The automatic heap map stopped the app for 70.6 s; its excerpt in the report was 70 rows
+of class names and 9 rows of owners.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Batch turn | `engine/JobCost8813.kt` `heavyEnter9033` / `heavyExit9033` (inside `measureBackground8817`, `measureYielding8866`) | job name (`GATED_9033`: datasetSeed, treeParse, treeTrain, strategyLab, authorityTable8887), `MemoryGuard7977.pressure8144` | a fair one-permit turn; wait counters (`batchTurns9033` at the end of the job-cost line) | scheduling only: one gated job at a time; a background job first waits up to 10 min while pressure is HARD / CRITICAL (not holding the turn), then up to 20 min for the turn; the tree's refit waits for the turn at most 3 min and never for headroom; past a limit a job runs as before |
+| Strategy lab: one-sided cell | `engine/lab/StrategyLab8755.kt` `specJson8755` | a mined or analyst cell's bounds | the stored spec: an infinite bound is left out (the reader's default for a missing bound) | fixes `failed:JSONException`: `registerMined` threw on the first one-sided cell that passed the held-out bar, so `gradeLab` never ran and nothing was graded, promoted or served; the analyst's one-sided cells were dropped the same way (`LlmLabEngine` "JSON parse error") |
+| Strategy lab: start | `StrategyLab8755.maybeRun8755` | memory pressure | `deferSinceMs9033`, the status text; `lastRunMs` not moved | a due cycle does not start at HARD / CRITICAL pressure, for at most 60 min; then it runs |
+| Automatic heap map | `engine/HeapMap8866.kt` `maybeAuto8982` | prefs `heap_map_auto_9033` (build name) | the build name when the automatic map is taken | once per build instead of once per run; the owner's tap is unchanged |
+| Heap map in the report | `HeapMap8866.excerpt9033` (from `reportBlock8866`) | the last map's text | nothing | display only: the header, the largest 18 classes, every owner row and the chains of the first 3 owners, 130 lines (was the first 90 lines of the file) |
+
+Not gated, and why: the Cortex snapshot and close commit (durability); the edge model's replay and conviction seed (they run
+inside the model's load lock, and neither ran in that report). Not changed: what each job computes; the tree ranker's
+place in the decision. Not established: what holds the heap outside the census at 76 minutes (floor 287 MB against a
+census of 107 MB); the next report's map excerpt carries the owner rows.
+

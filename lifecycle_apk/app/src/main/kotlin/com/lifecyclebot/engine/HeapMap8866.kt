@@ -24,7 +24,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 object HeapMap8866 {
     private const val DIR = "heapmap_8866"
     private const val LAST = "heapmap_last_8866.txt"
-    private const val REPORT_LINES = 90
+    private const val REPORT_LINES = 130   // V5.0.9033 (was 90): room for the holder section
+    internal const val REPORT_CLASS_ROWS_9033 = 18
+    internal const val OWNER_CHAINS_9033 = 3
 
     private val running = AtomicBoolean(false)
     @Volatile private var phase = ""
@@ -43,11 +45,42 @@ object HeapMap8866 {
                 ". To take one: Pipeline report > Save > Take memory map (the bot stops while the heap is written; only class names and sizes are kept)\n"
         }
         val lines = text.lineSequence().toList()
+        val shown = excerpt9033(lines, maxLines)   // V5.0.9033 — the holders, not 70 rows of class names
         val sb = StringBuilder()
         sb.append("  taken ").append(((nowMs - takenAtMs).coerceAtLeast(0L)) / 60_000L).append(" min before this report; ")
-            .append(if (lines.size > maxLines) "first $maxLines of ${lines.size} lines (the full map is in Downloads/AATE)" else "complete").append('\n')
-        for (l in lines.take(maxLines)) sb.append("  ").append(l).append('\n')
+            .append(when {
+                lines.size <= maxLines -> "complete"
+                shown == lines.take(maxLines) -> "first $maxLines of ${lines.size} lines (the full map is in Downloads/AATE)"
+                else -> "${shown.size} of ${lines.size} lines: the largest $REPORT_CLASS_ROWS_9033 classes, then every owner row (the full map is in Downloads/AATE)"
+            }).append('\n')
+        for (l in shown) sb.append("  ").append(l).append('\n')
         return sb.toString()
+    }
+
+    /**
+     * Pure (V5.0.9033): the lines of a map the report shows. The 26 Nov 23:38 report showed the first 90 lines of a 712-line
+     * map: 70 rows of class names (byte[] 132 MB in 1.5 million arrays, which is every String) and 9 rows of the section
+     * that names their owners, so the report could not say what held the heap. Now: the header, the largest [classRows]
+     * classes, then the holder section: every owner row (the rows with a share: "12.6% n=") and the chains under the
+     * first [OWNER_CHAINS_9033] owners. A text without the two section headings is cut at [maxLines] as before.
+     */
+    internal fun excerpt9033(lines: List<String>, maxLines: Int, classRows: Int = REPORT_CLASS_ROWS_9033): List<String> {
+        if (lines.size <= maxLines) return lines
+        val cls = lines.indexOfFirst { it.startsWith("-- classes holding the most bytes") }
+        val hold = lines.indexOfFirst { it.startsWith("-- what holds the bytes") }
+        val headEnd = cls + 1 + classRows
+        if (cls < 0 || hold <= headEnd || headEnd + 2 >= maxLines) return lines.take(maxLines)
+        val out = ArrayList<String>(maxLines)
+        out.addAll(lines.subList(0, headEnd))
+        out.add("      (and ${lines.subList(headEnd, hold).count { it.isNotBlank() }} more classes in the full map)")
+        var owners = 0
+        for (i in hold until lines.size) {
+            if (out.size >= maxLines) break
+            val owner = lines[i].contains("% n=")
+            if (owner) owners++
+            if (owner || owners <= OWNER_CHAINS_9033) out.add(lines[i])
+        }
+        return out
     }
 
     /** AATEApp.onCreate: a raw dump a killed process left behind is deleted before anything else runs. */
@@ -165,11 +198,24 @@ object HeapMap8866 {
     internal fun autoDue8982(uptimeMs: Long, fracAfter: Double, takenThisRun: Boolean): Boolean =
         !takenThisRun && uptimeMs >= AUTO_MIN_UPTIME_MS_8982 && fracAfter.isFinite() && fracAfter >= AUTO_FRAC_8982
 
+    /** Pure (V5.0.9033): has this build already taken its automatic map? An unknown build name never blocks the map. */
+    internal fun autoTakenForBuild9033(savedBuild: String?, thisBuild: String): Boolean =
+        thisBuild.isNotBlank() && savedBuild == thisBuild
+
     /** MemoryGuard7977, after a hard trim that freed nothing: take the run's one automatic map when it is due. */
     fun maybeAuto8982(fracAfter: Double) {
         val app = com.lifecyclebot.AATEApp.appContextOrNull() ?: return
         val uptime = try { android.os.SystemClock.elapsedRealtime() - android.os.Process.getStartElapsedRealtime() } catch (_: Throwable) { return }
-        if (!autoDue8982(uptime, fracAfter, autoTaken8982.get()) || !autoTaken8982.compareAndSet(false, true)) return
+        if (!autoDue8982(uptime, fracAfter, autoTaken8982.get())) return
+        // V5.0.9033 — the automatic map stopped the app for 70.6 s on 26 Nov 22:53 (434 MB; 8.3 s was the figure this rule was
+        // written on) and then read a 538 MB file for 227 s beside the trading loop. It is now taken once per BUILD, not
+        // once per run: the first run of a build that reaches the trigger takes it, later runs of that build do not. The
+        // owner's own map (the tap after a report save) is unchanged.
+        val build9033 = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "" }
+        val prefs9033 = try { app.getSharedPreferences("heap_map_auto_9033", android.content.Context.MODE_PRIVATE) } catch (_: Throwable) { null }
+        if (autoTakenForBuild9033(prefs9033?.getString("build", null), build9033)) { autoTaken8982.set(true); return }
+        if (!autoTaken8982.compareAndSet(false, true)) return
+        try { prefs9033?.edit()?.putString("build", build9033)?.apply() } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("HEAP_MAP_AUTO_8982") } catch (_: Throwable) {}
         // saved to Downloads/AATE like the owner's map (only class names, field names and sizes)
         start8866(app, "auto-pressure", save = { file, name -> com.lifecyclebot.ui.ReportCopyDialog8198.saveDataset(app, file, name) }, auto8982 = true)
@@ -177,7 +223,7 @@ object HeapMap8866 {
 
     /** Brief: the automatic map's state. */
     fun autoLine8982(): String = "heapMapAuto8982[taken=${autoTaken8982.get()} readInLab=${readInLab8982.get()} " +
-        "rule=once a run, when a hard trim leaves the heap at 85 %+ after 30 min; read in the lab process; kept for the next report]"
+        "rule=once a build (9033; was once a run), when a hard trim leaves the heap at 85 %+ after 30 min; read in the lab process; kept for the next report]"
 
     /** The pipeline report's HEAP MAP section. */
     fun section8866(nowMs: Long = System.currentTimeMillis()): String {
