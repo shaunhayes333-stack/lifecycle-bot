@@ -385,6 +385,28 @@ object CortexExit7897 {
         return truthReady8521() && truthState8521.book("$mode|$lane")?.tailCutProven8153() == true
     }
 
+    /**
+     * V5.0.9028 §A_FORECAST_DOES_NOT_SELL_A_RUNNER_IT_HAS_NEVER_BEEN_CHECKED_ON — the owner's trade export, 26 Nov on 5.0.9023:
+     * the only two MOONSHOT buys of six hours were sold by this read 140 s and 72 s after entry, at -2.9 % and -2.4 %
+     * (CORTEX_EXIT_7897_MOONSHOT_FWD-6PCT / FWD-5PCT), inside the lane's stop. The guard that suspends this sell when it
+     * cuts moves that kept going ([tailCutting8153]) reads the lane's regret record, and the same capture prints that
+     * record for every live lane as regret=-%/n0 (LIVE|MOONSHOT n349 banked closes, 0 with a later price): the guard has
+     * never had a sample to judge with. On the runner lanes (RunnerDoctrine8584: bought to be held for the multiple; the
+     * lane stop, every safety exit and the doctrine line sell them) the forecast sell is counted and not acted on until
+     * that record holds [REGRET_MIN_N_9028] priced closes for the account mode; from then
+     * [tailCutting8153] decides as before. Other lanes are unchanged.
+     */
+    internal fun regretUnmeasured9028(lane: String, regretN: Int? = null): Boolean {
+        if (!com.lifecyclebot.engine.RunnerDoctrine8584.rides8584(lane)) return false
+        val n = regretN ?: run {
+            val mode = try { if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) "PAPER" else "LIVE" } catch (_: Throwable) { "LIVE" }
+            try { truthState8521.book("$mode|$lane")?.regretN } catch (_: Throwable) { null } ?: 0
+        }
+        return n < REGRET_MIN_N_9028
+    }
+    /** The priced closes the regret record needs before the forecast sell acts on a runner lane (the tail-cut proof's own bar). */
+    internal const val REGRET_MIN_N_9028 = 8
+
     private fun grade8082(r: Read, fwd: Double) {
         run {
             synchronized(this) {
@@ -485,6 +507,7 @@ object CortexExit7897 {
             if (r.bucket != Bucket.SELL_STRONG) return null
             if (!proven(r.lane, Bucket.SELL_STRONG)) { inc("SHADOW_SELL"); return null }
             if (tailCutting8153(r.lane)) { inc("SUSPENDED_TAIL_CUT_8153_${r.lane}"); return null }  // V5.0.8153
+            if (regretUnmeasured9028(r.lane)) { inc("SHADOW_SELL_REGRET_UNMEASURED_9028_${r.lane}"); return null }   // V5.0.9028
             inc("SOLD_${r.lane}")
             "CORTEX_EXIT_7897_${r.lane}_FWD${r.fused.edgePct.toInt()}PCT"
         } catch (_: Throwable) { null }

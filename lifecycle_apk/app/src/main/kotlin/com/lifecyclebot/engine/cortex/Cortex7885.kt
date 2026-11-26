@@ -2625,6 +2625,7 @@ object Cortex7885 {
     @Volatile private var snapshotEncodeMs8386 = 0L
     @Volatile private var snapshotDbMs8386 = 0L
     @Volatile private var snapshotParts8491 = "-"
+    @Volatile private var booksLen9028 = 0   // V5.0.9028 — the last books blob's length: the next buffer's size
     @Volatile private var closeCommitsJoined8818 = 0L    // written under persistLock8325
     @Volatile private var closeCommitsEncoded8818 = 0L
 
@@ -2661,14 +2662,18 @@ object Cortex7885 {
             val encode: () -> MutableMap<String, String> = { com.lifecyclebot.engine.JobCost8813.measure8813(if (periodic) "cortexSnapshot" else "cortexCloseCommit") {
                 val encodeAt = System.nanoTime()
                 val out = HashMap<String, String>()
-                out[PERSIST_KEY] = org.json.JSONObject().put("ledger", l.encode()).put("board", b.encode()).put("calibration", c.encode())
+                // V5.0.9028 — the ledger (most of the blob's 18.5 MB) is written straight into one buffer sized from the last
+                // snapshot; only the small members go through a JSONObject (CortexLedger7885.appendJson9028).
+                val rest9028 = org.json.JSONObject().put("board", b.encode()).put("calibration", c.encode())
                     .put(CortexForwardEpoch8521.FIELD, CortexForwardEpoch8521.EPOCH)
                     .put("real", org.json.JSONObject().also { j -> real.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("vetoes", org.json.JSONObject().also { j -> veto.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("joint7961", org.json.JSONObject().also { j -> joint.forEach { (k, v) -> j.put(k, v.encode()) } })
                     .put("jointGeneration8372", org.json.JSONObject(generations as Map<*, *>)).put("jointNext8372", next)
                     .put("snapshotGeneration8386", generation)
-                    .put("shadowLedger8418", org.json.JSONObject(shadowLedger8418Json)).toString()
+                    .put("shadowLedger8418", org.json.JSONObject(shadowLedger8418Json))
+                out[PERSIST_KEY] = CortexLedger7885.withLedger9028("ledger", l, rest9028,
+                    CortexLedger7885.sizeHint9028(booksLen9028, l.seatCount9028())).also { booksLen9028 = it.length }
                 // The typed streaming builder emits p/g8013 and the generation directly.
                 // Do not inflate the entire pending graph three times merely to add/check keys.
                 // JSON objects validate each row when constructed; round-trip tests pin the full wire contract.

@@ -24,6 +24,41 @@ class CortexLedger7885(
     val labelCap8187: Double = LABEL_CAP_8187,
 ) {
     companion object {
+        // ── V5.0.9028 — the snapshot text, written directly (see appendJson9028) ──
+        /** Pure: [s] as a JSON string (quotes, backslashes and control characters escaped), appended to [sb]. */
+        fun quote9028(sb: StringBuilder, s: String) {
+            sb.append('"')
+            for (ch in s) when {
+                ch == '"' -> sb.append("\\\"")
+                ch == '\\' -> sb.append("\\\\")
+                ch == '\n' -> sb.append("\\n")
+                ch == '\r' -> sb.append("\\r")
+                ch == '\t' -> sb.append("\\t")
+                ch < ' ' || ch == '\u2028' || ch == '\u2029' -> sb.append("\\u").append(String.format("%04x", ch.code))
+                else -> sb.append(ch)
+            }
+            sb.append('"')
+        }
+
+        /**
+         * The JSON text of an object whose first member is [key] : [ledger] and whose other members are [rest]'s, written
+         * into one buffer of [sizeHint] characters. Equal, once parsed, to JSONObject().put(key, ledger.encode()) plus
+         * [rest]'s members.
+         */
+        fun withLedger9028(key: String, ledger: CortexLedger7885, rest: org.json.JSONObject, sizeHint: Int): String {
+            val sb = StringBuilder(sizeHint.coerceIn(1_024, 96 * 1024 * 1024))
+            sb.append('{'); quote9028(sb, key); sb.append(':')
+            ledger.appendJson9028(sb)
+            val r = rest.toString()
+            if (r.length > 2) sb.append(',').append(r, 1, r.length) else sb.append('}')
+            return sb.toString()
+        }
+
+        /** Pure: the buffer to open for the next snapshot after one of [lastLen] characters (an eighth of headroom). */
+        fun sizeHint9028(lastLen: Int, seats: Int): Int =
+            if (lastLen > 0) (lastLen.toLong() + lastLen / 8 + 4_096L).coerceAtMost(96L * 1024 * 1024).toInt()
+            else (seats.toLong() * 360L + 65_536L).coerceAtMost(96L * 1024 * 1024).toInt()
+
         const val SHRINK_K = 20.0
         const val REGIME_K = 30.0
         const val GLOBAL = "*"
@@ -825,6 +860,33 @@ class CortexLedger7885(
         seats.forEach { (k, v) -> out.seats[k] = v.detached8386() }
         pairs.forEach { (k, v) -> out.pairs[k] = v.copyOf() }
     }
+
+    /**
+     * V5.0.9028 §THE_SNAPSHOT_IS_WRITTEN_NOT_BUILT — owner, 26 Nov 16:04: "do all the still open now". 5.0.9026 after 110 min:
+     * GC count=2941 timeMs=6,081,487 blockingMs=5,688,881 of 6,573,229 ms of uptime (threads stood blocked on collection for
+     * 87 % of the run), heap 489/512 MB CRITICAL, average cycle 12.9 s, the report builder timed out. The owner's two heap
+     * maps name the largest single holder: the Cortex snapshot in flight — 12:31 (9023) ROOT JAVA_FRAME 123.3 MB: a 35.4 MB
+     * JSONStringer buffer, the detached ledger, 10.2 MB of JSONObject tree; 14:46 (9026) 67.7 MB of frames plus 61 MB of
+     * dropped JSONStringer / JSONObject garbage. The books blob is 18.5 MB of text (snapshotParts8491) and was produced three
+     * times over: every seat as a string inside a JSONObject tree, the tree printed into a buffer that doubles as it grows,
+     * the buffer copied to the final string. The ledger is now written straight into one buffer sized from the previous
+     * snapshot ([withLedger9028]): no tree, no doubling. The text parses to the same object (the same keys and the same
+     * strings; key order within an object carries no meaning to [decode]).
+     */
+    fun appendJson9028(sb: StringBuilder) {
+        sb.append("{\"lanes\":{")
+        var first = true
+        lanes.forEach { (k, v) -> if (!first) sb.append(','); first = false; quote9028(sb, k); sb.append(':'); quote9028(sb, v.encode()) }
+        sb.append("},\"seats\":{")
+        first = true
+        seats.forEach { (k, v) -> if (!first) sb.append(','); first = false; quote9028(sb, k); sb.append(':'); quote9028(sb, "${v.bins.size}#${v.encode()}") }
+        sb.append("},\"pairs\":{")
+        first = true
+        pairs.forEach { (k, v) -> if (!first) sb.append(','); first = false; quote9028(sb, k); sb.append(':'); quote9028(sb, "${v[0]},${v[1]},${v[2]}") }
+        sb.append("}}")
+    }
+
+    internal fun seatCount9028(): Int = seats.size
 
     fun encode(): org.json.JSONObject = org.json.JSONObject().also { o ->
         o.put("lanes", org.json.JSONObject().also { j -> lanes.forEach { (k, v) -> j.put(k, v.encode()) } })

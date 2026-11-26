@@ -4712,3 +4712,29 @@ unobserved n1668 +4.8 +-1.8 % (halves +5/+4); flow observed n265 +12.0 +-4.0 %; 
 
 **Not changed.** The admission's own entry-wait door, the gate, safety, sizing, the per-trade loss cap, the LP / RugCheck /
 holder rules.
+
+## §213 — V5.0.9028: the snapshot is written, not built; a forecast does not sell an unchecked runner
+
+**Measured (5.0.9026, LIVE, emergency report after 110 min).** `GC count=2941 timeMs=6081487 blocking=2477
+blockingMs=5688881` over `uptimeMs=6573229` (87 % of wall time a thread stood blocked on collection); `heap=489/512MB (96%)
+pressure=CRITICAL avgCycle=12892ms`, `maxMs=168252`, report builder timed out at 8 s. `FLOOR lowest heap used in the 90
+samples kept (59m): 404MB, census then 107MB`. Heap maps: 12:31 (9023, 33 min) `ROOT JAVA_FRAME 123.3MB` = `byte[] <
+StringBuilder.value < JSONStringer.out` 35.4 MB + detached ledger + JSONObject tree 10.2 MB; 14:46 (9026) frames 67.7 MB
+(18.3 MB blob string, 10.6 MB detached ledger, 7.7 MB grades string) + `GARBAGE` JSONStringer 39.1 MB + JSONObject 22.1 MB.
+`snapshot8386[... parts8491=books=3551ms/18537KB pending=1226ms/3359KB grades=0ms/3937KB]`. Static holders at 12:31 sum to
+about 250 MB across 40+ stores (largest: CortexTiming7900.ledger 23.7, Cortex7885.ledger 19.8, ForwardOutcomeOutbox8404.rows
+15.7, PocketLedger8610.recent 12.0, CanonicalFinalityPersistence6486.excluded8094 10.5, Cortex7885.graded8006 10.0 MB).
+**Correction:** §211's "the heap at 99 % is garbage in flight, not retained data" rested on a 96 MB floor that included the
+session's first sample; the retained set is about 300 MB at one hour.
+
+**Changes.**
+- `CortexLedger7885.appendJson9028` / `withLedger9028` / `quote9028` / `sizeHint9028`: the ledger's JSON text written into
+  one StringBuilder sized from the previous snapshot. `Cortex7885.snapshotEncoder8386` (books blob) and
+  `CortexTiming7900.persist` use it; the remaining members still go through a JSONObject. Parsed result unchanged.
+- `CortexExit7897.regretUnmeasured9028`: on RunnerDoctrine8584 lanes `sellReason` returns null (label
+  `SHADOW_SELL_REGRET_UNMEASURED_9028_<lane>`) while the mode|lane exit-truth book holds fewer than
+  `REGRET_MIN_N_9028` = 8 priced closes. Source: trade export, MOONSHOT sold 140 s and 72 s after entry at -2.9 % / -2.4 %
+  by `CORTEX_EXIT_7897_MOONSHOT_FWD-6PCT` / `FWD-5PCT`; `exitTruth8153 LIVE|MOONSHOT n349 ... regret=-%/n0`.
+
+**Read next run.** `HEAP LOG GC ... blockingMs`, `FLOOR`, the next heap map's `ROOT JAVA_FRAME`, `snapshot8386[...]`,
+`SHADOW_SELL_REGRET_UNMEASURED_9028_*`.

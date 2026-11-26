@@ -218,13 +218,17 @@ object CortexTiming7900 {
         persist()
     }
 
+    @Volatile private var persistLen9028 = 0   // V5.0.9028 — the last persisted text's length: the next buffer's size
     private fun persist() {
         if (!loaded) return
         try {
+            // V5.0.9028 — the ledger is written straight into one sized buffer (CortexLedger7885.appendJson9028): this encode
+            // runs under the timing lock, and built the whole ledger as a JSONObject tree before printing it.
             val json = synchronized(this) {
-                org.json.JSONObject().put("ledger", ledger.encode())
+                CortexLedger7885.withLedger9028("ledger", ledger, org.json.JSONObject()
                     .put("dip", org.json.JSONObject().also { j -> dipBook.forEach { (k, v) -> j.put(k, v.encode()) } })
-                    .put("pending8187", encodePending8187(System.currentTimeMillis())).toString()
+                    .put("pending8187", encodePending8187(System.currentTimeMillis())),
+                    CortexLedger7885.sizeHint9028(persistLen9028, ledger.seatCount9028())).also { persistLen9028 = it.length }
             }
             LearningPersistence.save(PERSIST_KEY, json)
         } catch (_: Throwable) {}
