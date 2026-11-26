@@ -38,7 +38,9 @@ class Aate9032PumpLpAndPoolsTest {
         PumpFunCoin9032.resetForTest9032()
         assertFalse(PumpFunCoin9032.programKnows9032("NeverSeen9032AAAAAAAAAAAAAAAAAAAAAAAAAAApump"))
         val seen = "SeenCurve9032AAAAAAAAAAAAAAAAAAAAAAAAAAApump"
-        CurveReserves7951.noteFrame7951(seen, 34.0, 1_000_000.0, now - 9L * 60L * 60_000L)   // seen on the program's stream nine hours ago
+        // superseded by V5.0.9034 — this test's clock is 30,000,000 ms, so "nine hours ago" was a negative time, which the
+        // reserves store refuses (correctly): the one failure of the 9032 and 9033 test runs. Eight hours ago is a real time.
+        CurveReserves7951.noteFrame7951(seen, 34.0, 1_000_000.0, now - 8L * 60L * 60_000L)   // seen on the program's stream eight hours ago
         assertTrue(PumpFunCoin9032.programKnows9032(seen))
         PumpFunCoin9032.rememberForTest9032("NotAPumpMint9032AAAAAAAAAAAAAAAAAAAAAAAAAAAA")
         assertFalse(PumpFunCoin9032.programKnows9032("NotAPumpMint9032AAAAAAAAAAAAAAAAAAAAAAAAAAAA"))

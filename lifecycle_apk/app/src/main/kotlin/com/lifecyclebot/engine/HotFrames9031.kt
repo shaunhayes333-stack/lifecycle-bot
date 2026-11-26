@@ -24,6 +24,7 @@ object HotFrames9031 {
     internal const val MAX_STACKS_9031 = 24
     internal const val MAX_KEYS_9031 = 1500
     internal const val COST_MULT_9031 = 20L
+    internal const val GAP_CAP_MS_9034 = 120_000L
     private const val APP_PREFIX_9031 = "com.lifecyclebot"
     internal const val NO_APP_FRAME_9031 = "(no app frame)"
     internal const val APP_CODE_9031 = "(app code itself)"
@@ -128,8 +129,13 @@ object HotFrames9031 {
         } catch (_: Throwable) { started.set(false) }
     }
 
-    /** Pure: the wait before the next sample — the period, or [COST_MULT_9031] x the last sample's cost when that is longer (cap 10 s). */
-    fun gapAfter9031(lastCostMs: Long): Long = maxOf(PERIOD_MS_9031, minOf(10_000L, lastCostMs.coerceAtLeast(0L) * COST_MULT_9031))
+    /**
+     * Pure: the wait before the next sample — the period, or [COST_MULT_9031] x the last sample's cost when that is longer,
+     * up to [GAP_CAP_MS_9034]. V5.0.9034 — the cap was 10 s; on 26 Nov 23:38 (the collector blocking for 80 % of the run) a
+     * sample cost 2.4 s (costMs=2415), so the sampler ran for 2.4 s in every 12.4: 19 % of the time, not the 5 % it
+     * promises, and each sample stops the threads it reads. At that cost it now waits 48 s.
+     */
+    fun gapAfter9031(lastCostMs: Long): Long = maxOf(PERIOD_MS_9031, minOf(GAP_CAP_MS_9034, lastCostMs.coerceAtLeast(0L) * COST_MULT_9031))
 
     private fun top(m: HashMap<String, IntArray>, n: Int, total: Long): String {
         val rows = synchronized(lock) { m.entries.map { it.key to it.value[0] } }

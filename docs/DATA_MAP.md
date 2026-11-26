@@ -4890,3 +4890,13 @@ inside the model's load lock, and neither ran in that report). Not changed: what
 place in the decision. Not established: what holds the heap outside the census at 76 minutes (floor 287 MB against a
 census of 107 MB); the next report's map excerpt carries the owner rows.
 
+
+
+## §219 — V5.0.9034: the sampler keeps its 5 %
+
+Source: the 26 Nov 23:38 report (`hotFrames9031[samples=686 ... costMs=2415.1`) and the CI runs of 9032 and 9033.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Sampler wait | `engine/HotFrames9031.kt` `gapAfter9031` (`GAP_CAP_MS_9034` = 2 min, was 10 s) | the last sample's cost | the wait before the next sample | none: a sample that costs 2.4 s is followed by 48 s of wait (was 10 s), so the sampler stays under 5 % of the time when the runtime is slow |
+| Test clock | `Aate9032PumpLpAndPoolsTest` | | | test only: the test noted a curve frame at a negative time (its clock is 30,000,000 ms; "nine hours ago"), which `CurveReserves7951` refuses. The one failed test of the 9032 and 9033 runs; the product code was not at fault and is unchanged |

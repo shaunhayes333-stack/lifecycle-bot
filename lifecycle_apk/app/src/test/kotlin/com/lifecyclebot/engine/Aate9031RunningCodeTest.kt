@@ -57,7 +57,8 @@ class Aate9031RunningCodeTest {
         assertTrue(HotFrames9031.MAX_STACKS_9031 in 1..64 && HotFrames9031.MAX_KEYS_9031 >= 500 && HotFrames9031.COST_MULT_9031 >= 20L)
         assertEquals(HotFrames9031.PERIOD_MS_9031, HotFrames9031.gapAfter9031(3L))
         assertEquals(2_000L, HotFrames9031.gapAfter9031(100L))        // 20 x the sample's cost: under 5 % of a core
-        assertEquals(10_000L, HotFrames9031.gapAfter9031(60_000L))
+        // superseded by V5.0.9034 — the cap was 10 s, which broke the 5 % promise for a sample costing over 0.5 s
+        assertEquals(HotFrames9031.GAP_CAP_MS_9034, HotFrames9031.gapAfter9031(60_000L))
         assertTrue(src("AATEApp.kt").contains("HotFrames9031.start9031()"))
         assertTrue(src("engine/HeapLog8618.kt").contains("HotFrames9031.block9031()"))
         HotFrames9031.resetForTest9031()
