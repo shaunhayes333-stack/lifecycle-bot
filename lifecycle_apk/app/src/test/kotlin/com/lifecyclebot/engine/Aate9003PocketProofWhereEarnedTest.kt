@@ -44,10 +44,13 @@ class Aate9003PocketProofWhereEarnedTest {
 
     @Test fun wired() {
         val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LanePocket8934.kt").readText()
-        assertTrue(p.contains("val c = cells.orEmpty().firstOrNull { fits9003(it.conds, feats, blind9003) } ?: run {"))
-        assertTrue(p.contains("val (e, h) = ext.firstOrNull { fits9003(it.first.conds, feats, blind9003) } ?: run {"))
+        assertTrue(p.contains("p.native[lane].orEmpty().firstOrNull{fits9003(it.conds,feats,blind)}"))
+        assertTrue(p.contains("p.extended[extKey8991(lane,h)].orEmpty()"))
+        assertTrue(p.contains(".firstOrNull{fits9003(it.conds,feats,blind)}?.let{return it to h}"))
+        assertTrue(p.contains("match9061(l,feats,blind9003,nowMs)?:return null"))
         assertTrue(p.contains("!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && AgeProof9001.bandLoses9003(lane, ageMin)"))
-        assertTrue(p.contains("LANE_POCKET_AGE_BLIND_NOT_SERVED_9003_"))
+        assertTrue(p.contains("val blind9003 = ageBlindBarred9003(l, raw.ageMin)"))
+        assertTrue(p.contains("match9061(lane,feats,ageBlindBarred9003(lane,age),at,p)"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 188. A pocket is proof only where it was earned (9003)"))
     }
 }
