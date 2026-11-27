@@ -49,6 +49,13 @@ class Aate9062PriceEvidenceTest {
         assertNull(NativePriceEvidence9062.markFor("mint9062", now + 1))
     }
 
+    @Test fun correctedMintDecimalsReplaceAContradictoryCachedObservation() {
+        NativePriceEvidence9062.publish("mint9062", listOf(chain()), now, 6)
+        val corrected = chain(now - 2_000).copy(decimals = 9)
+        NativePriceEvidence9062.publish("mint9062", listOf(corrected), now, 9)
+        assertEquals(corrected, NativePriceEvidence9062.markFor("mint9062", now))
+    }
+
     @Test fun existingCollectorPublishesBeforeLegacySelectionAndNativeReadsUseIt() {
         val base = "src/main/kotlin/com/lifecyclebot/engine/truth/"
         val collector = File(base + "ForwardReturnLabeler7731.kt").readText()

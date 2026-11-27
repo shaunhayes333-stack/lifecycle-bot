@@ -34,7 +34,9 @@ internal object NativePriceEvidence9062 {
             if (chosen != null) {
                 val previous = marks[mint]
                 // An older observation must not overwrite a newer valid publication.
-                if (previous == null || !valid(previous, now) || chosen.observedAtMs >= previous.observedAtMs)
+                if (previous == null || !valid(previous, now) ||
+                    (supplyDecimals != null && previous.decimals != supplyDecimals) ||
+                    chosen.observedAtMs >= previous.observedAtMs)
                     marks[mint] = chosen
                 while (marks.size > MAX_MARKS) marks.remove(marks.keys.first())
             } else {
