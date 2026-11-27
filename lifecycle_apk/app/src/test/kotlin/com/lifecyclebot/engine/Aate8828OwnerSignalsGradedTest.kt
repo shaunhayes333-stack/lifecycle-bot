@@ -6,6 +6,7 @@ import com.lifecyclebot.engine.truth.SignalTape8828
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -60,9 +61,21 @@ class Aate8828OwnerSignalsGradedTest {
         val s001 = recs.first { it.key == "S001 stop35%" }
         assertEquals(120, s001.n); assertTrue(s001.mean > 0.0 && s001.halfA > 0.0 && s001.halfB > 0.0 && s001.proven)
         assertTrue(s001.wallet)
-        SignalReplay8828.evaluate8828(paths, 100.0, 0.0, 10_000L)
-        assertNotNull(SignalReplay8828.proven8828())
-        assertTrue(SignalReplay8828.labLine8828().contains("S001 stop35% n120"))
+        assertEquals("the record owns the entry latency actually simulated", 10_000L, s001.gradedDelayMs9047)
+        val fields = listOf("records", "proven", "shadow", "status", "gradedDelayMs9025").map { name ->
+            SignalReplay8828::class.java.getDeclaredField(name).apply { isAccessible = true }
+        }
+        val before = fields.map { it.get(SignalReplay8828) }
+        try {
+            SignalReplay8828.evaluate8828(paths, 100.0, 0.0, 10_000L)
+            val proof = SignalReplay8828.proven8828(10_000L)
+            assertNotNull("the fixture proves its evaluated 10s delay", proof)
+            assertEquals(10_000L, proof!!.gradedDelayMs9047)
+            assertNull("a 10s grade cannot authorize a slower current delay", SignalReplay8828.proven8828(10_001L))
+            assertTrue(SignalReplay8828.labLine8828().contains("S001 stop35% n120"))
+        } finally {
+            fields.zip(before).forEach { (field, value) -> field.set(SignalReplay8828, value) }
+        }
         // the proof bar: thin, or one losing half, is not proven
         val e = (0 until 200).map { SignalReplay8828.Entry(it.toLong(), if (it < 100) -5.0 else 30.0, 8_000.0) }
         assertFalse(SignalReplay8828.stats8828("S052", 35.0, e)!!.proven)

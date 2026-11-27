@@ -102,9 +102,11 @@ class Aate8755StrategyLabTest {
         val adm = File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
         assertTrue(adm.contains("com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs)"))
         assertTrue(adm.contains("!GateOutcome8418.structureBindsByRecord8755(\"CANDIDATE_ADMISSION_8136_STRUCTURAL_RISK_8136\", c.lane)"))
-        val sn = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchSniper8748.kt").readText()
-        assertTrue(sn.contains("LaunchReplay8744.proven8748() ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()"))
-        assertTrue(sn.contains("BaseFamily8754.proven8754() ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()"))
+        val sn = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchSniper8748.kt").readText().replace(Regex("\\s+"), " ")
+        assertTrue("the Lab launch fallback remains wired and must fit current latency", sn.contains(
+            "val proven = LaunchReplay8744.proven8748(need) ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }"))
+        assertTrue("both Base sources retain the same current-latency qualification", sn.contains(
+            "val baseProven = BaseFamily8754.proven8754()?.takeIf { latencyFits9047(it.rule.delayMs, need) } ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }"))
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
         assertTrue(lab.contains("StrategyLab8755.maybeRun8755(now)"))
         assertTrue(lab.contains("val evidence8755 = try { StrategyLab8755.brief8755() }"))

@@ -153,8 +153,18 @@ class Aate8856FloorWatchAndFollowedGatesTest {
         assertFalse("a mean inside two standard errors of zero", LaunchReplay8744.forwardProves8856(record(live, List(110) { -10.0 } + List(10) { 150.0 })))
         assertFalse("a faster rule than the bot can meet", LaunchReplay8744.forwardProves8856(f, minDelayMs = 20_000L))
         assertFalse("only the ladder live runs", LaunchReplay8744.forwardProves8856(record(live.copy(ladder = Ladder.HALF_TRAIL), runners)))
+        // The live publication retains this forward proof and reads it at the current latency.
+        val published = LaunchReplay8744.ProofSet9047(1L, emptyList(), listOf(f))
+        assertEquals(live, published.provenAt(10_000L)!!.rule)
+        assertEquals(f.exBest, published.provenAt(10_000L)!!.exTop3, 0.0)
+        assertNull("publication cannot lend a 10s grade to a 20s runtime", published.provenAt(20_000L))
         val replay = src("engine/truth/LaunchReplay8744.kt")
-        assertTrue(replay.contains("proven = provenOf8748(res, need) ?: forwardProven8856(need)"))
-        assertTrue(replay.contains("shadow?.rule?.let { nominate8856(it, nowMs) }; gradeForward8856(set, solUsd, cost, nowMs); saveForward8856()"))
+        val nominated = replay.indexOf("watched?.rule?.let { nominate8856(it, nowMs) }")
+        val graded = replay.indexOf("gradeForward8856(set, solUsd, cost, nowMs)", nominated.coerceAtLeast(0))
+        val saved = replay.indexOf("saveForward8856()", graded.coerceAtLeast(0))
+        val emitted = replay.indexOf("publishProofs9047(res)", saved.coerceAtLeast(0))
+        assertTrue("the completed forward grade is published after nomination, grading and save",
+            nominated >= 0 && graded > nominated && saved > graded && emitted > saved)
+        assertTrue(replay.contains("fun proven8748(minDelayMs: Long = LaunchSniper8748.requiredDelayMs8749()): Result? = publishedProofs9047.provenAt(minDelayMs)"))
     }
 }

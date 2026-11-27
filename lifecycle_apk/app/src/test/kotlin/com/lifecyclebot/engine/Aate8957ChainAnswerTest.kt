@@ -24,11 +24,15 @@ class Aate8957ChainAnswerTest {
 
     @Test fun transportDelayCannotExtendTheRunnerWindow() {
         val router = com.lifecyclebot.engine.truth.LaunchSniper8748
-        val fire = com.lifecyclebot.engine.truth.LaunchSniper8748.Fire("mint", 15000L, 0L, 100.0, "rule", 90, 5.0, 1.0, 0.5, true, 5000L)
-        assertTrue(router.liveFire8959(fire, 125000L))
-        assertFalse(router.liveFire8959(fire, 125001L))
-        assertFalse(router.liveFire8959(fire, 14000L))
-        assertFalse(router.liveFire8959(fire.copy(armed = false), 16000L))
+        val fire = com.lifecyclebot.engine.truth.LaunchSniper8748.Fire("mint", 15000L, 0L, 100.0, "rule", 120, 5.0, 1.0, 0.5, true,
+            triggerEventMs = 5000L, gradedDelayMs8968 = 120_000L)
+        assertTrue(router.liveFireAtDelay9047(fire, 125000L, 120_000L))
+        assertFalse("the 10s transport lag has already spent the source event's window",
+            router.liveFireAtDelay9047(fire, 125001L, 120_000L))
+        assertFalse(router.liveFireAtDelay9047(fire, 14000L, 120_000L))
+        assertFalse(router.liveFireAtDelay9047(fire.copy(armed = false), 16000L, 120_000L))
+        assertFalse("a clock window cannot stand in for a missing latency grade",
+            router.liveFireAtDelay9047(fire.copy(proofDelayMs9047 = 0L), 16000L, 10_000L))
     }
 
     @Test fun realMarketAnswerIsExactFreshAndConsumedOnce() {

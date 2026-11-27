@@ -138,6 +138,15 @@ results are evidence for that commit, not an automatic pass for 5.0.9047.
 The final 9047 commit must independently pass the full release path, including the
 new behavioral regressions, before its single accepted APK is delivered.
 
+The first 9047 integration run passed all 19 new regressions, but exposed four
+historical fixture/source assertions. Two pinned the old unqualified fallback or
+mutable-proof source text; one relied on unrelated process-wide latency state;
+one treated an unknown grade as 120-second authority. Their replacements retain
+the original strategy, forward-grading and source-clock checks, explicitly supply
+the simulated delay, reject unknown or slower-than-graded authority, and restore
+the mutated signal fixture state. No production proof bar or failure baseline is
+relaxed to make these checks pass. The corrected commit is tested in full again.
+
 9046 runtime exercised queued durable-close delivery and snapshot array reuse.
 Shared-monitor waits remain: a canonical-close callback waited 3.255 seconds
 behind snapshot capture, and `CortexTiming.fusedMove` waited 23.680 seconds behind
