@@ -7,13 +7,10 @@ import com.lifecyclebot.data.TokenState
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * CyclicTradeEngine — Compound a fixed $500 USD ring by cycling it through winning trades.
+ * CyclicTradeEngine — Compound a configurable ring starting at $5 USD by cycling it through winning trades.
  *
- * Live execution is allowed when:
- *   1. User explicitly enabled it in settings (cfg.cyclicTradeLiveEnabled), OR
- *   2. TreasuryManager.treasuryUsd >= 5000.0
- *
- * Otherwise runs in paper mode, tracking virtual compound growth.
+ * Runtime enablement owns new entries; an open cycle retains its original live/paper book.
+ * Capital compounds only from canonical, fee-inclusive whole-position close receipts.
  *
  * The engine picks the highest-scored token from the current watchlist,
  * deploys the ring balance, waits for TP/SL, then re-deploys.
@@ -22,7 +19,11 @@ object CyclicTradeEngine {
 
     private const val TAG = "CyclicTrade"
     private const val PREFS_FILE = "cyclic_trade_prefs"
-    private const val RING_SIZE_USD = 500.0
+    private const val RING_SIZE_USD = CyclicCompound9061.DEFAULT_SEED_USD
+    @Volatile private var seedUsd9061 = RING_SIZE_USD
+    @Volatile private var ringStateValid9061 = true
+    @Volatile private var ringFunded9061 = false
+    val startingUsd9061: Double get() = seedUsd9061
     // V5.9.451 — TP/SL now adapt (see adaptiveTpSl()). Constants are the
     // default mature-phase levels; bootstrap and loss-streak modes override.
     // V5.9.1227 — this is the $500→$1M compounding lane, not a scalp lane.
@@ -96,15 +97,11 @@ object CyclicTradeEngine {
         private set
     @Volatile var cycleCount: Int = 0
         private set
-    // V5.9.1309 — COMPOUND MILESTONE LADDER. Operator design: $500→$1000→reinvest
-    // →$2000→… each DOUBLING is a banked compound tier whose principal is then
-    // protected. lockedFloorUsd is the highest doubling milestone the ring has
-    // crossed; the ring is never allowed to be re-seeded below it, and cold-mode
-    // measures dips RELATIVE TO the locked floor, not the original $500. This gives
-    // the engine the discrete $500→$1M staircase instead of an unprotected drift.
+    // Historical doubling watermark. This is not protected cash or a guaranteed equity floor.
+    // Current balance always follows settled net receipts, including losses below an achieved milestone.
     @Volatile var lockedFloorUsd: Double = RING_SIZE_USD
         private set
-    @Volatile var milestoneTier: Int = 0   // 0 = $500 base, 1 = crossed $1000, 2 = $2000, ...
+    @Volatile var milestoneTier: Int = 0   // 0 = initial seed, 1 = twice seed, 2 = four times seed, ...
         private set
     @Volatile var totalPnlSol: Double = 0.0
         private set
@@ -150,37 +147,58 @@ object CyclicTradeEngine {
 
     // ── Initialise ─────────────────────────────────────────────────────────────
     fun init(context: Context) {
+        val liveHeld=bookPrefs9061(context,true).getBoolean("position_open_9061",false)
+        val paperHeld=bookPrefs9061(context,false).getBoolean("position_open_9061",false)
+        isLiveMode=when {
+            liveHeld && !paperHeld -> true
+            paperHeld && !liveHeld -> false
+            else -> !ConfigStore.load(context).paperMode
+        }
+        // Old unscoped preferences remain untouched; they cannot prove a LIVE bankroll.
+        // New LIVE/PAPER books each start at the declared seed and compound only their own receipts.
         val prefs = prefs(context)
-        ringBalanceSol = prefs.getFloat("ring_balance_sol", 0f).toDouble()
-        ringBalanceUsd = prefs.getFloat("ring_balance_usd", RING_SIZE_USD.toFloat()).toDouble()
-        lockedFloorUsd = prefs.getFloat("locked_floor_usd", RING_SIZE_USD.toFloat()).toDouble()
+        fun amount(key:String,default:Double):Double {
+            if(prefs.contains(key+"_9061"))return prefs.getString(key+"_9061",null)?.toDoubleOrNull()?:Double.NaN
+            return prefs.getFloat(key,default.toFloat()).toDouble()
+        }
+        ringBalanceSol = amount("ring_balance_sol",0.0)
+        ringBalanceUsd = amount("ring_balance_usd",RING_SIZE_USD)
+        ringFunded9061 = prefs.getBoolean("ring_funded_9061",ringBalanceSol!=0.0)
+        lockedFloorUsd = amount("locked_floor_usd",RING_SIZE_USD)
         milestoneTier  = prefs.getInt("milestone_tier", 0)
+        seedUsd9061 = if(prefs.contains("seed_usd_9061")) prefs.getString("seed_usd_9061",null)?.toDoubleOrNull()?:Double.NaN
+            else CyclicCompound9061.legacySeed(lockedFloorUsd,milestoneTier) ?: Double.NaN
         cycleCount     = prefs.getInt("cycle_count", 0)
-        totalPnlSol    = prefs.getFloat("total_pnl_sol", 0f).toDouble()
+        totalPnlSol    = amount("total_pnl_sol",0.0)
         winCount       = prefs.getInt("win_count", 0)
         lossCount      = prefs.getInt("loss_count", 0)
-        isInPosition   = false  // Always start fresh — don't resume mid-position after kill
-        currentMint    = ""
-        currentMode    = "STANDARD"
-        isRunning      = false
+        consecutiveLosses = prefs.getInt("consecutive_losses_9061",0)
+        pauseUntilMs = prefs.getLong("pause_until_9061",0L)
+        lastCycleEndMs = prefs.getLong("last_cycle_end_9061",0L)
+        isInPosition = prefs.getBoolean("position_open_9061",false)
+        currentMint = prefs.getString("position_mint_9061","").orEmpty()
+        currentSymbol = prefs.getString("position_symbol_9061","").orEmpty()
+        currentMode = prefs.getString("position_style_9061","STANDARD").orEmpty()
+        entryTimeMs = prefs.getLong("position_entry_ms_9061",0L)
+        entrySizeSol = prefs.getString("position_size_sol_9061",null)?.toDoubleOrNull()?:0.0
+        entryPriceSol = prefs.getString("position_price_9061",null)?.toDoubleOrNull()?:0.0
+        positionHighWaterPnlPct = prefs.getString("position_highwater_9061",null)?.toDoubleOrNull()?:0.0
+        isRunning = isInPosition
         sanitizeRingState("init")
         ErrorLogger.info(TAG, "CyclicTradeEngine initialised | ring=\$${ringBalanceUsd.toInt()} | cycles=$cycleCount")
     }
 
 
     private fun sanitizeRingState(source: String) {
-        val impossible = !ringBalanceSol.isFinite() || !ringBalanceUsd.isFinite() ||
-            ringBalanceSol <= 0.0 || ringBalanceUsd <= 0.0 || ringBalanceUsd > 1_250_000.0
-        if (!impossible) return
-        // V5.0.8418 — no $85 constant: unknown SOL/USD leaves the SOL ring at 0 for tick() to size once observed.
-        val solPrice = SolUsd8418.liveOrNull()
-        ringBalanceUsd = RING_SIZE_USD
-        ringBalanceSol = if (solPrice != null) RING_SIZE_USD / solPrice else 0.0
-        lockedFloorUsd = RING_SIZE_USD
-        milestoneTier = 0
-        totalPnlSol = 0.0
-        try { ErrorLogger.warn(TAG, "CYCLIC_RING_IMPOSSIBLE_RESET source=$source") } catch (_: Throwable) {}
-        try { PipelineHealthCollector.labelInc("CYCLIC_RING_IMPOSSIBLE_RESET") } catch (_: Throwable) {}
+        ringStateValid9061 = CyclicCompound9061.validBalances(ringBalanceSol,ringBalanceUsd) &&
+            totalPnlSol.isFinite() && (!isInPosition || (currentMint.isNotBlank() && entryTimeMs>0L &&
+                entrySizeSol.isFinite() && entrySizeSol>0.0 && entryPriceSol.isFinite() && entryPriceSol>0.0)) &&
+            CyclicCompound9061.milestones(seedUsd9061,lockedFloorUsd,milestoneTier,ringBalanceUsd)!=null
+        if (ringStateValid9061) return
+        // Never invent a new bankroll after a loss, bad restore, or growth beyond a million.
+        statusMessage = "Cyclic balance needs reconciliation"
+        try { ErrorLogger.warn(TAG, "CYCLIC_RING_RECONCILIATION_REQUIRED_9061 source=$source") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("CYCLIC_RING_RECONCILIATION_REQUIRED_9061") } catch (_: Throwable) {}
     }
 
     fun setEnabled(on: Boolean) { enabled.set(on) }
@@ -210,7 +228,7 @@ object CyclicTradeEngine {
     private fun cold8527(): Boolean {
         val winRate = if (cycleCount > 0) winCount * 100.0 / cycleCount else 0.0
         return cycleCount >= 3 && (winRate < 35.0 ||
-            ringBalanceUsd < lockedFloorUsd.coerceAtLeast(RING_SIZE_USD) * 0.80)
+            ringBalanceUsd < lockedFloorUsd.coerceAtLeast(seedUsd9061) * 0.80)
     }
 
     private fun scoreFloor8527(bootstrap: Boolean, cold: Boolean): Double {
@@ -572,7 +590,7 @@ object CyclicTradeEngine {
         val cfg = ConfigStore.load(context)
         // V5.0.6566 — central runtime plan owns enablement. A tick may never
         // resurrect a trader that BotService intentionally disabled.
-        if (!enabled.get()) {
+        if (!enabled.get() && !isInPosition) {
             try { PipelineHealthCollector.labelInc("CYCLIC_TICK_SKIPPED_DISABLED_6566") } catch (_: Throwable) {}
             LaneDispatch8418.noteCyclicRing8418(null, "CYCLIC_RING_DISABLED")  // V5.0.8418 — a qualified candidate ends by name
             return
@@ -580,7 +598,7 @@ object CyclicTradeEngine {
 
         // Determine live vs paper
         val treasuryUsd = TreasuryManager.treasuryUsd
-        // V5.0.8418 — unknown SOL/USD is NaN, never $150: ring sizing refuses below; exits still run.
+        // Unknown SOL/USD cannot seed or advance the ring; held exits still run.
         val solPrice = SolUsd8418.liveOrNull() ?: Double.NaN
         // V5.9.772 EMERGENT MEME — treasury must respect the GLOBAL trade
         // mode. Operator forensic 22:54 (V5.9.771) showed treasury firing
@@ -600,17 +618,25 @@ object CyclicTradeEngine {
         // thresholds are off. In global LIVE it participates as live; in PAPER it
         // participates as paper. Wallet/balance/FDG/TradeAuthorizer/hard-floor are
         // the safety rails. The lane must trade to learn and pivot.
-        isLiveMode = globalLive   // mirror global; paper-mode → paper cycle
+        // An owned position keeps its original book even if the operator changes the global mode.
+        if (!isInPosition && isLiveMode != globalLive) {
+            save(context)
+            init(context)
+        }
 
         // Compute ring size in SOL
-        if (ringBalanceSol <= 0.0) {
+        if (ringStateValid9061 && !ringFunded9061 && ringBalanceSol == 0.0 && ringBalanceUsd > 0.0) {
             if (!solPrice.isFinite()) { SolUsd8418.refuse("CYCLIC_RING_SIZE"); return }
             ringBalanceSol = ringBalanceUsd / solPrice
+            ringFunded9061 = true
+            save(context)
         }
 
         // ── 1. In position — check TP/SL/timeout ──────────────────────────────
         if (isInPosition && currentMint.isNotBlank()) {
             LaneDispatch8418.noteCyclicRing8418(currentMint, "CYCLIC_RING_HOLDING")  // V5.0.8418 — the ring holds one coin at a time
+            // A generic exit may already have closed the lot. Settle it before requiring any current price.
+            if (settleCycle9061(context,"CANONICAL_CLOSE",solPrice)) return
             val ts = tokens[currentMint]
             if (ts == null) {
                 // V5.0.7246 — scanner/watchlist eviction is NOT an ownership event.
@@ -634,7 +660,7 @@ object CyclicTradeEngine {
                 }
                 // Only a confirmed absence from canonical held inventory can release
                 // stale local Cyclic state.
-                abandonCycle(context, "canonical_position_closed", solPrice)
+                statusMessage = "Cyclic waiting for canonical close receipt"
                 return
             }
             // V5.9.1359 — STALE-FEED & HARD-FLOOR PROTECTION (root cause of the
@@ -690,7 +716,7 @@ object CyclicTradeEngine {
             // V5.9.696 — Dynamic profit lock (ratchet).
             // Once a position reaches a profit threshold, lock in a floor so
             // gains can't fully evaporate. High-water tracking + ratchet tiers.
-            if (pnlPct > positionHighWaterPnlPct) positionHighWaterPnlPct = pnlPct
+            if (pnlPct > positionHighWaterPnlPct) { positionHighWaterPnlPct = pnlPct; save(context) }
 
             // V5.9.898 — RUNNER MODE for the $500→$1M ring.
             // PRE-FIX: hitTP at +15% closed the ENTIRE ring, capping every
@@ -777,6 +803,10 @@ object CyclicTradeEngine {
             return
         }
 
+        if (!ringStateValid9061 || ringBalanceSol <= 0.0) {
+            statusMessage = "Cyclic balance needs reconciliation or funding"
+            return
+        }
         // ── 2. Not in position — cooldown + loss-streak-pause check ───────────
         val now = System.currentTimeMillis()
         if (now < pauseUntilMs) {
@@ -906,7 +936,7 @@ object CyclicTradeEngine {
         noEligibleStreak = 0
         LaneDispatch8418.noteCyclicRing8418(best.mint, "CYCLIC_RING_TOOK_OTHER")  // V5.0.8418 — the ring takes one coin per tick
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
-        var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+        var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT) else ringBalanceSol
 
         // ══════════════════════════════════════════════════════════════════
         // V5.9.1376 — EDGE-GATED RING DEPLOYMENT (the real CYCLIC bleed fix).
@@ -949,7 +979,7 @@ object CyclicTradeEngine {
                     val wrPctNow = if (n > 0) winCount * 100.0 / n.toDouble() else 100.0
                     val meltdown = n >= 10 && (wrPctNow < 20.0 || totalPnlSol < 0.0)
                     val probeFrac = if (meltdown) MELTDOWN_PROBE_FRACTION else EDGE_PROBE_FRACTION
-                    ringDesiredSol = (ringBalanceSol * probeFrac).coerceAtLeast(0.001)
+                    ringDesiredSol = (ringBalanceSol * probeFrac)
                     try { ErrorLogger.info(TAG, "CYCLIC UNPROVEN: cycle $n/$EDGE_GATE_MIN_CYCLES wr=${"%.1f".format(wrPctNow)} pnl=${"%.3f".format(totalPnlSol)} → PROBE ${(probeFrac*100).toInt()}% ring (sampling to earn edge; no full deploy until proven)") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (meltdown) "CYCLIC_MELTDOWN_MICRO_PROBE" else "CYCLIC_UNPROVEN_PROBE") } catch (_: Throwable) {}
                 }
@@ -986,7 +1016,7 @@ object CyclicTradeEngine {
                             // edge — PROBE ONLY. Sample to learn/pivot, never bleed.
                             val meltdown = (wr * 100.0) < 20.0 || totalPnlSol < 0.0
                             val probeFrac = if (meltdown) MELTDOWN_PROBE_FRACTION else EDGE_PROBE_FRACTION
-                            ringDesiredSol = (ringBalanceSol * probeFrac).coerceAtLeast(0.001)
+                            ringDesiredSol = (ringBalanceSol * probeFrac)
                             try { ErrorLogger.warn(TAG, "CYCLIC EDGE-GATE: realizedPnL=${"%.3f".format(totalPnlSol)} SOL over $n cycles (wr=${(wr*100).toInt()}% vs breakeven=${(breakevenWr*100).toInt()}%) → PROBE ${(probeFrac*100).toInt()}% ring (bleeding — sampling to pivot, not betting principal)") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_EDGE_GATE_PROBE") } catch (_: Throwable) {}
                         }
@@ -1017,6 +1047,8 @@ object CyclicTradeEngine {
                 ErrorLogger.info(TAG, "🪙✨ CYCLIC CALIBRATION_SHRINK ${best.symbol} | band=S$cycScore ring×$calMult (net-negative band)")
             }
         } catch (_: Throwable) { /* fail-open */ }
+        ringDesiredSol = ringDesiredSol.coerceAtMost(ringBalanceSol)
+
         // V5.9.1309 — WALLET CAP IS LIVE-ONLY (CRITICAL COMPOUNDING FIX).
         // 1304 capped every CYCLIC entry at 20% of the shared wallet to stop the
         // ring hogging LIVE capital from the other 7 lanes. But in PAPER mode the
@@ -1030,15 +1062,15 @@ object CyclicTradeEngine {
         // where capital is genuinely shared. Paper deploys the full ring.
         val sizeSol = if (isLiveMode && walletSol > 0.0) {
             val walletCapSol = walletSol * 0.20
-            val capped = minOf(ringDesiredSol, walletCapSol).coerceAtLeast(0.001)
+            val capped = minOf(ringDesiredSol, walletCapSol)
             if (capped < ringDesiredSol) {
                 try { ErrorLogger.info(TAG, "🪙 CYCLIC live wallet-cap: ring wanted ${ringDesiredSol.fmt(3)} → capped ${capped.fmt(3)} SOL (20% of ${walletSol.fmt(3)} wallet) — protecting other live lanes") } catch (_: Throwable) {}
             }
             capped
         } else {
             // PAPER (or unknown wallet): deploy the full virtual ring — this is the compound engine.
-            ringDesiredSol.coerceAtLeast(0.001)
-        }
+            ringDesiredSol
+        }.coerceAtMost(ringBalanceSol)
 
         if (isLiveMode) {
             if (walletSol < sizeSol) {
@@ -1104,6 +1136,12 @@ object CyclicTradeEngine {
             }
         }
 
+        // A downstream minimum size may not spend capital the ring did not allocate.
+        if(!CyclicCompound9061.fitsAllocation(cyclicFdg?.sizeSol ?: sizeSol,sizeSol)) {
+            statusMessage="Cyclic execution size exceeds its funded allocation"
+            PipelineHealthCollector.labelInc("CYCLIC_ALLOCATION_EXCEEDED_9061")
+            return
+        }
         val cyclicAuth = TradeAuthorizer.authorize(
             fdgDecision7835 = cyclicFdg, tokenState7835 = best,
             mint = best.mint,
@@ -1162,7 +1200,7 @@ object CyclicTradeEngine {
             currentPnlPct = 0.0
             priceState = "ENTRY_FRESH"
             entrySizeSol  = cyclicAuthorizedSize7835
-            entryTimeMs   = System.currentTimeMillis()
+            entryTimeMs   = best.position.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis()
             isRunning     = true
             statusMessage = "⏳ ${best.symbol} | Size: ${cyclicAuthorizedSize7835.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
             positionHighWaterPnlPct = 0.0  // V5.9.696: reset high water on new entry
@@ -1247,10 +1285,6 @@ object CyclicTradeEngine {
         reason: String,
         solPrice: Double
     ) {
-        val closingPaper7858 = !isLiveMode
-        val deployedSizeSol = entrySizeSol.takeIf { it > 0.0 } ?: ringBalanceSol
-        val pnlSol = deployedSizeSol * (pnlPct / 100.0)
-
         // Execute sell. Economic/learning state may move only after the
         // canonical executor reports terminal confirmation.
         val sellResult6566 = if (isLiveMode) {
@@ -1259,17 +1293,8 @@ object CyclicTradeEngine {
             executor.paperSell(ts, "CYCLIC_$reason")
         }
         when (sellResult6566) {
-            Executor.SellResult.CONFIRMED, Executor.SellResult.PAPER_CONFIRMED -> Unit
-            Executor.SellResult.ALREADY_CLOSED -> {
-                // Canonical authority already finalized this position elsewhere.
-                // Reconcile local occupancy without inventing a second PnL outcome.
-                try { PipelineHealthCollector.labelInc("CYCLIC_ALREADY_CLOSED_RECONCILED_6566") } catch (_: Throwable) {}
-                clearLocalCycleState6566()
-                try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_ALREADY_CLOSED", TradeAuthorizer.ExecutionBook.CYCLIC, isPaperMode = closingPaper7858) } catch (_: Throwable) {}
-                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_ALREADY_CLOSED") } catch (_: Throwable) {}
-                save(context)
-                return
-            }
+            Executor.SellResult.CONFIRMED, Executor.SellResult.PAPER_CONFIRMED,
+            Executor.SellResult.ALREADY_CLOSED -> Unit
             else -> {
                 // Retryable/no-wallet/no-signature/waiting/fatal outcomes retain
                 // the position and lane ownership for reconciliation or retry.
@@ -1283,65 +1308,44 @@ object CyclicTradeEngine {
             }
         }
 
-        // Update ring only after confirmed sell finality.
-        ringBalanceSol = (ringBalanceSol + pnlSol).coerceAtLeast(0.001)
-        if (solPrice.isFinite() && solPrice > 0.0) ringBalanceUsd = ringBalanceSol * solPrice else SolUsd8418.refuse("CYCLIC_RING_USD")
-        totalPnlSol   += pnlSol
+        if (!settleCycle9061(context,reason,solPrice)) {
+            statusMessage = "Cyclic awaiting settled position economics"
+            try { PipelineHealthCollector.labelInc("CYCLIC_SETTLEMENT_WAIT_9061") } catch (_: Throwable) {}
+            save(context)
+        }
+    }
+
+    private fun settleCycle9061(context: Context, reason: String, solPrice: Double): Boolean {
+        if (!isInPosition || currentMint.isBlank() || entryTimeMs<=0L) return false
+        val mint=currentMint
+        val paper=!isLiveMode
+        val settled = SpecialistCloseProjection7858.settledOutcome(mint,paper,entryTimeMs,"CYCLIC") ?: return false
+        val newBalance = CyclicCompound9061.afterSettlement(ringBalanceSol,settled.netSol) ?: return false
+        if(!settled.returnPct.isFinite())return false
+        // Canonical whole-position economics include every partial exit and fee.
+        ringFunded9061 = true
+        ringBalanceSol = newBalance
+        if (solPrice.isFinite() && solPrice > 0.0) ringBalanceUsd = ringBalanceSol * solPrice
+        else SolUsd8418.refuse("CYCLIC_RING_USD")
+        totalPnlSol += settled.netSol
         cycleCount++
-
-        // V5.9.1309 — COMPOUND MILESTONE LOCK (the $500→$1000→$2000→… staircase).
-        // Whenever the ring crosses the next doubling of its locked floor, BANK it:
-        // raise the protected floor to that milestone so a later drawdown can't give
-        // the compounded principal back. This is what makes it a compound ENGINE and
-        // not a drifting balance. Tiers: $500(base)→$1000→$2000→$4000→… → $1M.
-        run {
-            val nextMilestone = lockedFloorUsd * 2.0
-            if (ringBalanceUsd >= nextMilestone) {
-                lockedFloorUsd = nextMilestone
-                milestoneTier++
-                ErrorLogger.info(TAG, "🏆 CYCLIC COMPOUND MILESTONE #$milestoneTier reached: ring=\$${ringBalanceUsd.toInt()} ≥ \$${nextMilestone.toInt()} — floor LOCKED at \$${lockedFloorUsd.toInt()} (compounded principal now protected)")
-                statusMessage = "🏆 COMPOUND TIER $milestoneTier: \$${lockedFloorUsd.toInt()} banked!"
+        CyclicCompound9061.milestones(seedUsd9061,lockedFloorUsd,milestoneTier,ringBalanceUsd)?.let { m ->
+            if (m.tier > milestoneTier) {
+                lockedFloorUsd=m.reachedUsd;milestoneTier=m.tier
+                ErrorLogger.info(TAG,"CYCLIC_DOUBLING_9061 tier=$milestoneTier milestoneUsd=$lockedFloorUsd ringUsd=$ringBalanceUsd")
             }
         }
-        val won = pnlPct > 0
-        if (won) {
-            winCount++
-            consecutiveLosses = 0    // V5.9.451 — reset streak on win
-        } else {
-            lossCount++
-            consecutiveLosses++
-            // V5.9.451 — engage pause after N consecutive losses (loop-learning brake)
-            if (consecutiveLosses >= LOSS_STREAK_BREAK_COUNT) {
-                pauseUntilMs = System.currentTimeMillis() + LOSS_STREAK_BREAK_PAUSE_MS
-                ErrorLogger.warn(TAG, "🧠 Loss-streak brake ENGAGED: $consecutiveLosses consecutive losses — pausing ${LOSS_STREAK_BREAK_PAUSE_MS / 60000}min")
-            }
-        }
-
-        // V5.9.451 — journal SELL via V3JournalRecorder so the cycle close
-        // shows in the user's Journal and feeds outcome-attribution trackers
-        // (ScoreExpectancyTracker / HoldDurationTracker / ExitReasonTracker).
-        try {
-            val holdMins = if (entryTimeMs > 0) (System.currentTimeMillis() - entryTimeMs) / 60_000L else 0L
-            V3JournalRecorder.recordClose(
-                symbol = ts.symbol, mint = ts.mint,
-                entryPrice = entryPriceSol, exitPrice = currentPriceSol.takeIf { it > 0.0 } ?: ts.lastPrice,
-                sizeSol = deployedSizeSol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = !isLiveMode, layer = "CYCLIC",
-                exitReason = reason,
-                entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
-                holdMinutes = holdMins,
-            )
-        } catch (_: Throwable) {}
-
-        try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC, isPaperMode = closingPaper7858) } catch (_: Throwable) {}
-        try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_$reason") } catch (_: Throwable) {}
-
+        ringStateValid9061=CyclicCompound9061.validBalances(ringBalanceSol,ringBalanceUsd)
+        if(settled.netSol>0.0){winCount++;consecutiveLosses=0}
+        else {lossCount++;consecutiveLosses++}
+        if(consecutiveLosses>=LOSS_STREAK_BREAK_COUNT) pauseUntilMs=System.currentTimeMillis()+LOSS_STREAK_BREAK_PAUSE_MS
+        // Canonical close already owns the journal and learner event. Do not emit a second mark-based close.
+        try { TradeAuthorizer.releasePosition(mint,"CYCLIC_$reason",TradeAuthorizer.ExecutionBook.CYCLIC,isPaperMode=paper) } catch (_: Throwable) {}
+        try { LaneExecutionCoordinator.releaseIfPrimary(mint,"CYCLIC","CYCLIC_$reason") } catch (_: Throwable) {}
         clearLocalCycleState6566()
-
-        val winRate = if (cycleCount > 0) (winCount.toDouble() / cycleCount * 100).toInt() else 0
-        statusMessage = "✅ $reason | PnL: ${"%+.1f".format(pnlPct)}% | Ring: \$${ringBalanceUsd.toInt()} | WR: $winRate%"
-        ErrorLogger.info(TAG, "Cycle closed [$reason] | pnl=${"%+.2f".format(pnlPct)}% | ring=${ringBalanceSol.fmt(3)} SOL (\$${ringBalanceUsd.toInt()}) | total cycles=$cycleCount")
+        statusMessage="Cycle settled | Net: ${settled.netSol.fmt(6)} SOL | Ring: ${ringBalanceUsd.fmt(2)} USD | Doublings: $milestoneTier"
         save(context)
+        return true
     }
 
     private fun clearLocalCycleState6566() {
@@ -1358,26 +1362,27 @@ object CyclicTradeEngine {
         entryTimeMs = 0L
     }
 
-    private fun abandonCycle(context: Context, reason: String, solPrice: Double) {
-        isInPosition  = false
-        currentMint   = ""
-        currentMode   = "STANDARD"
-        currentSymbol = ""
-        entryPriceSol = 0.0
-        currentPriceSol = 0.0
-        currentPnlPct = 0.0
-        priceState = "WAIT"
-        entrySizeSol  = 0.0
-        entryTimeMs   = 0L
-        lastCycleEndMs = System.currentTimeMillis()
-        statusMessage = "⚠️ Abandoned: $reason"
-        ErrorLogger.warn(TAG, "Cycle abandoned: $reason")
-        save(context)
-    }
-
     // ── Persistence ───────────────────────────────────────────────────────────
     fun save(context: Context) {
         prefs(context).edit()
+            .putBoolean("ring_funded_9061",ringFunded9061)
+            .putInt("consecutive_losses_9061",consecutiveLosses)
+            .putLong("pause_until_9061",pauseUntilMs)
+            .putLong("last_cycle_end_9061",lastCycleEndMs)
+            .putBoolean("position_open_9061",isInPosition)
+            .putBoolean("position_live_9061",isLiveMode)
+            .putString("position_mint_9061",currentMint)
+            .putString("position_symbol_9061",currentSymbol)
+            .putString("position_style_9061",currentMode)
+            .putLong("position_entry_ms_9061",entryTimeMs)
+            .putString("position_size_sol_9061",entrySizeSol.toString())
+            .putString("position_price_9061",entryPriceSol.toString())
+            .putString("position_highwater_9061",positionHighWaterPnlPct.toString())
+            .putString("seed_usd_9061",seedUsd9061.toString())
+            .putString("ring_balance_sol_9061",ringBalanceSol.toString())
+            .putString("ring_balance_usd_9061",ringBalanceUsd.toString())
+            .putString("locked_floor_usd_9061",lockedFloorUsd.toString())
+            .putString("total_pnl_sol_9061",totalPnlSol.toString())
             .putFloat("ring_balance_sol", ringBalanceSol.toFloat())
             .putFloat("ring_balance_usd", ringBalanceUsd.toFloat())
             .putFloat("locked_floor_usd", lockedFloorUsd.toFloat())
@@ -1389,11 +1394,19 @@ object CyclicTradeEngine {
             .apply()
     }
 
-    fun reset(context: Context) {
+    fun reset(context: Context, initialUsd: Double = RING_SIZE_USD) {
+        require(initialUsd.isFinite() && initialUsd >= RING_SIZE_USD)
+        // Reset is explicit and may not abandon an owned position.
+        if(isInPosition)return
+        seedUsd9061=initialUsd
+        ringStateValid9061=true
         val solPrice = SolUsd8418.liveOrNull()  // V5.0.8418 — never $150; 0 => tick() sizes once observed
-        ringBalanceSol = if (solPrice != null) RING_SIZE_USD / solPrice else 0.0
-        ringBalanceUsd = RING_SIZE_USD
-        lockedFloorUsd = RING_SIZE_USD
+        ringBalanceSol = if (solPrice != null) initialUsd / solPrice else 0.0
+        ringFunded9061 = solPrice != null
+        consecutiveLosses = 0
+        pauseUntilMs = 0L
+        ringBalanceUsd = initialUsd
+        lockedFloorUsd = initialUsd
         milestoneTier  = 0
         cycleCount    = 0
         totalPnlSol   = 0.0
@@ -1412,7 +1425,7 @@ object CyclicTradeEngine {
         lastCycleEndMs = 0L
         statusMessage = "Reset"
         save(context)
-        ErrorLogger.info(TAG, "Ring reset to \$500 USD = ${ringBalanceSol.fmt(3)} SOL")
+        ErrorLogger.info(TAG, "Ring reset to $initialUsd USD = ${ringBalanceSol.fmt(3)} SOL")
     }
 
     fun getStats(): Map<String, Any> = mapOf(
@@ -1426,15 +1439,18 @@ object CyclicTradeEngine {
         "in_position"  to isInPosition,
         "live_mode"    to isLiveMode,
         "status"       to statusMessage,
-        "target_cycles" to "15-20",
-        "target_win_pct" to "47-66",
+        "seed_usd" to seedUsd9061,
+        "target_cycles" to "successive realised-profit doublings",
+        "target_win_pct" to "setup-dependent",
         "locked_floor_usd" to lockedFloorUsd,        // V5.9.1309 — protected compound principal
-        "milestone_tier" to milestoneTier,            // V5.9.1309 — doublings banked ($500→$1000→…)
+        "milestone_tier" to milestoneTier,            // V5.9.1309 — doublings achieved ($500→$1000→…)
         "next_milestone_usd" to lockedFloorUsd * 2.0, // next doubling target
     )
 
-    private fun prefs(context: Context): SharedPreferences =
-        context.getSharedPreferences(PREFS_FILE, Context.MODE_PRIVATE)
+    private fun bookPrefs9061(context: Context, live: Boolean): SharedPreferences =
+        context.getSharedPreferences(PREFS_FILE + if(live) "_live_9061" else "_paper_9061", Context.MODE_PRIVATE)
+
+    private fun prefs(context: Context): SharedPreferences = bookPrefs9061(context,isLiveMode)
 
     private fun Double.fmt(d: Int) = "%.${d}f".format(this)
 }

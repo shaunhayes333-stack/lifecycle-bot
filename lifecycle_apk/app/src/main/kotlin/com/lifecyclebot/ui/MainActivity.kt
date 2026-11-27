@@ -4800,6 +4800,7 @@ for legal compliance.
             body.removeAllViews()
 
             val ringUsd   = engine.ringBalanceUsd
+            val seedUsd = engine.startingUsd9061
             val cycles    = engine.cycleCount
             val wins      = engine.winCount
             val losses    = engine.lossCount
@@ -4820,12 +4821,12 @@ for legal compliance.
             } else status
 
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
-            val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
+            val growthPct = ((ringUsd - seedUsd) / seedUsd * 100.0)
             val modeColor = if (isLive) AateUi.RED else AateUi.AMBER
             val modeLabel = if (isLive) "LIVE" else "PAPER"
 
             // ── Header: title + mode pill ────────────────────────────────────
-            body.addView(AateUi.headerRow(this, "CYCLIC · \$500 → \$1M", modeLabel, modeColor))
+            body.addView(AateUi.headerRow(this, "CYCLIC · \$${seedUsd.fastWhole()} → \$1M+", modeLabel, modeColor))
             body.addView(AateUi.gap(this, 10))
 
             // ── Headline: ring balance, growth, and a real progress rail ─────
@@ -4837,7 +4838,7 @@ for legal compliance.
                 addView(AateUi.valueText(
                     this@MainActivity,
                     "$" + ringUsd.fastWhole(),
-                    if (ringUsd >= 500.0) AateUi.GREEN else AateUi.RED,
+                    if (ringUsd >= seedUsd) AateUi.GREEN else AateUi.RED,
                     sizeSp = 26f,
                 ).apply {
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -4852,13 +4853,17 @@ for legal compliance.
             body.addView(AateUi.gap(this, 8))
             // log10 progress — $500 to $1,000,000 is 3.3 decades, so a linear
             // bar would read as empty for the entire first half of the run.
-            val ringProgress = if (ringUsd > 500.0) {
-                (Math.log10(ringUsd / 500.0) / Math.log10(1_000_000.0 / 500.0))
-            } else 0.0
+            val ringProgress = when {
+                ringUsd >= 1_000_000.0 -> 1.0
+                seedUsd in 0.0..999_999.0 && ringUsd > seedUsd ->
+                    (Math.log10(ringUsd / seedUsd) / Math.log10(1_000_000.0 / seedUsd)).coerceIn(0.0,1.0)
+                else -> 0.0
+            }
             body.addView(AateUi.progressRail(this, ringProgress, AateUi.PURPLE_BRIGHT))
             body.addView(AateUi.gap(this, 4))
             body.addView(AateUi.labelText(this, "PROGRESS TO \$1M · ${"%.1f".format(ringProgress * 100.0)}%"))
 
+            body.addView(AateUi.labelText(this, "DOUBLINGS: ${engine.milestoneTier} · NEXT: \$${(engine.lockedFloorUsd * 2.0).fastWhole()}"))
             body.addView(AateUi.divider(this))
 
             // ── KPI tiles, replacing the old "Label: value" text run ─────────

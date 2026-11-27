@@ -51,7 +51,7 @@ class Aate8991PocketRangeTest {
     @Test fun wired() {
         val p = File("src/main/kotlin/com/lifecyclebot/engine/truth/LanePocket8934.kt").readText()
         assertTrue(p.contains("if (h8991 != horizon8934(lane)) { if (extended8991(lane, h8991)) fileExt8991(o, lane, h8991); return }"))
-        assertTrue(p.contains("\"LANE8934:\${extKey8991(l, h)}:\${e.id}\""))
+        assertTrue(p.contains("\"LANE8934:\${extKey8991(l,horizon)}:\${c.id}\""))
         val r = File("src/main/kotlin/com/lifecyclebot/engine/truth/ResearchRows8877.kt").readText()
         assertTrue(r.contains("private const val MAX_LINES_8877 = 210_000")); assertTrue(r.contains("private const val KEEP_LINES_8877 = 180_000"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 176. A pocket's range is every horizon it proves at (8991)"))

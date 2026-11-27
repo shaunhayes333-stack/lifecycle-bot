@@ -2,9 +2,9 @@ package com.lifecyclebot.engine.truth
 
 /** Bounded decision-sequence research. Observed mark proxies only; never order authority. */
 internal class NativeZoneSequence9058(
-    private val maxActive: Int = 384, private val perAsset: Int = 8,
-    private val perLane: Int = 48, private val maxHistory: Int = 512,
-    private val maxCompleted: Int = 2048
+    private val maxActive: Int = 384, private val perAsset: Int = 48,
+    private val perLane: Int = 16, private val maxHistory: Int = 512,
+    private val maxCompleted: Int = 2048, private val perAssetLane: Int = 3
 ) {
     companion object {
         const val RAW = 12
@@ -38,11 +38,13 @@ internal class NativeZoneSequence9058(
     data class Decision(val scope: Scope, val mark: Mark, val at: Long, val latency: Long,
                         val stop: Double, val cost: Double, val raw: DoubleArray, val admitted: Boolean,
                         val signalAt9059: Long? = null, val signal: NativeZoneContract9059.Signal? = null,
-                        val objective: NativeZoneContract9059.Objective? = null) {
+                        val objective: NativeZoneContract9059.Objective? = null,
+                        val market9061: NativeZoneMarket9061.Snapshot? = null,
+                        val pocket9061: LanePocketContext9061.Snapshot? = null) {
         fun valid() = scope.valid() && at in 1L..Long.MAX_VALUE-HOUR && mark.validAt(at) &&
             latency in 1L..60_000L && stop.isFinite() && stop in .01..100.0 && cost.isFinite() && cost in 0.0..100.0 && raw.size==RAW &&
             (signalAt9059==null || (signalAt9059>0L && at-signalAt9059 in 0L..5_000L)) &&
-            (signal==null || (signal.valid(at)&&signal.primary()==scope.setup&&signalAt9059==signal.at)) && (objective==null||objective.valid())
+            (signal==null || (signal.valid(at)&&signal.primary()==scope.setup&&signalAt9059==signal.at)) && (objective==null||objective.valid()) && (market9061==null||market9061.valid()) && (pocket9061==null||pocket9061.valid(scope.lane,scope.setup,at))
     }
     data class Prediction(val head: Int, val published: Long, val linear: Double, val neural: Double) {
         fun valid(at:Long) = head in NativeZoneContract9059.NATIVE_HEAD until HEADS && published in 1L..at && linear in 0.0..1.0 && neural in 0.0..1.0
@@ -53,7 +55,8 @@ internal class NativeZoneSequence9058(
                          val observations: Int, val maxGap: Long, val reason: String, val prediction: Prediction?,
                          val predictions9059: List<Prediction> = listOfNotNull(prediction),
                          val signalAt9059: Long? = null, val signal:NativeZoneContract9059.Signal?=null,
-                         val objective:NativeZoneContract9059.Objective?=null,val nativeHit:Long=0L,val nativeLabel:Int=-1) {
+                         val objective:NativeZoneContract9059.Objective?=null,val nativeHit:Long=0L,val nativeLabel:Int=-1,
+                         val market9061:NativeZoneMarket9061.Snapshot?=null,val pocket9061:LanePocketContext9061.Snapshot?=null) {
         val entryAt: Long get() = entry?.event ?: 0L
         val entryUsd: Double get() = entry?.usd ?: Double.NaN
         fun sample() = RunnerBarrierLearning9051.Sample(asset,at,available,features,labels)
@@ -75,13 +78,19 @@ internal class NativeZoneSequence9058(
     private val completed=java.util.ArrayDeque<Completed>()
     private var count=0; private var bucket=0L; private var budget=0
     private var offered=0L;private var capped=0L;private var invalid=0L;private var done=0L;private var censored=0L;private var dropped=0L
+    private val completionReasons9061=LinkedHashMap<String,Long>()
+
+    // Three causal frames per lane/asset; one early lane cannot consume a token's entire research budget.
+    // Total windows stay bounded at 384. The former eight-per-token cap excluded later native desks.
+    private fun full(asset:String,lane:String)=count>=maxActive || (active[asset]?.size?:0)>=perAsset ||
+        (laneCounts[lane]?:0)>=perLane || (active[asset]?.count{it.d.scope.lane==lane}?:0)>=perAssetLane
 
     /** Cheap reservation before feature extraction; no new feed or native pending observation. */
     @Synchronized fun reserve(asset:String,lane:String,at:Long,channel:String=""):Boolean {
         if(!clean(asset)||!component.matches(lane)||at<=0L)return false
         val k=Attempt(asset,lane,channel);val prior=attempts[k]
         if(prior!=null && at-prior.at<STEP)return false
-        if(count>=maxActive || (active[asset]?.size?:0)>=perAsset || (laneCounts[lane]?:0)>=perLane){capped++;return false}
+        if(full(asset,lane)){capped++;return false}
         val b=at/10_000L
         if(b<bucket)return false
         if(b!=bucket){bucket=b;budget=0}
@@ -101,7 +110,7 @@ internal class NativeZoneSequence9058(
         if(lease==null || lease.at!=d.at || lease.claimed){invalid++;return false}
         attempts[k]=lease.copy(claimed=true)
         if(!d.valid()){invalid++;return false}
-        if(count>=maxActive || (active[d.mark.asset]?.size?:0)>=perAsset || (laneCounts[d.scope.lane]?:0)>=perLane){capped++;return false}
+        if(full(d.mark.asset,d.scope.lane)){capped++;return false}
         if(active[d.mark.asset]?.any{it.d.scope==d.scope && it.d.at==d.at}==true)return false
         val key=HistKey(d.mark.asset,d.mark.venue,d.mark.decimals,d.scope.context())
         val old=histories[key].orEmpty().filter{d.at-it.at in 1L..300_000L}.sortedByDescending{it.at}.take(2)
@@ -128,9 +137,10 @@ internal class NativeZoneSequence9058(
         count--;val lane=w.d.scope.lane;val left=(laneCounts[lane]?:1)-1
         if(left<=0)laneCounts.remove(lane) else laneCounts[lane]=left
         done++;if(w.labels.all{it<0})censored++
+        completionReasons9061[reason]=(completionReasons9061[reason]?:0L)+1L
         if(completed.size>=maxCompleted){completed.removeFirst();dropped++}
         completed.addLast(Completed(w.d.scope,w.d.mark.asset,w.d.at,maxOf(now,w.d.at),w.features.copyOf(),w.labels.copyOf(),
-            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059,w.d.signal,w.d.objective,w.nativeHit,w.nativeLabel))
+            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059,w.d.signal,w.d.objective,w.nativeHit,w.nativeLabel,w.d.market9061,w.d.pocket9061))
     }
     private fun mature(w:Window,t:Long,inclusive:Boolean){
         for(h in horizons.indices){val end=w.d.at+horizons[h]
@@ -197,5 +207,6 @@ internal class NativeZoneSequence9058(
         val out=ArrayList<Completed>();repeat(minOf(limit.coerceAtLeast(0),completed.size)){out.add(completed.removeFirst())};return out
     }
     @Synchronized fun hasActive9058(asset:String):Boolean = active.containsKey(asset)
-    @Synchronized fun status()="zoneWindows9058[active=$count sampled=$offered capped=$capped invalid=$invalid complete=$done censored=$censored queue=${completed.size} dropped=$dropped]"
+    @Synchronized fun status()="zoneWindows9058[active=$count sampled=$offered capped=$capped invalid=$invalid complete=$done censored=$censored queue=${completed.size} dropped=$dropped reasons9061="+
+        completionReasons9061.entries.joinToString(","){it.key+":"+it.value}+"]"
 }

@@ -39,7 +39,7 @@ class Aate8750EvidenceIntegrityTest {
         val mint = "Wit8750" + "a".repeat(33) + "pump"
         val t0 = System.currentTimeMillis()
         // a curve print priced from reserves: witnessed, it becomes the coin's reference
-        assertTrue(TradeTape8100.note8285(mint, 1.0e-6, 0.5, 0.5 / 1.01e-6, true, TradeTape8100.SRC_HELIUS_8169, signature = "W1", recvMs = t0,
+        assertTrue(TradeTape8100.note8285(mint, 1.0e-6, 0.5, 0.5 / 1.01e-6, true, TradeTape8100.SRC_HELIUS_8169, signature = "W1", eventMs = t0, recvMs = t0,
             priceBasis8750 = PrintWitness8750.Basis.RESERVES))
         assertTrue(PrintWitness8750.witnessedPrint8750(mint, t0))
         // the same coin decoded a million times too high (unit error), self-priced: refused before the tape, history or sniper
@@ -55,7 +55,12 @@ class Aate8750EvidenceIntegrityTest {
             .map { it.name }.filter { it != "LaunchHour8628.kt" && it != "LaunchSniper8748.kt" }.toList()
         assertEquals(listOf("TradeTape8100.kt"), feeders)
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(lab.contains("PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first)"))
+        assertTrue(lab.contains("TradeTape8100.lastWitnessedTrade9058(mint)"))
+        val witnessed=TradeTape8100.lastWitnessedTrade9058(mint)!!
+        assertEquals(t0,witnessed.atMs)
+        assertEquals(1e-6,witnessed.priceSol,1e-12)
+        assertTrue(PrintWitness8750.witnessedPrint8750(mint,witnessed.atMs,witnessed.priceSol))
+        assertFalse(PrintWitness8750.witnessedPrint8750(mint,witnessed.atMs,1.0))
     }
 
     @Test fun aPumpSwapPoolNamesItsCoinAtByte43() {

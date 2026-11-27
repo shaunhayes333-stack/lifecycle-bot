@@ -70,7 +70,7 @@ class Aate8934LanePocketTest {
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         val providers = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
         val base = providers.indexOf("BasePocket8904.evidence8904(ts, lane, nowMs)")
-        val lane = providers.indexOf("LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs)")
+        val lane = providers.indexOf("LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs, nativeSetup9061=selected.orEmpty())")
         assertTrue("the own-lane pocket follows the base pocket and precedes the LLM bands",
             base >= 0 && lane > base && lane < providers.indexOf("LlmBands8875.evidence8875("))
         assertTrue(src("engine/truth/LaneAuthority8577.kt").contains("LanePocket8934.KIND_8934,"))

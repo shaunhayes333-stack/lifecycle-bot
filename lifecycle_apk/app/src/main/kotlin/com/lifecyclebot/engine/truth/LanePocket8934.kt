@@ -48,6 +48,36 @@ object LanePocket8934 {
         val id: String get() = conds.joinToString("&")
     }
 
+    private data class Publication9061(val at:Long,val native:Map<String,List<Cell8934>>,val extended:Map<String,List<Cell8934>>)
+    @Volatile private var publication9061:Publication9061?=null
+
+    /** One immutable miner publication shared by native timing research and live admission. */
+    private fun match9061(lane:String,feats:Set<String>,blind:Boolean,at:Long,publication:Publication9061?=publication9061):Pair<Cell8934,Long>? {
+        val p=publication?.takeIf{at>=it.at}?:return null
+        p.native[lane].orEmpty().firstOrNull{fits9003(it.conds,feats,blind)}?.let{return it to horizon8934(lane)}
+        for(h in EXT_HORIZONS_8991)p.extended[extKey8991(lane,h)].orEmpty()
+            .firstOrNull{fits9003(it.conds,feats,blind)}?.let{return it to h}
+        return null
+    }
+
+    /** Same native pocket matcher, frozen before outcome grading. No learner is re-read at label maturity. */
+    internal fun context9061(mint:String,lane:String,setup:String,stage:String,v3:Double,pred:Double,
+                             liq:Double,mcap:Double,age:Double,buyers:Double,at:Long):LanePocketContext9061.Snapshot? {
+        val p=publication9061?.takeIf{at-it.at in 0L..LanePocketContext9061.TTL}?:return null
+        if(setup.isBlank())return null
+        if(!lane.startsWith("CRYPTO_")){
+            val b=band(lane)?:return null
+            if(!inBand8934(mcap,b.first,b.second))return null
+        }
+        val feats=features8934(mint,stage,setup,v3,pred,liq,mcap,age,buyers).toSet()
+        val c=match9061(lane,feats,ageBlindBarred9003(lane,age),at,p)
+        // A lane with no mined book is unknown, not evidence of no pocket.
+        if(c==null && lane !in p.native && EXT_HORIZONS_8991.none{extKey8991(lane,it) in p.extended})return null
+        return if(c==null)LanePocketContext9061.Snapshot(lane,setup,at,p.at,false)
+            else LanePocketContext9061.Snapshot(lane,setup,at,p.at,true,c.first.id,c.second,c.first.n,
+                c.first.mean,c.first.z*c.first.se,c.first.runRate,!lane.startsWith("CRYPTO_")&&c.second==H1_8934)
+    }
+
     // ── pure ──
 
     /** Pure: the research horizon a lane is read at — BLUECHIP (holds up to 8 h) at 4 h, every other lane at 1 h. */
@@ -412,13 +442,14 @@ object LanePocket8934 {
         }
         provenExt8991 = ext
         survey9012 = surveys
+        publication9061=Publication9061(maxOf(nowMs,System.currentTimeMillis()),out.toMap(),ext.toMap())
     }
 
     /**
      * CandidateAdmission8136: [ts] in [lane] as admission evidence when the coin sits in one of the lane's proven cells now
      * ([predPct] = the edge model's forecast for this decision); the best such cell, else null. Meme lanes only.
      */
-    fun evidence8934(ts: TokenState, lane: String, predPct: Double?, nowMs: Long = System.currentTimeMillis()): CandidateAdmission8136.Evidence8136? {
+    fun evidence8934(ts: TokenState, lane: String, predPct: Double?, nowMs: Long = System.currentTimeMillis(), nativeSetup9061:String?=null): CandidateAdmission8136.Evidence8136? {
         try {
             ensureLoaded()
             val l = lane.trim().uppercase()
@@ -429,23 +460,17 @@ object LanePocket8934 {
             if (!inBand8934(ts.lastMcap, lo, hi)) return null
             val raw = EdgeModel8537.rawFor8610(ts, l, nowMs)
             val stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
-            val setup = try { com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
+            val setup = nativeSetup9061 ?: try { com.lifecyclebot.engine.ExitProfile7955.entrySetup7955(ts, l, nowMs) } catch (_: Throwable) { "" }
             val liq = (try { LiquidityTruth8037.hydrate8037(ts) } catch (_: Throwable) { ts.lastLiquidityUsd }).let { if (it.isFinite()) it else 0.0 }
             val buyers9002 = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)?.distinctBuyers60s?.toDouble() ?: Double.NaN } catch (_: Throwable) { Double.NaN }
             val feats = features8934(ts.mint, stage, setup, raw.v3, predPct ?: Double.NaN, liq, ts.lastMcap, raw.ageMin, buyers9002).toSet()
             val blind9003 = ageBlindBarred9003(l, raw.ageMin)
-            val c = cells.orEmpty().firstOrNull { fits9003(it.conds, feats, blind9003) } ?: run {
-                // V5.0.8991 — in no cell of the lane's own hold: a cell proven at a longer horizon is its evidence, named with it
-                val (e, h) = ext.firstOrNull { fits9003(it.first.conds, feats, blind9003) } ?: run {
-                    if (blind9003 && (cells.orEmpty().any { feats.containsAll(it.conds) } || ext.any { feats.containsAll(it.first.conds) }))
-                        try { PipelineHealthCollector.labelInc("LANE_POCKET_AGE_BLIND_NOT_SERVED_9003_${AgeProof9001.band9001(raw.ageMin)}") } catch (_: Throwable) {}
-                    return null
-                }
-                servedExt8991.incrementAndGet()
-                return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:${extKey8991(l, h)}:${e.id}", e.n, e.mean, e.z * e.se, runnerRate = e.runRate)
-            }
-            served.computeIfAbsent(l) { AtomicLong(0L) }.incrementAndGet()
-            return CandidateAdmission8136.Evidence8136(KIND_8934, "LANE8934:$l:${c.id}", c.n, c.mean, c.z * c.se, runnerRate = c.runRate)
+            val match=match9061(l,feats,blind9003,nowMs)?:return null
+            val c=match.first;val horizon=match.second
+            if(horizon!=horizon8934(l))servedExt8991.incrementAndGet()
+            else served.computeIfAbsent(l){AtomicLong(0L)}.incrementAndGet()
+            val id=if(horizon==horizon8934(l))"LANE8934:$l:${c.id}" else "LANE8934:${extKey8991(l,horizon)}:${c.id}"
+            return CandidateAdmission8136.Evidence8136(KIND_8934,id,c.n,c.mean,c.z*c.se,runnerRate=c.runRate)
         } catch (_: Throwable) { return null }
     }
 
@@ -519,7 +544,7 @@ object LanePocket8934 {
     }
 
     internal fun provenExtForTest8991(lane: String, horizonMs: Long): List<Cell8934> = provenExt8991[extKey8991(lane, horizonMs)].orEmpty()
-    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); survey9012 = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); exitsGraded8971.set(0L); endpointOnlyManaged9050.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
+    internal fun resetForTest8934() { publication9061=null; extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); survey9012 = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); exitsGraded8971.set(0L); endpointOnlyManaged9050.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
     internal fun fileForTest8934(o: JSONObject) = file(o)
     internal fun mineForTest8934() = mine(System.currentTimeMillis())
     internal fun provenForTest8934(lane: String): List<Cell8934> = proven[lane].orEmpty()

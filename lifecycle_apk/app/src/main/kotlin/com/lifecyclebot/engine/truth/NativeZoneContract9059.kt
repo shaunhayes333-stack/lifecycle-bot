@@ -8,6 +8,7 @@ object NativeZoneContract9059 {
     private val outcomes = setOf("MATCHED", "NO_MATCH", "DATA_INCOMPLETE", "MATCHES_UNRANKABLE", "NO_PLAYBOOK", "CLASSIFIER_ERROR", "NATIVE", "UNOBSERVED")
     private fun named(s:String) = id.matches(s) && s !in missing && !s.startsWith("OBS_")
     const val EXTRA = 7
+    internal const val MARKET_EXTRA9061 = EXTRA + NativeZoneMarket9061.WIDTH + LanePocketContext9061.WIDTH
     const val NATIVE_HEAD = -1
 
     /** Selected is the original native choice, never a subsequently reconstructed chart tag.
@@ -66,9 +67,9 @@ object NativeZoneContract9059 {
     /** Keep exact scopes. One market path can teach several fired predicates, but is one asset observation per scope. */
     internal fun scopes(base:NativeZoneSequence9058.Scope,signal:Signal?):List<NativeZoneSequence9058.Scope> =
         if(signal==null)emptyList() else signal.names().map{base.copy(setup=it)}.filter{it.valid()}
-    internal fun vector(base:DoubleArray,scope:NativeZoneSequence9058.Scope,signal:Signal?,objective:Objective?,at:Long):DoubleArray {
+    internal fun vector(base:DoubleArray,scope:NativeZoneSequence9058.Scope,signal:Signal?,objective:Objective?,at:Long,market9061:NativeZoneMarket9061.Snapshot?=null,pocket9061:LanePocketContext9061.Snapshot?=null):DoubleArray {
         require(base.size==NativeZoneSequence9058.WIDTH)
-        val x=base.copyOf(base.size+EXTRA)
+        val x=base.copyOf(base.size+MARKET_EXTRA9061)
         val primary=signal?.selected==scope.setup
         // Earlier same-setup flags describe the selected strategy only, not an alternative.
         if(!primary){x[40]=Double.NaN;x[41]=Double.NaN}
@@ -78,6 +79,8 @@ object NativeZoneContract9059 {
         x[k+3]=if(signal==null)Double.NaN else if(primary)1.0 else 0.0
         x[k+4]=signal?.matches?.size?.toDouble()?:Double.NaN
         x[k+5]=objective?.targetNetPct?:Double.NaN;x[k+6]=objective?.horizonMs?.div(1000.0)?:Double.NaN
+        NativeZoneMarket9061.vector(market9061).copyInto(x,base.size+EXTRA)
+        LanePocketContext9061.vector(pocket9061,scope,at,objective).copyInto(x,base.size+EXTRA+NativeZoneMarket9061.WIDTH)
         return x
     }
     fun nativeLabels(label:Int)=IntArray(NativeZoneSequence9058.HEADS){if(it==0)label else -1}

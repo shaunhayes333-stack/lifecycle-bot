@@ -2302,7 +2302,7 @@ object CandidateAdmission8136 {
                 yield(try { com.lifecyclebot.engine.lab.StrategyLab8755.evidence8755(ts, lane, nowMs) } catch (_: Throwable) { null })
                 yield(AgreementPocket8874.evidence8874(ts, lane, edge8874?.predPct, nowMs))
                 yield(BasePocket8904.evidence8904(ts, lane, nowMs))
-                yield(LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs))
+                yield(LanePocket8934.evidence8934(ts, lane, edge8874?.predPct, nowMs, nativeSetup9061=selected.orEmpty()))
                 yield(LlmBands8875.evidence8875(ts, lane, nowMs))
             }, extra8290, cost8153),
             regimeCold8546 = live8290 && MemePaperTrader8544.memeLane8544(lane) &&

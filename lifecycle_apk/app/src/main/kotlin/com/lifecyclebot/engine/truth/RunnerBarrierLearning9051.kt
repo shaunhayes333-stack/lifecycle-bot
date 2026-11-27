@@ -168,7 +168,7 @@ internal object RunnerBarrierLearning9051 {
                 assets(r.filter { it.sample.labels[head]==0 }).size>=classes
         if (!enough(tr,180,20) || !enough(va,60,10) || !enough(te,60,10)) return null
         val width=tr.first().sample.features.size
-        if (width !in 1..64 || (tr+va+te).any { it.sample.features.size != width }) return null
+        if (width !in 1..96 || (tr+va+te).any { it.sample.features.size != width }) return null
         val mean=DoubleArray(width); val sd=DoubleArray(width)
         for (k in 0 until width) {
             var n=0.0; var s=0.0; var ss=0.0

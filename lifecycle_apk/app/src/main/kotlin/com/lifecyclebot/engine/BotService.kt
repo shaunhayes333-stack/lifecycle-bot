@@ -9842,7 +9842,7 @@ class BotService : Service() {
      * V5.9.780a — extracted from botLoop to keep the suspend state machine
      * under the JVM 64 KB method-size limit. Identical semantics:
      *   PAPER mode → tick if CYCLIC is enabled
-     *   LIVE  mode → tick only if CYCLIC enabled AND walletUsd >= $5000
+     *   LIVE mode → tick if enabled; always service an owned ring position
      */
     private fun maybeTickCyclicTradeEngine(wallet: SolanaWallet?) {
         try {
@@ -9854,19 +9854,9 @@ class BotService : Service() {
             val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
-            val liveThreshold = 5000.0
-            // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. Force-enable cyclic
-            // ring in paper regardless of user's cyclic toggle. Operator wants
-            // every surface accumulating learning samples in paper.
-            val cyclicPaperOverride6069 = isPaperRuntime
-            val allowTick = when {
-                cyclicPaperOverride6069 -> true  // V5.0.6069 — paper always runs cyclic for learning
-                isPaperRuntime -> cyclicEnabled
-                // V5.0.3959 — CYCLIC bankroll gate. CYCLIC is a separate
-                // compounding ring and must NOT engage the live wallet until the
-                // actual wallet balance exceeds $5000 USD. MEME lanes remain live.
-                else -> cyclicEnabled && walletUsdNow >= liveThreshold
-            }
+            // Scheduling must not require a $5,000 wallet. The ring starts at $5; the existing
+            // executor owns executable size, fees, wallet reserve and final admission.
+            val allowTick = isPaperRuntime || cyclicEnabled || CyclicTradeEngine.isInPosition
             if (allowTick) {
                 // V5.9.1238 — snapshot cheap state on the loop thread, then run the
                 // (potentially blocking) tick OFF the bot-loop coroutine. Single-flight:
@@ -9914,7 +9904,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "CYCLIC_TICK_SKIPPED",
-                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled agenicAlwaysOn=true cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold reason=${if (!isPaperRuntime && walletUsdNow < liveThreshold) "CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE" else "disabled_or_in_flight"}",
+                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled agenicAlwaysOn=true cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} reason=disabled",
                     )
                 } catch (_: Throwable) {}
             }
