@@ -436,13 +436,21 @@ object CrossAssetCortex7931 {
         val (ts, lane) = tokenStateFor(c,at9058) ?: return
         // Bind the desk's own strategy to this decision, not whichever older observation happens to be pending.
         val setup9058=com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.deskSetup9013(c.evidence["strategy7803"],c.evidence["trend8886"])
-        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,deskSetup9058=setup9058,observationMode9059=c.mode) } catch (_: Throwable) {}
+        val levels9060=com.lifecyclebot.engine.truth.NativeZoneContract9059.grossLevels(c.price,
+            c.evidence["zoneTargetPrice9059"]?.toDoubleOrNull()?:Double.NaN,
+            c.evidence["zoneStopPrice9059"]?.toDoubleOrNull()?:Double.NaN,c.direction.uppercase())
+        val signal9060=if(lane.startsWith("CRYPTO_")) com.lifecyclebot.engine.truth.NativeZoneContract9059.signal("DESK",
+            c.cryptoNativeSignal8871?.qualifiedAtMs?:at9058,c.evidence["strategy7803"],emptyList(),"NATIVE",
+            c.score.toDouble(),100.0,c.evidence["upstreamConfidence"]?.toDoubleOrNull() ?: c.confidence*100.0,at9058) else null
+        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,
+            deskSetup9058=setup9058,observationMode9059=c.mode,zoneSignal9059=signal9060,zoneLevels9059=levels9060) } catch (_: Throwable) {}
     }
 
     /** Native crypto desk YES/NO before owner selection, in its exact crypto lane; observation only, never a fill. */
     internal fun observeNativeLong8372(ts: TokenState, deskLane: String, admitted: Boolean, reason: String,
                                        nowMs: Long, score: Int, nativeSetup9059: String? = null,
-                                       nativeSignalAt9059: Long? = null, observationMode9059: String? = null): Boolean {
+                                       nativeSignalAt9059: Long? = null, observationMode9059: String? = null,
+                                       zoneSignal9059: com.lifecyclebot.engine.truth.NativeZoneContract9059.Signal?=null): Boolean {
         val rules = com.lifecyclebot.engine.NativeDecisionEnrollment8372
         if (!rules.isCryptoDesk(ts.lastPriceSource)) return false
         val lane = rules.cryptoLearningLane(deskLane) ?: return false
@@ -458,7 +466,7 @@ object CrossAssetCortex7931 {
         com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
             if (key == ts.mint) ts else ts.copy(mint = key), lane, admitted, reason, nowMs, score,
             nativeSetup9059=nativeSetup9059?.let{"CX_DESK_"+it},nativeSignalAt9059=nativeSignalAt9059,
-            observationMode9059=observationMode9059)
+            observationMode9059=observationMode9059,zoneSignal9059=zoneSignal9059)
         return true
     }
 

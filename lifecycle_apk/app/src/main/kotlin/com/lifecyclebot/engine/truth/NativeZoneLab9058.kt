@@ -2,7 +2,6 @@ package com.lifecyclebot.engine.truth
 
 import com.lifecyclebot.AATEApp
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.engine.ExitProfile7955
 import com.lifecyclebot.engine.JobCost8813
 import com.lifecyclebot.engine.market.BuyerFlow8666
 import org.json.JSONArray
@@ -17,13 +16,16 @@ import java.util.concurrent.atomic.AtomicLong
  */
 internal object NativeZoneLab9058 {
     private val tracker = NativeZoneSequence9058()
-    private const val FILE = "native_zone_9058.jsonl"
+    // Keep 9058 research on disk; it lacked frozen native setup membership.
+    private const val FILE = "native_zone_9060.jsonl"
     private const val MAX_BYTES = 16L * 1024 * 1024
     private const val KEEP_BYTES = 10L * 1024 * 1024
     private const val MAX_ROWS = 10000
     private const val SCOPE_ROWS = 1200
-    private val feedback9059 = NativeZoneFeedback9059()
+    private val feedback9059 = NativeZoneFeedback9059(featureWidth=NativeZoneSequence9058.WIDTH+NativeZoneContract9059.EXTRA)
     private val unsupported = AtomicLong()
+    private val missingSignal9059 = AtomicLong()
+    private val scopeOverflow9059 = AtomicLong()
     private val noProof = AtomicLong()
     private val noCost = AtomicLong()
     private val badScope = AtomicLong()
@@ -34,47 +36,65 @@ internal object NativeZoneLab9058 {
     private var pendingWrite = emptyList<NativeZoneSequence9058.Completed>()
     private val lastAttempt = LinkedHashMap<String,Long>()
     private val nextHead = LinkedHashMap<String,Int>()
-    private val staleSignal9059 = AtomicLong()
     @Volatile private var status = "collecting"
 
     private fun file() = AATEApp.appContextOrNull()?.filesDir?.let{File(it,FILE)}
     private fun proof(m:LabelMark8386,at:Long):NativeZoneSequence9058.Mark? {
         if(!m.known() || !m.independentBasis || !LabelEvidence8386.independentSource8418(m.source) ||
             !LabelEvidence8386.venueIdentity8787(m.venue))return null
-        return NativeZoneSequence9058.Mark(m.mint,m.venue,m.decimals,m.observedAtMs,m.readAtMs,m.usd,m.source)
+        val supply=MintSupply8418.of8418(m.mint)?.takeIf{it.observedAtMs in 1L..at}
+        if(supply!=null&&m.decimals>=0&&m.decimals!=supply.decimals)return null
+        val decimals=if(m.decimals>=0)m.decimals else supply?.decimals?:return null
+        return NativeZoneSequence9058.Mark(m.mint,m.venue,decimals,m.observedAtMs,m.readAtMs,m.usd,m.source)
             .takeIf{it.validAt(at)}
     }
 
-    /** Called before the original pending/re-observe short circuits; only research uses this second observation. */
+    /** Preserve actual native signal identity, including competing fired predicates. */
     fun capture(ts:TokenState,lane:String,admitted:Boolean,basis:LabelMark8386,at:Long,deskSetup:String?,
-                nativeSignal9059:NativeZoneSignal9059?=null,observationMode9059:String?=null) {
-        if(nativeSignal9059!=null && !nativeSignal9059.validFor(lane,at)){
-            staleSignal9059.incrementAndGet();return
-        }
-        val meme=MemePaperTrader8544.memeLane8544(lane)
+                nativeSignal9059:NativeZoneSignal9059?=null,observationMode9059:String?=null,
+                zoneSignal:NativeZoneContract9059.Signal?=null,levels:Pair<Double,Double>?=null,reserved9059:Boolean=false) {
         val crypto=lane.startsWith("CRYPTO_")
-        if(!meme && !crypto){unsupported.incrementAndGet();return}
+        val cohort=ExpertSetups8692.setupCohort8692(lane)
+        val meme=lane in com.lifecyclebot.engine.cortex.LanePlaybook7907.menuLanes8383()
+        if((!meme&&!crypto&&!cohort)||!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(ts.mint)){
+            unsupported.incrementAndGet();return
+        }
+        // Do not use the mutable exit profile or a later selected setup as a decision-time signal.
+        val signal=zoneSignal?.takeIf{it.valid(at)} ?: (if(cohort) NativeZoneContract9059.cohort(lane.removePrefix("SETUP8692_"),at) else null) ?: nativeSignal9059?.takeIf{it.validFor(lane,at)}?.let{
+            NativeZoneContract9059.Signal(if(crypto)"OVERLAY" else "PB",it.signalAtMs,it.setup().takeUnless{v->v=="UNCLASSIFIED"}.orEmpty(),emptyList(),"UNOBSERVED",Double.NaN,Double.NaN).takeIf{v->v.valid(at)}
+        } ?: run{
+            missingSignal9059.incrementAndGet();return
+        }
         val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: run{noProof.incrementAndGet();return}
-        if(!tracker.reserve(ts.mint,lane,at))return
-        fun fact(field:TokenFacts.Field,age:Long):Double =
-            TokenFacts.fact(ts,field)?.takeIf{it.rank>=TokenFacts.Rank.PROVIDER &&
-                it.observedAtMs>0L && at-it.observedAtMs in 0L..age && it.value.isFinite()}?.value ?: Double.NaN
+        if(!reserved9059&&!tracker.reserve(ts.mint,lane,at,signal.channel()))return
+        val shared=if(crypto)com.lifecyclebot.engine.BotService.status.tokens[ts.mint]?.takeIf{it.mint==ts.mint} else null
+        fun fact(field:TokenFacts.Field,age:Long):Double {
+            fun valid(f:TokenFacts.Fact?)=f?.takeIf{it.rank>=TokenFacts.Rank.PROVIDER &&
+                it.observedAtMs>0L && at-it.observedAtMs in 0L..age && it.value.isFinite()}
+            return (valid(TokenFacts.fact(ts,field)) ?: shared?.let{valid(TokenFacts.fact(it,field))})?.value ?: Double.NaN
+        }
         val depth=fact(TokenFacts.Field.LIQUIDITY_USD,15_000L)
         val trip=FieldManual7715.labelCostPct8534(ForwardReturnLabeler7731.COST_SIZE_USD_7731,
             if(depth.isFinite())depth else 0.0,ts.mint)
         if(!trip.second || !trip.first.isFinite() || trip.first !in 0.0..100.0){noCost.incrementAndGet();return}
-        val stop=FieldManual7715.laneStopPct8392(lane)
+        val mandate=FieldManual7715.mandateFor(lane)
+        var stop=FieldManual7715.stopPctQuiet8830(lane,trip.first)
+        var gross=mandate.expectedGrossPct
+        var horizon=com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetHorizon(
+            com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetKind(lane))
+        var policy="LANE"
+        if(lane=="CYCLIC"){
+            val ring=com.lifecyclebot.engine.CyclicContract8418.contractFor8418(null,stop)
+            stop=ring.stopPct;gross=ring.takePct;horizon=ring.holdMs;policy="RING"
+        }else if(crypto&&signal.origin=="DESK"&&levels!=null){
+            // Original proposal price distances, rebased to the reachable mark for research only.
+            gross=levels.first;stop=levels.second;policy="DESK"
+        }
         if(!stop.isFinite()||stop !in .01..100.0){noCost.incrementAndGet();return}
+        val objective=if(cohort)null else NativeZoneContract9059.objective(gross,trip.first,horizon,policy)
         val measured=EntryChase7961.laneLatencyMs8094(lane)
         if(measured>60_000L){noCost.incrementAndGet();return}
-        // Cold-start research uses a visibly separate hypothetical latency, never a claimed live fill.
         val latency=if(measured>0L)measured else 15_000L
-        val setup=when {
-            nativeSignal9059!=null -> nativeSignal9059.setup()
-            ExpertSetups8692.setupCohort8692(lane) -> lane.removePrefix("SETUP8692_")
-            crypto -> deskSetup.orEmpty().trim().uppercase().ifBlank{"UNCLASSIFIED"}
-            else -> ExitProfile7955.entrySetup7955(ts,lane,at).trim().uppercase().let{if(it.isBlank()||it=="NONE")"UNCLASSIFIED" else it}
-        }
         val dex=ts.tokenMap.dexId.uppercase()
         val venue=when {
             mark.venue.equals("pump.curve",true) -> "CURVE"
@@ -84,16 +104,12 @@ internal object NativeZoneLab9058 {
             "ORCA" in dex || "WHIRLPOOL" in dex -> "ORCA"
             else -> "SPOT_POOL"
         }
-        val chain=if(crypto)ts.mint.substringBefore('|',"SPOT").uppercase() else "SOLANA"
-        val market=(if(crypto)"CRYPTO_" else "")+chain+"_"+venue
-        val mode=nativeSignal9059?.mode ?: observationMode9059?.uppercase()
-        val origin=when {
-            nativeSignal9059!=null -> ".NATIVE."+nativeSignal9059.mode
-            mode in setOf("LIVE","PAPER") -> ".CANONICAL."+mode
-            else -> ""
-        }
-        val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+(if(measured>0L)".MEASURED" else ".PROXY15S")+origin
-        val scope=NativeZoneSequence9058.Scope(lane,setup,market,source,"LONG")
+        val market=(if(crypto)"CRYPTO_SOLANA_" else "SOLANA_")+venue
+        val mode=(nativeSignal9059?.mode ?: observationMode9059)?.uppercase()?.takeIf{it=="PAPER"||it=="LIVE"} ?:
+            if(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
+        val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+
+            (if(measured>0L)".MEASURED" else ".PROXY15S")+"."+mode+"."+signal.origin+"."+policy
+        val scope=NativeZoneSequence9058.Scope(lane,signal.primary(),market,source,"LONG")
         if(!scope.valid()){badScope.incrementAndGet();return}
         val flow=BuyerFlow8666.readForLearning9056(ts.mint,at)
         val e=flow?.evidence9056?.takeIf{it.publicationClock9058}
@@ -102,8 +118,22 @@ internal object NativeZoneLab9058 {
             flow?.netSol60s?:Double.NaN,e?.buy5?.toDouble()?:Double.NaN,
             if(e?.identities60==true)flow?.distinctBuyers60s?.toDouble()?:Double.NaN else Double.NaN,
             e?.coverage60?:Double.NaN,e?.n60?.toDouble()?:Double.NaN)
-        tracker.enrollAll9059(NativeZoneSequence9058.Decision(scope,mark,at,latency,stop,trip.first,x,admitted,
-            signalAt9059=nativeSignal9059?.signalAtMs),::predict)
+        tracker.enrollAll9059(NativeZoneSequence9058.Decision(scope,mark,at,latency,stop,trip.first,x,admitted,signalAt9059=signal.at,signal=signal,objective=objective)){
+            k,v,t->predict(k,NativeZoneContract9059.vector(v,k,signal,objective,t),t)
+        }
+    }
+
+    /** Observe classic crypto before desk arbitration, not only at canonical submission.
+     * No extra provider call; if an exact chain mark is not in cache, count it as unavailable. */
+    fun observeClassic9059(ts:TokenState,strategy:String,actionable:Boolean,score:Int,confidence:Int,signalAt:Long){
+        val now=System.currentTimeMillis()
+        val key=com.lifecyclebot.engine.NativeDecisionEnrollment8372.learningIdentity(ts.mint,ts.symbol,null)
+        if(!com.lifecyclebot.network.HeliusSolanaScope7819.isSolanaMint7819(key)){unsupported.incrementAndGet();return}
+        val frame=NativeZoneContract9059.signal("DESK",signalAt,if(actionable)strategy else null,emptyList(),
+            if(actionable)"NATIVE" else "UNOBSERVED",score.toDouble(),100.0,confidence.toDouble(),now) ?: return
+        if(!tracker.reserve(key,"CRYPTO_ALT",now,frame.channel()))return
+        val mark=ForwardReturnLabeler7731.typedMark8386(key,{null},now) ?: run{noProof.incrementAndGet();return}
+        capture(if(key==ts.mint)ts else ts.copy(mint=key),"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
     }
 
     fun acceptedMark(mark:LabelMark8386,now:Long){
@@ -128,10 +158,9 @@ internal object NativeZoneLab9058 {
     }
     fun expire(now:Long)=tracker.expire(now)
 
-    private fun predict(scope:NativeZoneSequence9058.Scope,x:DoubleArray,at:Long):List<NativeZoneSequence9058.Prediction> {
-        val p=feedback9059.predict(scope,x,at)
-        predicted.addAndGet(p.size.toLong())
-        return p
+    private fun predict(scope:NativeZoneSequence9058.Scope,x:DoubleArray,at:Long):List<NativeZoneSequence9058.Prediction>{
+        if(scope.setup.startsWith("OBS_"))return emptyList()
+        return feedback9059.predict(scope,x,at).also{predicted.addAndGet(it.size.toLong())}
     }
 
     private fun markJson(m:NativeZoneSequence9058.Mark)=JSONObject().put("asset",m.asset).put("venue",m.venue)
@@ -145,35 +174,43 @@ internal object NativeZoneLab9058 {
 
     private fun encode(r:NativeZoneSequence9058.Completed,available:Long):String {
         val f=JSONArray();r.features.forEach{f.put(if(it.isFinite())it else JSONObject.NULL)}
-        fun predictionJson(p:NativeZoneSequence9058.Prediction)=JSONObject().put("head",p.head).put("published",p.published)
-            .put("linear",p.linear).put("neural",p.neural)
-        val p=r.prediction
-        return JSONObject().put("v",9058).put("kind","NATIVE_R_MARK_PROXY").put("authority",false)
+        val signal=r.signal
+        val objective=r.objective
+        return JSONObject().put("v",9060).put("kind","NATIVE_SETUP_MARK_PROXY").put("authority",false)
+            .put("signal",signal?.let{JSONObject().put("origin",it.origin).put("at",it.at).put("selected",it.selected)
+                .put("matches",JSONArray(it.matches)).put("outcome",it.outcome)
+                .put("score",if(it.scorePct.isFinite())it.scorePct else JSONObject.NULL)
+                .put("confidence",if(it.confidencePct.isFinite())it.confidencePct else JSONObject.NULL)}?:JSONObject.NULL)
+            .put("objective",objective?.let{JSONObject().put("netTarget",it.targetNetPct).put("horizon",it.horizonMs).put("policy",it.policy)}?:JSONObject.NULL)
+            .put("nativeHit",r.nativeHit).put("nativeLabel",r.nativeLabel)
             .put("scope",r.scope.key()).put("asset",r.asset).put("t",r.at).put("available",maxOf(r.available,available))
             .put("features",f).put("labels",JSONArray(r.labels.toList())).put("admitted",r.admitted)
             .put("decision",markJson(r.decision)).put("entry",r.entry?.let(::markJson)?:JSONObject.NULL)
             .put("last",r.last?.let(::markJson)?:JSONObject.NULL).put("stop",r.firstStop)
             .put("targets",JSONArray(r.firstTargets.toList())).put("n",r.observations).put("gap",r.maxGap)
-            .put("reason",r.reason).put("signalAt9059",r.signalAt9059?:JSONObject.NULL)
-            .put("prediction",p?.let(::predictionJson)?:JSONObject.NULL)
-            .put("predictions9059",JSONArray().also{a->r.predictions9059.forEach{a.put(predictionJson(it))}}).toString()
+            .put("reason",r.reason).put("predictions9059",JSONArray(r.predictions9059.map{JSONObject().put("head",it.head).put("published",it.published)
+                .put("linear",it.linear).put("neural",it.neural)})).toString()
     }
 
     private data class Row(val scope:NativeZoneSequence9058.Scope,val s:RunnerBarrierLearning9051.Sample,
                            val venue:String,val entryAt:Long,val entryUsd:Double,
-                           val predictions:List<NativeZoneSequence9058.Prediction>)
+                           val predictions:List<NativeZoneSequence9058.Prediction>,val signal:NativeZoneContract9059.Signal,
+                           val objective:NativeZoneContract9059.Objective?,val nativeLabel:Int)
     /** Reconstruct the first-barrier labels from typed same-venue receipts, never trust an arbitrary stored label vector. */
     private fun decode(line:String,now:Long):Row? { return try {
         if(line.length>8192)return null
         val o=JSONObject(line)
-        if(o.optInt("v")!=9058||o.optString("kind")!="NATIVE_R_MARK_PROXY"||o.optBoolean("authority",true))return null
+        if(o.optInt("v")!=9060||o.optString("kind")!="NATIVE_SETUP_MARK_PROXY"||o.optBoolean("authority",true))return null
         val scope=NativeZoneSequence9058.Scope.parse(o.getString("scope"))?:return null
         val asset=o.getString("asset");val t=o.getLong("t");val available=o.getLong("available")
         if(!NativeZoneSequence9058.clean(asset)||t !in 1L..Long.MAX_VALUE-NativeZoneSequence9058.HOUR||available !in t..now)return null
-        if(!o.isNull("signalAt9059")){
-            val signalAt=o.getLong("signalAt9059")
-            if(signalAt<=0L||t-signalAt !in 0L..5_000L)return null
-        }
+        val sj=o.getJSONObject("signal")
+        val names=sj.getJSONArray("matches");if(names.length()>128)return null
+        val signal=NativeZoneContract9059.Signal(sj.getString("origin"),sj.getLong("at"),sj.getString("selected"),
+            (0 until names.length()).map{names.getString(it)},sj.getString("outcome"),sj.optDouble("score",Double.NaN),sj.optDouble("confidence",Double.NaN))
+        if(!signal.valid(t)||signal.primary()!=scope.setup)return null
+        val objective=o.optJSONObject("objective")?.let{NativeZoneContract9059.Objective(it.getDouble("netTarget"),it.getLong("horizon"),it.getString("policy"))}
+        if(objective!=null&&!objective.valid())return null
         val a=o.getJSONArray("features");val y=o.getJSONArray("labels")
         if(a.length()!=NativeZoneSequence9058.WIDTH||y.length()!=NativeZoneSequence9058.HEADS)return null
         val x=DoubleArray(a.length()){i->if(a.isNull(i))Double.NaN else a.getDouble(i)}
@@ -182,7 +219,7 @@ internal object NativeZoneLab9058 {
         if(labels.any{it !in -1..1})return null
         val basis=markRead(o.getJSONObject("decision"))?:return null
         if(basis.asset!=asset||!basis.validAt(t))return null
-        val stop=x[x.size-3];val cost=x[x.size-2];val latency=x.last()*1000.0
+        val stop=x[x.size-3];val cost=x[x.size-2];val latency=kotlin.math.round(x.last()*1000.0)
         if(stop !in .01..100.0||cost !in 0.0..100.0||latency !in 1.0..60_000.0)return null
         val entry=o.optJSONObject("entry")?.let{markRead(it)}
         val last=o.optJSONObject("last")?.let{markRead(it)}
@@ -208,16 +245,12 @@ internal object NativeZoneLab9058 {
             }
         }
         if(!expected.contentEquals(labels))return null
-        fun readPrediction(j:JSONObject)=NativeZoneSequence9058.Prediction(j.getInt("head"),j.getLong("published"),
-            j.getDouble("linear"),j.getDouble("neural")).takeIf{v->v.valid(t)}
-        val a9059=o.optJSONArray("predictions9059")
-        val ps=if(a9059!=null){
-            if(a9059.length()>NativeZoneSequence9058.HEADS)return null
-            val parsed=(0 until a9059.length()).map{readPrediction(a9059.getJSONObject(it))?:return null}
-            if(parsed.map{it.head}.distinct().size!=parsed.size)return null
-            parsed
-        }else listOfNotNull(o.optJSONObject("prediction")?.let(::readPrediction))
-        Row(scope,RunnerBarrierLearning9051.Sample(asset,t,available,x,labels),basis.venue,entry?.event?:0L,entry?.usd?:Double.NaN,ps)
+        val nativeLabel=NativeZoneContract9059.outcome(objective,t,entry?.event?:0L,last?.event?:0L,o.getLong("nativeHit"),stopped)?:return null
+        if(nativeLabel!=o.getInt("nativeLabel"))return null
+        val pa=o.getJSONArray("predictions9059");if(pa.length()>NativeZoneSequence9058.HEADS+1)return null
+        val ps=(0 until pa.length()).map{val p=pa.getJSONObject(it);NativeZoneSequence9058.Prediction(p.getInt("head"),p.getLong("published"),p.getDouble("linear"),p.getDouble("neural"))}
+        if(ps.any{!it.valid(t)}||ps.map{it.head}.distinct().size!=ps.size)return null
+        Row(scope,RunnerBarrierLearning9051.Sample(asset,t,available,x,labels),basis.venue,entry?.event?:0L,entry?.usd?:Double.NaN,ps,signal,objective,nativeLabel)
     } catch(_:Exception){null} }
 
     private fun flush(dest:File):Boolean{
@@ -246,7 +279,7 @@ internal object NativeZoneLab9058 {
             val r=group.filter{it.s.labels[head]>=0&&it.entryAt>0&&it.entryUsd>0}.sortedBy{it.s.decision}
             val first=r.firstOrNull()?:continue
             val second=r.lastOrNull{it.venue==first.venue&&it.s.decision-first.s.decision in 15_000L..120_000L&&it.entryAt>first.entryAt}?:continue
-            if(first.s.features.takeLast(3)!=second.s.features.takeLast(3))continue
+            if(first.s.features.slice(42..44)!=second.s.features.slice(42..44)||first.objective!=second.objective)continue
             n++;delta+=first.s.labels[head]-second.s.labels[head]
             price+=(if(first.scope.direction=="LONG")second.entryUsd/first.entryUsd-1 else first.entryUsd/second.entryUsd-1)*100.0
         }
@@ -265,33 +298,47 @@ internal object NativeZoneLab9058 {
             if(++read%128==0)JobCost8813.cooperate9043()
             decode(line,now)?.let{r->if(tail.size>=MAX_ROWS)tail.removeFirst();tail.addLast(r)}
         }}
-        val by=tail.groupBy{it.scope.key()}
-        val eligible=by.filterValues{rs->rs.filter{r->r.s.labels.any{it>=0}}.map{it.s.asset}.toSet().size>=300}
-        if(eligible.isEmpty()){status="waiting scopes="+by.size+" rows="+tail.size;return false}
+        // Index identities, not duplicated feature arrays. Expand only the chosen scope this turn.
+        val counts=LinkedHashMap<String,Int>()
+        for(r in tail)for(k in NativeZoneContract9059.scopes(r.scope,r.signal)){
+            val key=k.key()
+            if(key in counts || counts.size<2048)counts[key]=(counts[key]?:0)+1
+            else scopeOverflow9059.incrementAndGet()
+        }
+        val eligible=counts.filterValues{it>=300}
+        if(eligible.isEmpty()){status="waiting scopes="+counts.size+" rows="+tail.size;return false}
         val key=eligible.keys.minWithOrNull(compareBy<String>{lastAttempt[it]?:0L}.thenBy{it})?:return false
+        val selectedScope=NativeZoneSequence9058.Scope.parse(key)?:return false
         lastAttempt[key]=now
-        while(lastAttempt.size>256){val old=lastAttempt.keys.first();lastAttempt.remove(old);nextHead.remove(old)}
-        val rows=eligible.getValue(key).distinctBy{it.s.asset to it.s.decision}.sortedBy{it.s.decision}.takeLast(SCOPE_ROWS)
+        while(lastAttempt.size>2048){val old=lastAttempt.keys.first();lastAttempt.remove(old);nextHead.remove(old)}
+        val head=nextHead[key]?:NativeZoneContract9059.NATIVE_HEAD
+        nextHead[key]=if(head==NativeZoneSequence9058.HEADS-1)NativeZoneContract9059.NATIVE_HEAD else head+1
+        val modelHead=if(head==NativeZoneContract9059.NATIVE_HEAD)0 else head
+        val rows=tail.asSequence().filter{r->r.scope.copy(setup=selectedScope.setup)==selectedScope &&
+            selectedScope.setup in r.signal.names()}.distinctBy{it.s.asset to it.s.decision}
+            .sortedBy{it.s.decision}.toList().takeLast(SCOPE_ROWS).map{r->
+                r.copy(scope=selectedScope,s=r.s.copy(features=NativeZoneContract9059.vector(r.s.features,selectedScope,r.signal,r.objective,r.s.decision),
+                    labels=if(head==NativeZoneContract9059.NATIVE_HEAD)NativeZoneContract9059.nativeLabels(r.nativeLabel) else r.s.labels),
+                    predictions=r.predictions.filter{r.signal.selected==selectedScope.setup && it.head==head})
+            }
         val split=RunnerBarrierLearning9051.split(rows.map{it.s})
-        val head=nextHead[key]?:0;nextHead[key]=(head+1)%NativeZoneSequence9058.HEADS
-        val fit=NativeZoneNet9058.fit(split,head,JobCost8813::cooperate9043)
+        val fit=NativeZoneNet9058.fit(split,modelHead,JobCost8813::cooperate9043)
         if(fit==null){status="insufficient independent support scope=$key head=$head";return true}
         val at=System.currentTimeMillis()
-        feedback9059.publish(rows.first().scope,head,at,fit)
-        val live=NativeZoneFeedback9059.score(eligible.getValue(key).flatMap{r->
-            r.predictions.filter{it.head==head}.map{p->
-                NativeZoneFeedback9059.Graded(r.s.asset,r.s.decision,r.s.available,r.s.labels[head],p)
-            }
-        },head,now)
-        val prospective=live?.let{" prospectiveAssets="+it.assets+" prospectiveWindows="+it.windows+
-            " neuralPreqBrier="+round(it.neuralBrier)+" linearPreqBrier="+round(it.linearBrier)} ?: " prospectiveAssets=0"
+        feedback9059.publish(selectedScope,head,at,fit)
         val held=split.test.map{it.asset}.toSet()
+        val prospective=NativeZoneFeedback9059.score(rows.flatMap{r->
+            r.predictions.map{p->NativeZoneFeedback9059.Graded(r.s.asset,r.s.decision,r.s.available,r.s.labels[modelHead],p)}
+        },head,now)
+        val prospectiveBrier=prospective?.let{"assets="+it.assets+"/neural="+round(it.neuralBrier)+"/linear="+round(it.linearBrier)}?:"none"
         status="scope=$key head=$head assets="+fit.metrics.assets+" neuralAP="+round(fit.metrics.averagePrecision)+
             " linearAP="+round(fit.baseline.averagePrecision)+" neuralBrier="+round(fit.metrics.brier)+
-            " linearBrier="+round(fit.baseline.brier)+prospective+" "+pairs(rows.filter{it.s.asset in held},head)
+            " linearBrier="+round(fit.baseline.brier)+" "+pairs(rows.filter{it.s.asset in held},modelHead)+
+            " prospective9059="+prospectiveBrier
         return true
     }
     fun statusLine()=tracker.status()+" zoneLab9058[$status unsupported="+unsupported.get()+" noProof="+noProof.get()+
-        " noCost="+noCost.get()+" badScope="+badScope.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
-        " forecasts="+predicted.get()+" retainedHeads="+feedback9059.count()+" staleSignals9059="+staleSignal9059.get()+" authority=NONE]"
+        " noCost="+noCost.get()+" badScope="+badScope.get()+" missingSignal9059="+missingSignal9059.get()+
+        " scopeOverflow9059="+scopeOverflow9059.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
+        " predictions="+predicted.get()+" models="+feedback9059.count()+" authority=NONE]"
 }

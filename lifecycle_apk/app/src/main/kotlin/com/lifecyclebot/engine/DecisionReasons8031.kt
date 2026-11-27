@@ -91,16 +91,21 @@ object DecisionReasons8031 {
             val observation = NativeDecisionEnrollment8372.observation(o.lane, o.eligible, o.gradeable, o.score, o.reason)
             if (observation == null) { nativeUngradeable8372.incrementAndGet(); continue }
             try {
+                val zone9059=com.lifecyclebot.engine.cortex.LanePlaybook7907.cachedZoneEvidence9059(ts.mint,o.lane,o.signalAtMs8535)
+                val signal9060=if(o.authoritative)com.lifecyclebot.engine.truth.NativeZoneContract9059.signal(
+                    if(NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource))"OVERLAY" else "PB",
+                    o.signalAtMs8535,o.firedSetup8535,zone9059?.second?:emptyList(),zone9059?.first?:"UNOBSERVED",
+                    o.rawScore8535.toDouble(),o.scaleMax8535.toDouble(),o.confidence.toDouble(),nowMs) else null
                 // V5.0.8372: the 30%-full gate silently removed ALL native observations after warmup. The existing
                 // labeler still rejects duplicate episodes, unpriced observations and genuine capacity exhaustion.
                 // This is an observation only: no FDG allow, live intent, execution fanout or wallet mutation.
                 if (NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource)) {
                     if (!com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observeNativeLong8372(ts,
                             observation.lane, observation.admitted, observation.reason, nowMs, observation.score,
-                            nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059)) continue
+                            nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059,zoneSignal9059=signal9060)) continue
                 } else com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, observation.lane,
                     observation.admitted, observation.reason, nowMs, observation.score,
-                    nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059)
+                    nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059,zoneSignal9059=signal9060)
                 nativeLabelled.incrementAndGet()
                 (if (observation.admitted) nativeReadyOffered8372 else nativeRefusedOffered8372).incrementAndGet()
             } catch (_: Throwable) {}

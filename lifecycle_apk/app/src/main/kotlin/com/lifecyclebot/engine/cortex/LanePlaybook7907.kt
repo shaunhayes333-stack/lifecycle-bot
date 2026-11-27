@@ -1219,6 +1219,17 @@ object LanePlaybook7907 {
         var featureRev8283: Long = 0L
     }
     private val classifyCache = ConcurrentHashMap<String, Cached8084>()
+
+    /** Read the same pinned native evaluation; never rebuild a strategy frame at label time. */
+    internal fun cachedZoneEvidence9059(mint:String,laneRaw:String,signalAt:Long):Pair<String,List<String>>? {
+        if(signalAt<=0L)return null
+        val lane=canon(laneRaw)
+        val hit=classifyCache["$mint|$lane"] ?: return null
+        val c=hit.c
+        if(hit.pinnedAt!=signalAt || hit.featuresAt<=0L || signalAt-hit.featuresAt !in 0L..EXTERNAL_TTL_MS_8084 ||
+            c.atMs>signalAt || c.lane!=lane)return null
+        return c.outcome.name to c.matched.toList()
+    }
     /** V5.0.8309 — census: classification cache (~600 B an entry) and per-mint input request stamps (~140 B). */
     fun cacheBytes8309(): Long = classifyCache.size * 600L + inputRequestedAt8085.size * 140L
     internal const val EXTERNAL_TTL_MS_8084 = 5_000L

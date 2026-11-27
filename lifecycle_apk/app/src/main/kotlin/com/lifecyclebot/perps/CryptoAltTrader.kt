@@ -1827,6 +1827,10 @@ object CryptoAltTrader {
                     volume5mUsd8832 = shortWindow8832.volume5mUsd,
                     change5mPct8832 = shortWindow8832.change5mPct,
                 )
+                // Research the classic signal before any overlay election or execution ownership.
+                try { com.lifecyclebot.engine.truth.NativeZoneLab9058.observeClassic9059(cryptoDeskTs7803,
+                    cryptoDecision7244.strategy7803,cryptoDecision7244.actionableLong,cryptoDecision7244.score,
+                    cryptoDecision7244.confidence,decisionNow8832) } catch (_: Exception) {}
                 val deskCandidates7803 = CryptoLaneDesk7391.qualifyAll7803(cryptoDeskTs7803)
                 val desk7391 = deskCandidates7803.maxByOrNull { it.conviction }
                     ?: CryptoLaneDesk7391.Election("", 0.0, "", "", 0)
@@ -4237,6 +4241,9 @@ object CryptoAltTrader {
                 evidence = mapOf(
                     "upstreamConfidence" to candidate.confidence.toString(), "walletSol" to balance.toString(),
                     "strategy7803" to signal.strategy7803,
+                    // Preserve proposed native target and stop distances for mark-proxy research.
+                    "zoneTargetPrice9059" to tp8110.toString(),
+                    "zoneStopPrice9059" to sl.toString(),
                     // The selected desk's genuine setup, if present. Do not
                     // manufacture quality or a chart phase from the display score.
                     "edgePhase" to CryptoLaneDesk7391.observedSetup8849(signal.reasons).orEmpty(),
