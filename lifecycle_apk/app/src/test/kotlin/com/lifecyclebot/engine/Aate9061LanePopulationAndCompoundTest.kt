@@ -13,6 +13,22 @@ class Aate9061LanePopulationAndCompoundTest {
     private val population=NativeZoneMarket9061.Snapshot(20_000.0,5_000.0,1.0,1.0,
         3_000.0,500_000.0,.25,3.0,2_000.0,"CURVE_LAUNCH")
 
+    @Test fun laterNativeLanesAreNotExcludedByTheEightWindowTokenCap() {
+        val z=NativeZoneSequence9058()
+        val at=100_000L
+        fun offer(lane:String,t:Long):Boolean {
+            val scope=NativeZoneSequence9058.Scope(lane,"BASE","SOLANA_POOL","LIVE","LONG")
+            val mark=NativeZoneSequence9058.Mark("asset","pool",6,t,t,1.0,"TEST")
+            return z.reserve("asset",lane,t) && z.enroll(NativeZoneSequence9058.Decision(scope,mark,t,1000L,10.0,2.0,DoubleArray(12),false))
+        }
+        // Twelve meme menus and eight native desk identities can all observe the same token.
+        for(i in 0 until 20)assertTrue("lane $i must receive its own observation",offer("LANE_$i",at+i))
+        assertTrue(offer("LANE_0",at+15_000L))
+        assertTrue(offer("LANE_0",at+30_000L))
+        assertFalse("A fourth overlapping window cannot monopolise this token",offer("LANE_0",at+45_000L))
+        assertTrue(offer("LATER_DESK",at+45_001L))
+    }
+
     @Test fun receivingDeskOwnsCapAndAgePopulation() {
         val launch=NativeZoneMarket9061.vector(population)
         val established=NativeZoneMarket9061.vector(population.copy(capMin=1_000_000.0,capMax=Double.NaN,

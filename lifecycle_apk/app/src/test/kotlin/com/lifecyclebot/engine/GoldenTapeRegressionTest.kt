@@ -14180,7 +14180,7 @@ class GoldenTapeRegressionTest {
         assertTrue(fom.contains("val fromPaperPrior6991 = isPaper && src.endsWith(\"_label_prior\")"))
         // Labeler: the signature travels with the observation and the 60-minute label teaches the model.
         val labeler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {"))
+        assertTrue(labeler.contains("fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null, deskSetup9058: String? = null,"))
         // superseded by V5.0.8418 — the label carries its decision id
         assertTrue(labeler.contains("ForwardOutcomeModel.recordLabel7734(o.lane, o.score, o.quality, o.regime, o.phase, net, \"\${o.mint}|\${o.lane}|\${o.atMs}\")"))
         assertTrue(labeler.indexOf("book(o, 60, net, gross)") < labeler.indexOf("ForwardOutcomeModel.recordLabel7734("))

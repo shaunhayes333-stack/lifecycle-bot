@@ -2,9 +2,9 @@ package com.lifecyclebot.engine.truth
 
 /** Bounded decision-sequence research. Observed mark proxies only; never order authority. */
 internal class NativeZoneSequence9058(
-    private val maxActive: Int = 384, private val perAsset: Int = 8,
-    private val perLane: Int = 48, private val maxHistory: Int = 512,
-    private val maxCompleted: Int = 2048
+    private val maxActive: Int = 384, private val perAsset: Int = 48,
+    private val perLane: Int = 16, private val maxHistory: Int = 512,
+    private val maxCompleted: Int = 2048, private val perAssetLane: Int = 3
 ) {
     companion object {
         const val RAW = 12
@@ -79,12 +79,17 @@ internal class NativeZoneSequence9058(
     private var count=0; private var bucket=0L; private var budget=0
     private var offered=0L;private var capped=0L;private var invalid=0L;private var done=0L;private var censored=0L;private var dropped=0L
 
+    // Three causal frames per lane/asset; one early lane cannot consume a token's entire research budget.
+    // Total windows stay bounded at 384. The former eight-per-token cap excluded later native desks.
+    private fun full(asset:String,lane:String)=count>=maxActive || (active[asset]?.size?:0)>=perAsset ||
+        (laneCounts[lane]?:0)>=perLane || (active[asset]?.count{it.d.scope.lane==lane}?:0)>=perAssetLane
+
     /** Cheap reservation before feature extraction; no new feed or native pending observation. */
     @Synchronized fun reserve(asset:String,lane:String,at:Long,channel:String=""):Boolean {
         if(!clean(asset)||!component.matches(lane)||at<=0L)return false
         val k=Attempt(asset,lane,channel);val prior=attempts[k]
         if(prior!=null && at-prior.at<STEP)return false
-        if(count>=maxActive || (active[asset]?.size?:0)>=perAsset || (laneCounts[lane]?:0)>=perLane){capped++;return false}
+        if(full(asset,lane)){capped++;return false}
         val b=at/10_000L
         if(b<bucket)return false
         if(b!=bucket){bucket=b;budget=0}
@@ -104,7 +109,7 @@ internal class NativeZoneSequence9058(
         if(lease==null || lease.at!=d.at || lease.claimed){invalid++;return false}
         attempts[k]=lease.copy(claimed=true)
         if(!d.valid()){invalid++;return false}
-        if(count>=maxActive || (active[d.mark.asset]?.size?:0)>=perAsset || (laneCounts[d.scope.lane]?:0)>=perLane){capped++;return false}
+        if(full(d.mark.asset,d.scope.lane)){capped++;return false}
         if(active[d.mark.asset]?.any{it.d.scope==d.scope && it.d.at==d.at}==true)return false
         val key=HistKey(d.mark.asset,d.mark.venue,d.mark.decimals,d.scope.context())
         val old=histories[key].orEmpty().filter{d.at-it.at in 1L..300_000L}.sortedByDescending{it.at}.take(2)

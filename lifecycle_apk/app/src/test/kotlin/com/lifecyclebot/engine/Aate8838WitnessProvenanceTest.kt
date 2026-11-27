@@ -63,10 +63,15 @@ class Aate8838WitnessProvenanceTest {
             "perps/CryptoAltTrader.kt",
         )) {
             val src = File(root, file).readText()
-            assertTrue("$file cannot certify a mint from timestamp alone",
-                src.contains("witnessedPrint8750(mint, ") &&
-                    (src.contains("witnessedPrint8750(mint, tp.second, tp.first)") ||
-                        src.contains("witnessedPrint8750(mint, it.second, it.first)")))
+            val direct=src.contains("witnessedPrint8750(mint, ") &&
+                (src.contains("witnessedPrint8750(mint, tp.second, tp.first)") ||
+                    src.contains("witnessedPrint8750(mint, it.second, it.first)"))
+            val tape=File(root,"engine/truth/TradeTape8100.kt").readText()
+                .substringAfter("internal fun lastWitnessedTrade9058").substringBefore("internal fun resetForTest8100")
+            val typed=src.contains("TradeTape8100.lastWitnessedTrade9058(mint)") &&
+                tape.contains("it.sourceTimeKnown8386 && !it.priceOnly") &&
+                tape.contains("PrintWitness8750.witnessedPrint8750(mint,it.atMs,it.priceSol)")
+            assertTrue("$file must bind both witness price and event time, directly or through the typed tape adapter",direct||typed)
             assertFalse("$file must not use the timestamp-only legacy read",
                 src.contains("witnessedPrint8750(mint, tp.second)") ||
                     src.contains("witnessedPrint8750(mint, it.second)"))

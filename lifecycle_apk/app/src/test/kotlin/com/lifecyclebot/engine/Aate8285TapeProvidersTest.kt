@@ -165,9 +165,9 @@ class Aate8285TapeProvidersTest {
         val line = tape.statusLine8285()
         assertTrue(line, line.contains("gecko:n=1,p50=1500ms,max=1500ms"))
         assertTrue(line, line.contains("noEventTs{pumpportal=1}"))
-        // a future-dated event is not believed: the receive time stands in
-        tape.note8285(mint, 2e-6, 0.5, 250_000.0, true, "pumpportal", signature = "N2", eventMs = now + 60_000L, recvMs = now)
-        assertEquals(now, tape.prints8128(mint, now, 60_000L).last().atMs)
+        // 9056: a future source clock is rejected, never rewritten into a fresh event.
+        assertFalse(tape.note8285(mint, 2e-6, 0.5, 250_000.0, true, "pumpportal", signature = "N2", eventMs = now + 60_000L, recvMs = now))
+        assertEquals(prints,tape.prints8128(mint, now, 60_000L))
         tape.resetForTest8100()
     }
 
