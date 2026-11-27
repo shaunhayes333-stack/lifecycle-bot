@@ -1372,7 +1372,8 @@ object ForwardReturnLabeler7731 {
         observe(ts, lane, admitted, reason, nowMs, score, incumbent8506)
     }
 
-    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null, deskSetup9058: String? = null) {
+    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null, deskSetup9058: String? = null,
+                nativeSetup9059: String? = null, nativeSignalAt9059: Long? = null, observationMode9059: String? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         try { FloorWatch8856.onDecision8856(ts.mint, admitted, reason, nowMs) } catch (_: Throwable) {}   // V5.0.8856 — cross -> first verdict
         // Capture the decision even when the forward labeler cannot establish an entry mark.
@@ -1415,7 +1416,10 @@ object ForwardReturnLabeler7731 {
         }
         val px = basisMark8571.usd
         // Research windows must not disappear behind the original pending mint/lane or 15-minute lock.
-        try { NativeZoneLab9058.capture(ts,l,admitted,basisMark8571,nowMs,deskSetup9058) } catch (_: Exception) {}
+        try {
+            val signal9059=nativeSignalAt9059?.let{NativeZoneSignal9059(l,nativeSetup9059,it,observationMode9059.orEmpty())}
+            NativeZoneLab9058.capture(ts,l,admitted,basisMark8571,nowMs,deskSetup9058,signal9059,observationMode9059)
+        } catch (_: Exception) {}
         // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
         // token refused earlier (or by an advisory gate) and then bought was labelled
         // and graded as "refused" for up to four hours.

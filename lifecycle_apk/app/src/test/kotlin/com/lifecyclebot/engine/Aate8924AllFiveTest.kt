@@ -35,7 +35,7 @@ class Aate8924AllFiveTest {
         assertFalse(JSONObject(ResearchRows8877.line8877(1L, 3_600_000L, "m", "EXPRESS", true, "BASE_START", "S", 1.0, 0.0, 9_000.0,
             6_000.0, 3.0, 1.0, 4.0, 10.0, 8.0, -2.0, "r")).has("flow8924"))
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(src.contains("it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)) }"))
+        assertTrue(src.contains("it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.readForLearning9056(ts.mint, nowMs)) }"))
     }
 
     @Test fun theHourCapGainsAnHourOnlyWhereTheExtraHourIsProven() {

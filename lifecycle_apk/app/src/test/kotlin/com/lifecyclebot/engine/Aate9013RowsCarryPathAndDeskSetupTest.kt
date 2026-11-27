@@ -63,7 +63,7 @@ class Aate9013RowsCarryPathAndDeskSetupTest {
         l.noteDeskSetup9013("", "CRYPTO_CORE", "x", null); l.noteDeskSetup9013("NoSuchObservation9013", "MOONSHOT", "x", null)   // nothing pending: no-ops
         val cx = File("src/main/kotlin/com/lifecyclebot/engine/cortex/CrossAssetCortex7931.kt").readText()
         assertTrue(cx.contains("ForwardReturnLabeler7731.deskSetup9013(c.evidence[\"strategy7803\"],c.evidence[\"trend8886\"])"))
-        assertTrue(cx.contains("ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,deskSetup9058=setup9058)"))
+        assertTrue(cx.contains("ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,deskSetup9058=setup9058,observationMode9059=c.mode)"))
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
         assertTrue(lab.contains("o.stage, rowSetup9013(o.lane, o.setup7955, o.deskSetup9013),"))
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/DiagnosisBrief8438.kt").readText().contains("ForwardReturnLabeler7731.deskSetupLine9013()"))

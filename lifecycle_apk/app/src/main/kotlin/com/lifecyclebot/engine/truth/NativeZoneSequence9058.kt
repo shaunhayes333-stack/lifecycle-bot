@@ -36,9 +36,11 @@ internal class NativeZoneSequence9058(
         fun same(other: Mark) = asset==other.asset && venue==other.venue && decimals==other.decimals
     }
     data class Decision(val scope: Scope, val mark: Mark, val at: Long, val latency: Long,
-                        val stop: Double, val cost: Double, val raw: DoubleArray, val admitted: Boolean) {
+                        val stop: Double, val cost: Double, val raw: DoubleArray, val admitted: Boolean,
+                        val signalAt9059: Long? = null) {
         fun valid() = scope.valid() && at in 1L..Long.MAX_VALUE-HOUR && mark.validAt(at) &&
-            latency in 1L..60_000L && stop.isFinite() && stop in .01..100.0 && cost.isFinite() && cost in 0.0..100.0 && raw.size==RAW
+            latency in 1L..60_000L && stop.isFinite() && stop in .01..100.0 && cost.isFinite() && cost in 0.0..100.0 && raw.size==RAW &&
+            (signalAt9059==null || (signalAt9059>0L && at-signalAt9059 in 0L..5_000L))
     }
     data class Prediction(val head: Int, val published: Long, val linear: Double, val neural: Double) {
         fun valid(at:Long) = head in 0 until HEADS && published in 1L..at && linear in 0.0..1.0 && neural in 0.0..1.0
@@ -46,7 +48,9 @@ internal class NativeZoneSequence9058(
     data class Completed(val scope: Scope, val asset: String, val at: Long, val available: Long,
                          val features: DoubleArray, val labels: IntArray, val admitted: Boolean,
                          val decision: Mark, val entry: Mark?, val last: Mark?, val firstStop: Long, val firstTargets: LongArray,
-                         val observations: Int, val maxGap: Long, val reason: String, val prediction: Prediction?) {
+                         val observations: Int, val maxGap: Long, val reason: String, val prediction: Prediction?,
+                         val predictions9059: List<Prediction> = listOfNotNull(prediction),
+                         val signalAt9059: Long? = null) {
         val entryAt: Long get() = entry?.event ?: 0L
         val entryUsd: Double get() = entry?.usd ?: Double.NaN
         fun sample() = RunnerBarrierLearning9051.Sample(asset,at,available,features,labels)
@@ -55,7 +59,7 @@ internal class NativeZoneSequence9058(
     private data class Reservation(val at:Long,val claimed:Boolean)
     private data class HistKey(val asset:String,val venue:String,val decimals:Int,val context:String)
     private data class Frame(val at:Long,val usd:Double,val setup:String,val raw:DoubleArray)
-    private class Window(val d:Decision,val features:DoubleArray,val prediction:Prediction?) {
+    private class Window(val d:Decision,val features:DoubleArray,val predictions:List<Prediction>) {
         var entry:Mark?=null;var last:Mark?=null;var observations=0;var maxGap=0L;var firstStop=0L
         val firstTargets=LongArray(6)
         val labels=IntArray(HEADS){-1}
@@ -84,7 +88,10 @@ internal class NativeZoneSequence9058(
     }
 
     /** Retain the two preceding causal snapshots of the same native context, never assign a later setup to an earlier row. */
-    @Synchronized fun enroll(d:Decision,predict:(Scope,DoubleArray,Long)->Prediction? = {_,_,_->null}):Boolean {
+    fun enroll(d:Decision,predict:(Scope,DoubleArray,Long)->Prediction? = {_,_,_->null}):Boolean =
+        enrollAll9059(d){scope,x,t -> listOfNotNull(predict(scope,x,t))}
+
+    @Synchronized fun enrollAll9059(d:Decision,predict:(Scope,DoubleArray,Long)->List<Prediction>):Boolean {
         val k=Attempt(d.mark.asset,d.scope.lane)
         val lease=attempts[k]
         if(lease==null || lease.at!=d.at || lease.claimed){invalid++;return false}
@@ -105,7 +112,7 @@ internal class NativeZoneSequence9058(
         }
         x[3*RAW+6]=d.stop;x[3*RAW+7]=d.cost;x[3*RAW+8]=d.latency/1000.0
         val copy=d.copy(raw=d.raw.copyOf())
-        val p=predict(d.scope,x.copyOf(),d.at)?.takeIf{it.valid(d.at)}
+        val p=predict(d.scope,x.copyOf(),d.at).filter{it.valid(d.at)}.distinctBy{it.head}.sortedBy{it.head}.take(HEADS)
         histories.remove(key);histories[key]=(listOf(Frame(d.at,d.mark.usd,d.scope.setup,copy.raw))+old).take(2)
         while(histories.size>maxHistory)histories.remove(histories.keys.first())
         active.getOrPut(d.mark.asset){ArrayList()}.add(Window(copy,x,p)); count++
@@ -119,7 +126,7 @@ internal class NativeZoneSequence9058(
         done++;if(w.labels.all{it<0})censored++
         if(completed.size>=maxCompleted){completed.removeFirst();dropped++}
         completed.addLast(Completed(w.d.scope,w.d.mark.asset,w.d.at,maxOf(now,w.d.at),w.features.copyOf(),w.labels.copyOf(),
-            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.prediction))
+            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059))
     }
     private fun mature(w:Window,t:Long,inclusive:Boolean){
         for(h in horizons.indices){val end=w.d.at+horizons[h]

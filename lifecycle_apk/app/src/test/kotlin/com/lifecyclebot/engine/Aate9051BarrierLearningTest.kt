@@ -83,12 +83,16 @@ class Aate9051BarrierLearningTest {
             val precursor=org.json.JSONObject().put("v",1).put("rawPresent",true).put("atMs",now)
                 .put("newBuyers15s8666",0).put("flow",j)
             val features=com.lifecyclebot.engine.truth.SharedRunnerLab9051.features(precursor)!!
-            assertEquals(46,features.size)
-            assertTrue(features[12].isNaN());assertTrue(features[26].isNaN());assertEquals(5.0,features[30],1e-9)
-            assertEquals(0.5,features[36],1e-9);assertEquals(4.0,features[43],1e-9)
-            val historical=com.lifecyclebot.engine.truth.SharedRunnerLab9051.upgradeLegacy9056(DoubleArray(36){1.0})!!
-            assertEquals(46,historical.size);assertEquals(1.0,historical[0],0.0)
-            assertTrue(historical[12].isNaN());assertTrue(historical.drop(26).all{it.isNaN()})
+            // 27 raw columns (including venue), 10 flow, 10 evidence. Never shift the existing venue field.
+            assertEquals(47,features.size)
+            assertTrue(features[12].isNaN());assertTrue(features[27].isNaN());assertEquals(5.0,features[31],1e-9)
+            assertEquals(0.5,features[37],1e-9);assertEquals(4.0,features[44],1e-9)
+            val historical=com.lifecyclebot.engine.truth.SharedRunnerLab9051.upgradeLegacy9056(DoubleArray(37){1.0})!!
+            assertEquals(47,historical.size);assertEquals(1.0,historical[0],0.0)
+            assertTrue(historical[12].isNaN());assertEquals(1.0,historical[26],0.0);assertTrue(historical.drop(27).all{it.isNaN()})
+            val prior=com.lifecyclebot.engine.truth.SharedRunnerLab9051.upgradeLegacy9056(DoubleArray(47){2.0})!!
+            assertEquals(2.0,prior[26],0.0);assertTrue(prior.drop(27).all{it.isNaN()})
+            assertNull(com.lifecyclebot.engine.truth.SharedRunnerLab9051.upgradeLegacy9056(DoubleArray(36)))
             flow.note("green9056", "bob", 4.0, true, now-2_000L, "b", now+1)
             assertNull(flow.readForLearning9056("green9056",now))
             val repaired=flow.readForLearning9056("green9056",now+1)!!

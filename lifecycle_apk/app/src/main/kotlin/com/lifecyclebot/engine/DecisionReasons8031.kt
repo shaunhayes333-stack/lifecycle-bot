@@ -82,6 +82,7 @@ object DecisionReasons8031 {
     fun nativeVerdicts8031(ts: com.lifecyclebot.data.TokenState, verdicts: Collection<SpecialistBrainBridge7542.Opinion>) {
         // One token observation time for all lanes; neither ownership nor final live admission is required to learn.
         val nowMs = System.currentTimeMillis()
+        val mode9059=if(RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
         for (o in verdicts) {
             val reason = "NATIVE_${if (o.eligible) "READY" else rule8031(o.reason)}"
             // V5.0.8549 — a crypto-desk overlay's verdict is not a meme lane's pre-intent (it polluted every meme counter)
@@ -95,9 +96,11 @@ object DecisionReasons8031 {
                 // This is an observation only: no FDG allow, live intent, execution fanout or wallet mutation.
                 if (NativeDecisionEnrollment8372.isCryptoDesk(ts.lastPriceSource)) {
                     if (!com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observeNativeLong8372(ts,
-                            observation.lane, observation.admitted, observation.reason, nowMs, observation.score)) continue
+                            observation.lane, observation.admitted, observation.reason, nowMs, observation.score,
+                            nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059)) continue
                 } else com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts, observation.lane,
-                    observation.admitted, observation.reason, nowMs, observation.score)
+                    observation.admitted, observation.reason, nowMs, observation.score,
+                    nativeSetup9059=o.firedSetup8535,nativeSignalAt9059=o.signalAtMs8535,observationMode9059=mode9059)
                 nativeLabelled.incrementAndGet()
                 (if (observation.admitted) nativeReadyOffered8372 else nativeRefusedOffered8372).incrementAndGet()
             } catch (_: Throwable) {}

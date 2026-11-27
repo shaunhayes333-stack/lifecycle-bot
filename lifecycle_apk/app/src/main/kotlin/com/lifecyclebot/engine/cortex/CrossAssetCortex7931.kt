@@ -436,12 +436,13 @@ object CrossAssetCortex7931 {
         val (ts, lane) = tokenStateFor(c,at9058) ?: return
         // Bind the desk's own strategy to this decision, not whichever older observation happens to be pending.
         val setup9058=com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.deskSetup9013(c.evidence["strategy7803"],c.evidence["trend8886"])
-        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,deskSetup9058=setup9058) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(ts,lane,admitted,reason,at9058,deskSetup9058=setup9058,observationMode9059=c.mode) } catch (_: Throwable) {}
     }
 
     /** Native crypto desk YES/NO before owner selection, in its exact crypto lane; observation only, never a fill. */
     internal fun observeNativeLong8372(ts: TokenState, deskLane: String, admitted: Boolean, reason: String,
-                                       nowMs: Long, score: Int): Boolean {
+                                       nowMs: Long, score: Int, nativeSetup9059: String? = null,
+                                       nativeSignalAt9059: Long? = null, observationMode9059: String? = null): Boolean {
         val rules = com.lifecyclebot.engine.NativeDecisionEnrollment8372
         if (!rules.isCryptoDesk(ts.lastPriceSource)) return false
         val lane = rules.cryptoLearningLane(deskLane) ?: return false
@@ -455,7 +456,9 @@ object CrossAssetCortex7931 {
         prunePriceIdentities8402()
         assets[key] = Asset(AssetClass.CRYPTO_ALT, ts.symbol, ts.mint, nowMs, nativePriceProvenance8372 = true)
         com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.observe(
-            if (key == ts.mint) ts else ts.copy(mint = key), lane, admitted, reason, nowMs, score)
+            if (key == ts.mint) ts else ts.copy(mint = key), lane, admitted, reason, nowMs, score,
+            nativeSetup9059=nativeSetup9059?.let{"CX_DESK_"+it},nativeSignalAt9059=nativeSignalAt9059,
+            observationMode9059=observationMode9059)
         return true
     }
 

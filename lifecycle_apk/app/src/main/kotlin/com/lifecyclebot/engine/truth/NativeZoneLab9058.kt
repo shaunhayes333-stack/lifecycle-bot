@@ -22,7 +22,7 @@ internal object NativeZoneLab9058 {
     private const val KEEP_BYTES = 10L * 1024 * 1024
     private const val MAX_ROWS = 10000
     private const val SCOPE_ROWS = 1200
-    private const val MODEL_TTL = 24L * 3_600_000L
+    private val feedback9059 = NativeZoneFeedback9059()
     private val unsupported = AtomicLong()
     private val noProof = AtomicLong()
     private val noCost = AtomicLong()
@@ -34,8 +34,7 @@ internal object NativeZoneLab9058 {
     private var pendingWrite = emptyList<NativeZoneSequence9058.Completed>()
     private val lastAttempt = LinkedHashMap<String,Long>()
     private val nextHead = LinkedHashMap<String,Int>()
-    private data class Published(val head:Int,val at:Long,val fit:NativeZoneNet9058.Fit)
-    @Volatile private var models:Map<String,Published> = emptyMap()
+    private val staleSignal9059 = AtomicLong()
     @Volatile private var status = "collecting"
 
     private fun file() = AATEApp.appContextOrNull()?.filesDir?.let{File(it,FILE)}
@@ -47,7 +46,11 @@ internal object NativeZoneLab9058 {
     }
 
     /** Called before the original pending/re-observe short circuits; only research uses this second observation. */
-    fun capture(ts:TokenState,lane:String,admitted:Boolean,basis:LabelMark8386,at:Long,deskSetup:String?) {
+    fun capture(ts:TokenState,lane:String,admitted:Boolean,basis:LabelMark8386,at:Long,deskSetup:String?,
+                nativeSignal9059:NativeZoneSignal9059?=null,observationMode9059:String?=null) {
+        if(nativeSignal9059!=null && !nativeSignal9059.validFor(lane,at)){
+            staleSignal9059.incrementAndGet();return
+        }
         val meme=MemePaperTrader8544.memeLane8544(lane)
         val crypto=lane.startsWith("CRYPTO_")
         if(!meme && !crypto){unsupported.incrementAndGet();return}
@@ -66,8 +69,12 @@ internal object NativeZoneLab9058 {
         if(measured>60_000L){noCost.incrementAndGet();return}
         // Cold-start research uses a visibly separate hypothetical latency, never a claimed live fill.
         val latency=if(measured>0L)measured else 15_000L
-        val setup=(if(crypto)deskSetup else ExitProfile7955.entrySetup7955(ts,lane,at))
-            .orEmpty().trim().uppercase().let{if(it.isBlank()||it=="NONE")"UNCLASSIFIED" else it}
+        val setup=when {
+            nativeSignal9059!=null -> nativeSignal9059.setup()
+            ExpertSetups8692.setupCohort8692(lane) -> lane.removePrefix("SETUP8692_")
+            crypto -> deskSetup.orEmpty().trim().uppercase().ifBlank{"UNCLASSIFIED"}
+            else -> ExitProfile7955.entrySetup7955(ts,lane,at).trim().uppercase().let{if(it.isBlank()||it=="NONE")"UNCLASSIFIED" else it}
+        }
         val dex=ts.tokenMap.dexId.uppercase()
         val venue=when {
             mark.venue.equals("pump.curve",true) -> "CURVE"
@@ -79,7 +86,13 @@ internal object NativeZoneLab9058 {
         }
         val chain=if(crypto)ts.mint.substringBefore('|',"SPOT").uppercase() else "SOLANA"
         val market=(if(crypto)"CRYPTO_" else "")+chain+"_"+venue
-        val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+if(measured>0L)".MEASURED" else ".PROXY15S"
+        val mode=nativeSignal9059?.mode ?: observationMode9059?.uppercase()
+        val origin=when {
+            nativeSignal9059!=null -> ".NATIVE."+nativeSignal9059.mode
+            mode in setOf("LIVE","PAPER") -> ".CANONICAL."+mode
+            else -> ""
+        }
+        val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+(if(measured>0L)".MEASURED" else ".PROXY15S")+origin
         val scope=NativeZoneSequence9058.Scope(lane,setup,market,source,"LONG")
         if(!scope.valid()){badScope.incrementAndGet();return}
         val flow=BuyerFlow8666.readForLearning9056(ts.mint,at)
@@ -89,7 +102,8 @@ internal object NativeZoneLab9058 {
             flow?.netSol60s?:Double.NaN,e?.buy5?.toDouble()?:Double.NaN,
             if(e?.identities60==true)flow?.distinctBuyers60s?.toDouble()?:Double.NaN else Double.NaN,
             e?.coverage60?:Double.NaN,e?.n60?.toDouble()?:Double.NaN)
-        tracker.enroll(NativeZoneSequence9058.Decision(scope,mark,at,latency,stop,trip.first,x,admitted),::predict)
+        tracker.enrollAll9059(NativeZoneSequence9058.Decision(scope,mark,at,latency,stop,trip.first,x,admitted,
+            signalAt9059=nativeSignal9059?.signalAtMs),::predict)
     }
 
     fun acceptedMark(mark:LabelMark8386,now:Long){
@@ -114,11 +128,10 @@ internal object NativeZoneLab9058 {
     }
     fun expire(now:Long)=tracker.expire(now)
 
-    private fun predict(scope:NativeZoneSequence9058.Scope,x:DoubleArray,at:Long):NativeZoneSequence9058.Prediction? {
-        val p=models[scope.key()]?:return null
-        if(at-p.at !in 0L..MODEL_TTL)return null
-        predicted.incrementAndGet()
-        return NativeZoneSequence9058.Prediction(p.head,p.at,p.fit.linear.predict(x),p.fit.neural.predict(x))
+    private fun predict(scope:NativeZoneSequence9058.Scope,x:DoubleArray,at:Long):List<NativeZoneSequence9058.Prediction> {
+        val p=feedback9059.predict(scope,x,at)
+        predicted.addAndGet(p.size.toLong())
+        return p
     }
 
     private fun markJson(m:NativeZoneSequence9058.Mark)=JSONObject().put("asset",m.asset).put("venue",m.venue)
@@ -132,6 +145,8 @@ internal object NativeZoneLab9058 {
 
     private fun encode(r:NativeZoneSequence9058.Completed,available:Long):String {
         val f=JSONArray();r.features.forEach{f.put(if(it.isFinite())it else JSONObject.NULL)}
+        fun predictionJson(p:NativeZoneSequence9058.Prediction)=JSONObject().put("head",p.head).put("published",p.published)
+            .put("linear",p.linear).put("neural",p.neural)
         val p=r.prediction
         return JSONObject().put("v",9058).put("kind","NATIVE_R_MARK_PROXY").put("authority",false)
             .put("scope",r.scope.key()).put("asset",r.asset).put("t",r.at).put("available",maxOf(r.available,available))
@@ -139,13 +154,14 @@ internal object NativeZoneLab9058 {
             .put("decision",markJson(r.decision)).put("entry",r.entry?.let(::markJson)?:JSONObject.NULL)
             .put("last",r.last?.let(::markJson)?:JSONObject.NULL).put("stop",r.firstStop)
             .put("targets",JSONArray(r.firstTargets.toList())).put("n",r.observations).put("gap",r.maxGap)
-            .put("reason",r.reason).put("prediction",p?.let{JSONObject().put("head",it.head).put("published",it.published)
-                .put("linear",it.linear).put("neural",it.neural)}?:JSONObject.NULL).toString()
+            .put("reason",r.reason).put("signalAt9059",r.signalAt9059?:JSONObject.NULL)
+            .put("prediction",p?.let(::predictionJson)?:JSONObject.NULL)
+            .put("predictions9059",JSONArray().also{a->r.predictions9059.forEach{a.put(predictionJson(it))}}).toString()
     }
 
     private data class Row(val scope:NativeZoneSequence9058.Scope,val s:RunnerBarrierLearning9051.Sample,
                            val venue:String,val entryAt:Long,val entryUsd:Double,
-                           val prediction:NativeZoneSequence9058.Prediction?)
+                           val predictions:List<NativeZoneSequence9058.Prediction>)
     /** Reconstruct the first-barrier labels from typed same-venue receipts, never trust an arbitrary stored label vector. */
     private fun decode(line:String,now:Long):Row? { return try {
         if(line.length>8192)return null
@@ -154,6 +170,10 @@ internal object NativeZoneLab9058 {
         val scope=NativeZoneSequence9058.Scope.parse(o.getString("scope"))?:return null
         val asset=o.getString("asset");val t=o.getLong("t");val available=o.getLong("available")
         if(!NativeZoneSequence9058.clean(asset)||t !in 1L..Long.MAX_VALUE-NativeZoneSequence9058.HOUR||available !in t..now)return null
+        if(!o.isNull("signalAt9059")){
+            val signalAt=o.getLong("signalAt9059")
+            if(signalAt<=0L||t-signalAt !in 0L..5_000L)return null
+        }
         val a=o.getJSONArray("features");val y=o.getJSONArray("labels")
         if(a.length()!=NativeZoneSequence9058.WIDTH||y.length()!=NativeZoneSequence9058.HEADS)return null
         val x=DoubleArray(a.length()){i->if(a.isNull(i))Double.NaN else a.getDouble(i)}
@@ -188,9 +208,16 @@ internal object NativeZoneLab9058 {
             }
         }
         if(!expected.contentEquals(labels))return null
-        val p=o.optJSONObject("prediction")?.let{NativeZoneSequence9058.Prediction(it.getInt("head"),it.getLong("published"),
-            it.getDouble("linear"),it.getDouble("neural")).takeIf{v->v.valid(t)}}
-        Row(scope,RunnerBarrierLearning9051.Sample(asset,t,available,x,labels),basis.venue,entry?.event?:0L,entry?.usd?:Double.NaN,p)
+        fun readPrediction(j:JSONObject)=NativeZoneSequence9058.Prediction(j.getInt("head"),j.getLong("published"),
+            j.getDouble("linear"),j.getDouble("neural")).takeIf{v->v.valid(t)}
+        val a9059=o.optJSONArray("predictions9059")
+        val ps=if(a9059!=null){
+            if(a9059.length()>NativeZoneSequence9058.HEADS)return null
+            val parsed=(0 until a9059.length()).map{readPrediction(a9059.getJSONObject(it))?:return null}
+            if(parsed.map{it.head}.distinct().size!=parsed.size)return null
+            parsed
+        }else listOfNotNull(o.optJSONObject("prediction")?.let(::readPrediction))
+        Row(scope,RunnerBarrierLearning9051.Sample(asset,t,available,x,labels),basis.venue,entry?.event?:0L,entry?.usd?:Double.NaN,ps)
     } catch(_:Exception){null} }
 
     private fun flush(dest:File):Boolean{
@@ -250,16 +277,21 @@ internal object NativeZoneLab9058 {
         val fit=NativeZoneNet9058.fit(split,head,JobCost8813::cooperate9043)
         if(fit==null){status="insufficient independent support scope=$key head=$head";return true}
         val at=System.currentTimeMillis()
-        val next=models.filterValues{at-it.at in 0L..MODEL_TTL}.toMutableMap();next[key]=Published(head,at,fit)
-        while(next.size>32)next.remove(next.minByOrNull{it.value.at}!!.key)
-        models=next.toMap()
+        feedback9059.publish(rows.first().scope,head,at,fit)
+        val live=NativeZoneFeedback9059.score(eligible.getValue(key).flatMap{r->
+            r.predictions.filter{it.head==head}.map{p->
+                NativeZoneFeedback9059.Graded(r.s.asset,r.s.decision,r.s.available,r.s.labels[head],p)
+            }
+        },head,now)
+        val prospective=live?.let{" prospectiveAssets="+it.assets+" prospectiveWindows="+it.windows+
+            " neuralPreqBrier="+round(it.neuralBrier)+" linearPreqBrier="+round(it.linearBrier)} ?: " prospectiveAssets=0"
         val held=split.test.map{it.asset}.toSet()
         status="scope=$key head=$head assets="+fit.metrics.assets+" neuralAP="+round(fit.metrics.averagePrecision)+
             " linearAP="+round(fit.baseline.averagePrecision)+" neuralBrier="+round(fit.metrics.brier)+
-            " linearBrier="+round(fit.baseline.brier)+" "+pairs(rows.filter{it.s.asset in held},head)
+            " linearBrier="+round(fit.baseline.brier)+prospective+" "+pairs(rows.filter{it.s.asset in held},head)
         return true
     }
     fun statusLine()=tracker.status()+" zoneLab9058[$status unsupported="+unsupported.get()+" noProof="+noProof.get()+
         " noCost="+noCost.get()+" badScope="+badScope.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
-        " predictions="+predicted.get()+" models="+models.size+" authority=NONE]"
+        " forecasts="+predicted.get()+" retainedHeads="+feedback9059.count()+" staleSignals9059="+staleSignal9059.get()+" authority=NONE]"
 }
