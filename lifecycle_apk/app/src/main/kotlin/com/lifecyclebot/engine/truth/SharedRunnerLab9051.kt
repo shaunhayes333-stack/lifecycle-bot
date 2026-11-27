@@ -1,0 +1,191 @@
+package com.lifecyclebot.engine.truth
+
+import com.lifecyclebot.AATEApp
+import com.lifecyclebot.engine.JobCost8813
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.io.FileInputStream
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+
+/** Existing research writer + existing StrategyLab batch permit. No new executor, feed or admission authority. */
+internal object SharedRunnerLab9051 {
+    private const val FILE = "runner_barrier_9051.tsv"
+    private const val MAX_BYTES = 8L * 1024 * 1024
+    private const val KEEP_BYTES = 4L * 1024 * 1024
+    private const val MAX_ROWS = 6000
+    private const val SCOPE_ROWS = 1200
+    private const val MODEL_TTL = 24L * 3_600_000L
+    private val rawKeys = listOf("age","runup","pxPeak","dd","bp","chg5m","chg1h","volAccel","holderVel","txVel","top","turnover",
+        "newBuyers15s8666","agePrice","ageBp","ageChg","ageLiq","ageHolders","secsSincePrint","oppVolAccel","oppTxAccel","oppLiqDelta","liq","mcap","v3","cost","venue")
+    private val flowKeys = listOf("buyers60","new15","perMin","buyShare","netSol60","buyTx15","buyTxPrev15","repeat60","txPerMin","accel")
+    private val width = rawKeys.size + flowKeys.size
+    private val appended = AtomicLong()
+    private val censored = AtomicLong()
+    private val writeFailed = AtomicLong()
+    private val predicted = AtomicLong()
+    private var cursor = 0
+    private data class ScopeModel(val published: Long, val heads: Map<Int,RunnerBarrierLearning9051.Fit>)
+    @Volatile private var models: Map<String,ScopeModel> = emptyMap()
+    @Volatile private var status = "waiting for causal paths"
+    private fun file() = AATEApp.appContextOrNull()?.filesDir?.let { File(it,FILE) }
+    private fun scope(lane: String): String? {
+        if (!lane.matches(Regex("[A-Z0-9_]{1,64}"))) return null
+        return lane.takeIf { it in EdgeModel8537.LANES || it.startsWith("CRYPTO_") ||
+            it.startsWith("PERPS_") || it.startsWith("EVM_") || it.startsWith("XSTOCK_") ||
+            it.startsWith("MARKETS_") || it.startsWith("STOCK_") }
+    }
+    private fun features(p: JSONObject): DoubleArray? {
+        if (!p.optBoolean("rawPresent") || p.optInt("v") != 1) return null
+        fun d(k: String) = p.optDouble(k,Double.NaN)
+        fun fresh(k: String, seconds: Double) = d(k) in 0.0..seconds
+        val flow = p.optJSONObject("flow")?.takeIf { p.optLong("atMs") - it.optLong("asOfMs") in 0L..20_000L }
+        val v = DoubleArray(width) { i ->
+            if (i >= rawKeys.size) flow?.optDouble(flowKeys[i-rawKeys.size],Double.NaN) ?: Double.NaN
+            else {
+                val k=rawKeys[i]
+                when {
+                    k=="bp" && !fresh("ageBp",20.0) -> Double.NaN
+                    k in setOf("chg5m","chg1h") && !fresh("ageChg",60.0) -> Double.NaN
+                    k=="liq" && !fresh("ageLiq",15.0) -> Double.NaN
+                    k in setOf("top","holderVel") && !fresh("ageHolders",120.0) -> Double.NaN
+                    else -> d(k)
+                }
+            }
+        }
+        return v
+    }
+
+    /** Only called by ResearchRows' one existing writer after the raw row was appended. */
+    fun note(line: String) {
+        if (!line.contains("\"precursor9049\"") || !line.contains("\"horizonMs\":3600000")) return
+        try {
+            val o=JSONObject(line)
+            val p=o.optJSONObject("precursor9049") ?: return
+            val lane=scope(o.optString("lane")) ?: return
+            val asset=p.optString("assetId")
+            val t=o.optLong("t")
+            if (asset.isBlank() || asset.length>256 || asset.any { it=='\t' || it=='\r' || it=='\n' } ||
+                asset.take(44)!=o.optString("mint") || p.optString("lane")!=lane || p.optLong("atMs")!=t || t<=0L) return
+            val x=features(p) ?: return
+            val labels=pathLabels(o,p,t)
+            val now=System.currentTimeMillis()
+            if (now<t) return
+            val dest=file() ?: return
+            dest.appendText(listOf(lane,asset,t.toString(),now.toString(),x.joinToString(","),labels.joinToString(",")).joinToString("\t")+"\n")
+            if(labels.all { it<0 }) censored.incrementAndGet()
+            if(appended.incrementAndGet()%128L==0L && dest.length()>MAX_BYTES) trim(dest)
+        } catch (_: Exception) { writeFailed.incrementAndGet() }
+    }
+
+    /** Explicitly observed mark labels. Never infer an early fill from a 55s clamp or an old endpoint. */
+    private fun pathLabels(o: JSONObject,p: JSONObject,t: Long): IntArray {
+        val unknown=IntArray(RunnerBarrierLearning9051.HEADS){-1}
+        if (p.optDouble("agePrice",Double.NaN) !in 0.0..5.0 ||
+            RunnerResearchContract9050.sampledEndpoint(o.optString("reason"),o.optString("pathKind9050")) ||
+            ResearchEvidence9043.read9043(o).quality!=ResearchEvidence9043.Quality.PRICED) return unknown
+        val recipe=ForwardLabelRecipe9043.decode9043(o.optJSONObject("labelRecipe9043")) ?: return unknown
+        val path=o.optJSONObject("runnerPath9049") ?: return unknown
+        if(recipe.decidedAtMs!=t || path.optInt("v")!=1 || path.optString("kind")!="OBSERVED_MARK_ORDER_ONLY" ||
+            path.optBoolean("liveAuthority",true) || path.optLong("decisionMs")!=t ||
+            path.optLong("horizonMs")!=RunnerBarrierLearning9051.HOUR ||
+            abs(path.optDouble("stopPct",Double.NaN)-recipe.decision.stopPct)>1e-8 ||
+            !path.optDouble("stopPct",Double.NaN).isFinite() || !recipe.decision.stopPct.isFinite() ||
+            !path.optDouble("costPct",Double.NaN).isFinite() ||
+            !o.optDouble("cost",Double.NaN).isFinite() ||
+            abs(path.optDouble("costPct")-o.optDouble("cost"))>0.001) return unknown
+        val proof=o.optJSONObject("priceProof9043") ?: return unknown
+        val entry=try { LabelMark8386.decode(proof.getJSONObject("entry")) } catch (_:Exception){return unknown}
+        val outcome=try { LabelMark8386.decode(proof.getJSONObject("outcome")) } catch (_:Exception){return unknown}
+        if (entry.mint!=p.optString("assetId") || outcome.mint!=entry.mint ||
+            entry.observedAtMs!=path.optLong("entryMs") ||
+            outcome.observedAtMs<path.optLong("lastMs") ||
+            !LabelEvidence8386.extremePairProven9043(entry,outcome,proof.optBoolean("provenMigration"))) return unknown
+        val stamps=path.optJSONArray("firstTargetMs") ?: return unknown
+        val targetIds=path.optJSONArray("targetsNetPct") ?: return unknown
+        if(stamps.length()!=RunnerBarrierLearning9051.targets.size || targetIds.length()!=stamps.length())return unknown
+        for(i in RunnerBarrierLearning9051.targets.indices)if(targetIds.optDouble(i)!=RunnerBarrierLearning9051.targets[i].toDouble())return unknown
+        val hits=LongArray(stamps.length()){if(stamps.isNull(it))0L else stamps.optLong(it,-1L)}
+        return RunnerBarrierLearning9051.labels(t,path.optLong("entryMs"),recipe.entryLatencyMs,path.optLong("lastMs"),
+            path.optLong("maxGapMs",-1),path.optInt("n"),if(path.isNull("firstStopMs"))0L else path.optLong("firstStopMs",-1),hits)
+    }
+
+    private fun trim(dest: File) {
+        val tmp=File(dest.path+".tmp9051")
+        FileInputStream(dest).use { input ->
+            input.channel.position((dest.length()-KEEP_BYTES).coerceAtLeast(0L))
+            input.bufferedReader().use { r ->
+                r.readLine()  // first row may be partial
+                tmp.bufferedWriter().use { w -> r.forEachLine { w.appendLine(it) } }
+            }
+        }
+        if(!tmp.renameTo(dest))tmp.delete()
+    }
+
+    private data class Scoped(val lane:String,val row:RunnerBarrierLearning9051.Sample)
+    private fun decode(line:String): Scoped? { return try {
+        if(line.length>4096)return null
+        val c=line.split('\t')
+        if(c.size!=6)return null
+        val lane=scope(c[0]) ?: return null
+        val x=c[4].split(',').map{it.toDouble()}.toDoubleArray()
+        val y=c[5].split(',').map{it.toInt()}.toIntArray()
+        if(x.size!=width || y.size!=RunnerBarrierLearning9051.HEADS || y.any{it !in -1..1})null
+        else Scoped(lane,RunnerBarrierLearning9051.Sample(c[1],c[2].toLong(),c[3].toLong(),x,y))
+    } catch (_:Exception){null} }
+
+    /** Bounded work on the existing strategy-lab batch turn. One eligible lane per cycle; every head is shadow. */
+    fun train(nowMs:Long) {
+        val dest=file()?.takeIf { it.isFile } ?: return
+        val tail=java.util.ArrayDeque<Scoped>(MAX_ROWS)
+        var read=0
+        dest.useLines { seq -> seq.forEach { line ->
+            if(++read%128==0) JobCost8813.cooperate9043()
+            decode(line)?.takeIf { it.row.available<=nowMs }?.let {
+                if(tail.size>=MAX_ROWS)tail.removeFirst();tail.addLast(it)
+            }
+        } }
+        val by=tail.groupBy{it.lane}
+        val eligible=by.keys.sorted().filter{lane->by.getValue(lane).size>=300}
+        if(eligible.isEmpty()){status="waiting rows="+tail.size+" scopes="+by.size;return}
+        val lane=eligible[Math.floorMod(cursor++,eligible.size)]
+        val rs=by.getValue(lane).map{it.row}.sortedBy{it.decision}.takeLast(SCOPE_ROWS)
+        val split=RunnerBarrierLearning9051.split(rs)
+        val heads=LinkedHashMap<Int,RunnerBarrierLearning9051.Fit>()
+        for(h in 0 until RunnerBarrierLearning9051.HEADS){
+            JobCost8813.cooperate9043()
+            RunnerBarrierLearning9051.fit(split,h,JobCost8813::cooperate9043)?.let{heads[h]=it}
+        }
+        val published=System.currentTimeMillis()
+        val next=models.filterValues { published-it.published in 0L..MODEL_TTL }.toMutableMap()
+        if(heads.isEmpty())next.remove(lane) else next[lane]=ScopeModel(published,heads)
+        while(next.size>16)next.remove(next.minByOrNull{it.value.published}!!.key)
+        models=next.toMap()
+        status="lane="+lane+" retained="+rs.size+" split="+split.train.size+"/"+split.valid.size+"/"+split.test.size+
+            " heads="+heads.size+"/"+RunnerBarrierLearning9051.HEADS+" [MARK_PROXY_SHADOW] "+
+            heads.entries.joinToString(" "){(h,fit)->
+                val m=fit.metrics
+                (RunnerBarrierLearning9051.horizons[h/6]/60000).toString()+"m+"+RunnerBarrierLearning9051.targets[h%6]+
+                    ":n"+m.n+"/pos"+m.positives+"/AP"+round(m.averagePrecision)+"/base"+round(m.baseRate)+
+                    "/Brier"+round(m.brier)+"/const"+round(m.constantBrier)
+            }
+    }
+    private fun round(x:Double)=Math.round(x*10000.0)/10000.0
+
+    /** Freeze a shadow prediction at decision time using the same feature contract as training. */
+    fun prediction(p:JSONObject):JSONObject? {
+        val lane=scope(p.optString("lane")) ?: return null
+        val model=models[lane] ?: return null
+        val at=p.optLong("atMs")
+        if(at-model.published !in 0L..MODEL_TTL || p.optDouble("agePrice",Double.NaN) !in 0.0..5.0)return null
+        val x=features(p) ?: return null
+        val a=JSONArray()
+        for(h in 0 until RunnerBarrierLearning9051.HEADS)a.put(model.heads[h]?.let{round(it.model.predict(x))} ?: JSONObject.NULL)
+        predicted.incrementAndGet()
+        return JSONObject().put("kind","MARK_PROXY_SHADOW").put("modelPublishedMs",model.published).put("p",a).put("liveAuthority",false)
+    }
+
+    fun statusLine()="sharedRunner9051["+status+" stored="+appended.get()+" censored="+censored.get()+
+        " writeFailed="+writeFailed.get()+" predictions="+predicted.get()+" models="+models.size+" authority=NONE]"
+}

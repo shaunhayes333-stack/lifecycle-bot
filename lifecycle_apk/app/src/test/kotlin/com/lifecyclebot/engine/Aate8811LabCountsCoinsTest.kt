@@ -25,7 +25,7 @@ class Aate8811LabCountsCoinsTest {
 
     @Test fun theMinerAndTheGradeCountCoinsAndSearchSources() {
         val lab = src("engine/lab/StrategyLab8755.kt")
-        assertTrue(lab.contains("o.optString(\"mint\", \"\"))"))
+        assertTrue(lab.contains("o.optString(\"mint\", \"\"), o.optLong(\"horizonMs\")"))
         // V5.0.8831 (supersedes the copying count): the same per-coin count, on the scope's row indices (Aate8831 proves parity)
         assertTrue(lab.contains("val acc = accOver8831(disc, ix, idx) { val v = it.f[i]; v.isFinite() && v >= lo && v <= hi }"))
         assertTrue(lab.contains("Family.SCORE, Family.CELL -> record8755(perCoin8811(held.filter { matches8755(spec, it.lane, it.src, it.f) }))"))

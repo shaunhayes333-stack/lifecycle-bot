@@ -208,6 +208,8 @@ object ResearchRows8877 {
             o.put("source", r.source.take(120)).put("phase", r.phase).put("modelEpoch", s.modelEpoch)
             fun n(k: String, v: Double) { if (v.isFinite()) o.put(k, v) }
             n("age",r.ageMin); n("runup",r.runup); n("pxPeak",r.pxPeak); n("dd",r.dd)
+            n("liq",r.liq); n("mcap",r.mcap); n("v3",r.v3); n("cost",r.costPct)
+            n("venue",LearnerColumns8798.valueOf8873(r.ext,"venue"))
             n("bp",r.bp); n("chg5m",r.chg5m); n("chg1h",r.chg1h); n("volAccel",r.volAccel)
             n("holderVel",r.holderVel); n("txVel",r.txVel); n("top",r.top); n("turnover",r.turnover)
             n("newBuyers15s8666",r.newBuyers15s8666)
@@ -222,7 +224,10 @@ object ResearchRows8877 {
                 if (atMs - b.optLong("asOfMs") in 0L..20_000L) o.put("flow",b)
             }
         } catch (_: Exception) {}
-        return o.toString().takeIf { it.length <= 2048 }.orEmpty()
+        val frozen = o.toString().takeIf { it.length <= 2048 }.orEmpty()
+        if (frozen.isEmpty()) return frozen
+        try { SharedRunnerLab9051.prediction(o)?.let { o.put("shadow9051",it) } } catch (_: Exception) {}
+        return o.toString().takeIf { it.length <= 2048 } ?: frozen
     }
 
     internal fun validPrecursor9049(raw: String, mint: String, lane: String, atMs: Long): String {
@@ -248,6 +253,7 @@ object ResearchRows8877 {
             try {
                 val f = file8877() ?: return@execute
                 f.appendText(safeLine + "\n")
+                SharedRunnerLab9051.note(safeLine)
                 lastAtMs = nowMs
                 if (written.incrementAndGet() % CHECK_EVERY_8877 == 0L) trim8877(f)
             } catch (_: Throwable) { failed.incrementAndGet() }

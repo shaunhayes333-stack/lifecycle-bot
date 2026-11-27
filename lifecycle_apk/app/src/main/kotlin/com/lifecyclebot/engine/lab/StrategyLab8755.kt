@@ -52,7 +52,8 @@ object StrategyLab8755 {
                     val runnerPct: Int = 95, val launch: LaunchReplay8744.Rule? = null, val base: BaseFamily8754.Rule? = null,
                     val scoreMin: Int = 0)
     data class Record(val n: Int, val mean: Double, val median: Double, val exTop3: Double, val se: Double, val tenX: Double)
-    class Row(val t: Long, val lane: String, val src: String, val net: Double, val f: DoubleArray, val mint: String = "")
+    class Row(val t: Long, val lane: String, val src: String, val net: Double, val f: DoubleArray, val mint: String = "",
+              val horizon: Long = 900_000L, val observedAt: Long = 0L)
 
     val FEATURES = listOf("liq", "mcap", "age", "runup", "dd", "bp", "chg5m", "chg1h", "top", "txVel", "turnover", "curve",
         "pxPeak", "cost", "volAccel", "v3", "newBuyers15s8666")
@@ -62,7 +63,6 @@ object StrategyLab8755 {
     private const val ARCHIVE_N = 300
     private const val RUN_EVERY_MS = 60L * 60_000L
     private const val MAX_LINES = 25_000
-    private const val WINDOW_MS = 15L * 60_000L
     private const val RUNNER_NET = 100.0
     private const val MAX_MINED = 8
     private const val MINE_MIN_N = 150
@@ -81,7 +81,7 @@ object StrategyLab8755 {
         if (!EdgeModel8537.plausible8617(d("mcap"), net, o.optBoolean("witness", false))) return null
         if (lane !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) return null   // V5.0.8767 — the dataset's one acceptance rule
         val src = o.optString("src", "").split(',').firstOrNull()?.trim()?.uppercase().orEmpty().ifBlank { "UNKNOWN" }
-        return Row(o.optLong("t", 0L), lane, src, net.coerceAtMost(1_000.0), DoubleArray(FEATURES.size) { d(FEATURES[it]) }, o.optString("mint", ""))
+        return Row(o.optLong("t", 0L), lane, src, net.coerceAtMost(1_000.0), DoubleArray(FEATURES.size) { d(FEATURES[it]) }, o.optString("mint", ""), o.optLong("horizonMs"), o.optLong("labelObservedAtMs"))
     }
 
     /**
@@ -257,27 +257,49 @@ object StrategyLab8755 {
     }
 
     private fun run(nowMs: Long) {
+        // Reuse this bounded batch turn; the compact ledger never trains on a
+        // trading or stream thread. Under memory pressure keep the native lab path unchanged.
+        if (try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name == "NORMAL" } catch (_: Exception) { false })
+            try { com.lifecyclebot.engine.truth.SharedRunnerLab9051.train(nowMs) } catch (e: InterruptedException) { throw e } catch (_: Exception) {}
         val file = EdgeModel8537.datasetFile8755()
         if (file == null || !file.exists()) { status = "no dataset"; return }
         // V5.0.8756 — each line is parsed as it is read and only the parsed row is kept (the tail of raw JSON strings held
         // tens of MB at once on the phone's heap)
         val tail = java.util.ArrayDeque<Row>(MAX_LINES)
         file.useLines { seq -> seq.forEach { line -> row8755(line)?.let { if (tail.size == MAX_LINES) tail.removeFirst(); tail.addLast(it) } } }
-        val seen = HashSet<String>()
-        val rows = tail.sortedBy { it.t }.filter { seen.add("${it.lane}|${it.src}|${it.t / WINDOW_MS}|${it.f.contentHashCode()}") }
+        val rows = tail.sortedBy { it.t }
         tail.clear()
         if (rows.size < 2_000) { status = "waiting rows=${rows.size}/2000"; return }
-        val cut = (rows.size * DISCOVERY_SHARE).toInt()
-        val disc = rows.subList(0, cut); val held = rows.subList(cut, rows.size)
+        val (disc, held) = causalSplit9051(rows)
+        if(disc.size<500 || held.size<100) {
+            status="waiting causal split train=${disc.size} test=${held.size}"
+            return
+        }
 
         trainHead(disc, held, nowMs)
         val mined = mine(disc, held)
-        sourceFactor = sourceFactors(rows)
+        sourceFactor = sourceFactors(disc)
         brief = briefOf(disc, mined)
         registerMined(mined)
         gradeLab(held)
         status = "ran rows=${rows.size} discovery=${disc.size} heldOut=${held.size} mined=${mined.count { it.third?.let { r -> passes8755(r, Family.CELL) } == true }}/${mined.size}"
         try { PipelineHealthCollector.labelInc("STRATEGY_LAB_RAN_8755") } catch (_: Throwable) {}
+    }
+
+    /** Legacy dataset has source observation time, not receipt availability. A full-hour
+     * embargo is conservative but still a proxy. Never share a token across the split.
+     */
+    internal fun causalSplit9051(input: List<Row>): Pair<List<Row>,List<Row>> {
+        val all=input.filter{it.mint.isNotBlank() && it.t>0L}.sortedBy{it.t}
+        if(all.size<2)return emptyList<Row>() to emptyList()
+        val cut=all[(all.size*DISCOVERY_SHARE).toInt().coerceIn(1,all.lastIndex)].t
+        val earlier=all.asSequence().filter{it.t<cut}.map{it.mint}.toHashSet()
+        val seen=HashSet<String>()
+        val unique=all.filter{seen.add(it.mint+"|"+it.lane+"|"+it.horizon)}
+        fun valid(r:Row)=r.horizon in listOf(300_000L,900_000L) && r.observedAt>=r.t &&
+            r.observedAt-r.t>=r.horizon
+        return unique.filter{valid(it) && it.t<cut && cut-it.t>3_600_000L && it.observedAt<cut} to
+            unique.filter{valid(it) && it.t>=cut && it.mint !in earlier}
     }
 
     private fun laneIndex(lane: String): Double = listOf("QUALITY", "BLUECHIP", "SHITCOIN", "EXPRESS", "MOONSHOT", "PROJECT_SNIPER",
@@ -286,11 +308,17 @@ object StrategyLab8755 {
     private fun headX(lane: String, f: DoubleArray): DoubleArray = f + doubleArrayOf(laneIndex(lane))
 
     private fun trainHead(disc: List<Row>, held: List<Row>, nowMs: Long) {
-        val ys = disc.map { if (it.net >= RUNNER_NET) 1.0 else 0.0 }
-        if (ys.sum() < 20.0) { head = null; return }
-        val model = TreeRanker8737.train8737(disc.map { headX(it.lane, it.f) }, ys, List(disc.size) { 1.0 }, nowMs, trees = 60)
-        val scored = held.map { it to model.predict(headX(it.lane, it.f)) }.filter { it.second.isFinite() }
-        val sorted = scored.map { it.second }.sorted()
+        // The existing Lab runner head is explicitly the 15m endpoint target.
+        // 5m native desk rows stay available to their own cell/score research.
+        val seen=HashSet<String>()
+        val train=disc.filter{it.horizon==900_000L && seen.add(it.mint)}
+        val ys = train.map { if (it.net >= RUNNER_NET) 1.0 else 0.0 }
+        if (train.size<160 || ys.sum() < 20.0 || train.size-ys.sum()<20.0) { head = null; return }
+        val model = TreeRanker8737.train8737(train.map { headX(it.lane, it.f) }, ys, List(train.size) { 1.0 }, nowMs, trees = 60)
+        seen.clear()
+        val scored = held.filter{it.horizon==900_000L && seen.add(it.mint)}.map { it to model.predict(headX(it.lane, it.f)) }.filter { it.second.isFinite() }
+        // Cutoffs selected from the training distribution ONLY.
+        val sorted = train.map { model.predict(headX(it.lane,it.f)) }.filter{it.isFinite()}.sorted()
         if (sorted.isEmpty()) { head = null; return }
         val thr = listOf(90, 95, 98).associateWith { p -> sorted[((sorted.size - 1) * p / 100.0).toInt()] }
         val recs = thr.mapValues { (_, t) -> record8755(scored.filter { it.second >= t }.map { it.first.net }) }
@@ -400,6 +428,14 @@ object StrategyLab8755 {
         }
     }
 
+    private fun runnerRecord9051(spec: Spec, held: List<Row>): Record? {
+        val h=head ?: return null
+        val threshold=h.thresholds[spec.runnerPct] ?: return null
+        return record8755(perCoin8811(held.filter{r->r.horizon==900_000L &&
+            (spec.lane=="ANY" || spec.lane==r.lane) && (spec.source=="ANY" || spec.source==r.src) &&
+            h.model.predict(headX(r.lane,r.f))>=threshold}))
+    }
+
     private fun fmtRange(c: Cond): String = when {
         c.lo == Double.NEGATIVE_INFINITY -> "<=${"%.3g".format(c.hi)}"
         c.hi == Double.POSITIVE_INFINITY -> ">=${"%.3g".format(c.lo)}"
@@ -417,7 +453,7 @@ object StrategyLab8755 {
             val spec = specOf8755(s0) ?: continue
             val rec: Record? = when (spec.family) {
                 Family.SCORE, Family.CELL -> record8755(perCoin8811(held.filter { matches8755(spec, it.lane, it.src, it.f) }))   // V5.0.8811
-                Family.RUNNER -> head?.records?.get(spec.runnerPct)
+                Family.RUNNER -> runnerRecord9051(spec,held)
                 Family.LAUNCH -> spec.launch?.let { r -> if (paths.isEmpty() || !(solUsd > 0.0)) null
                     else record8755(paths.mapNotNull { LaunchReplay8744.simulateRule8755(it, r, solUsd, cost) }) }
                 Family.BASE -> spec.base?.let { r -> if (paths.isEmpty() || !(solUsd > 0.0)) null
@@ -503,7 +539,9 @@ object StrategyLab8755 {
         val src = raw.source.split(',').firstOrNull()?.trim().orEmpty()
         var best: LabStrategy? = null
         for ((s, spec) in cells) if (matches8755(spec, lane, src, f) && (best == null || s.honestExTop3_8755 - s.honestSe8755 > best.honestExTop3_8755 - best.honestSe8755)) best = s
-        if (runner != null) {
+        if (runner != null && com.lifecyclebot.engine.truth.PocketLedger8610.targetHorizon(lane)==900_000L &&
+            (runner.second.lane=="ANY" || runner.second.lane.equals(lane,true)) &&
+            (runner.second.source=="ANY" || runner.second.source.equals(src,true))) {
             val h = head; val thr = h?.thresholds?.get(runner.second.runnerPct)
             val p = h?.model?.predict(headX(lane.uppercase(), f))
             if (thr != null && p != null && p.isFinite() && p >= thr &&
@@ -524,7 +562,7 @@ object StrategyLab8755 {
         val fams = all.filter { it.status == LabStrategyStatus.PROMOTED }.groupingBy { specOf8755(it)?.family?.name ?: "?" }.eachCount()
         return "strategyLab8755[$status runnerHead{$headLine} minedTested=${minedTested.get()} memeStrategies=${all.size} promoted=$fams " +
             "live{cells=${liveCells.size} runner=${liveRunner?.first?.name ?: "-"} launch=${liveLaunch?.rule?.id ?: "-"} base=${liveBase?.rule?.id ?: "-"}} " +
-            "evidenceServed=${served.get()} sources=${sourceFactor.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${"%.2f".format(it.value)}" }} " +
+            com.lifecyclebot.engine.truth.SharedRunnerLab9051.statusLine() + " evidenceServed=${served.get()} sources=${sourceFactor.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${"%.2f".format(it.value)}" }} " +
             "rule=held-out / witnessed-replay record, net of cost, ex-top-3 mean - ${Z_HELDOUT.toInt()} SE (held-out) or 1 SE (replay, DOCTRINE, the bot's latency) > 0, n>=$MIN_N]"
     }
 }
