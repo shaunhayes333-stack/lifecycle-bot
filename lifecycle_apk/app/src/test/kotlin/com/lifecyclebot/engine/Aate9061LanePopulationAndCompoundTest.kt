@@ -25,8 +25,8 @@ class Aate9061LanePopulationAndCompoundTest {
             com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,3){i->"{\"row\":$i}"}
             org.junit.Assert.assertEquals(listOf("{\"old\":true}","{\"row\":0}","{\"row\":1}","{\"row\":2}"),f.readLines())
             try {
-                com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,1){"x".repeat(8193)}
-                org.junit.Assert.fail("oversized row")
+                com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,1){"{}\n{}"}
+                org.junit.Assert.fail("multiple rows from one encoder")
             }catch(_:IllegalArgumentException){}
             org.junit.Assert.assertEquals(4,f.readLines().size)
         }finally{f.delete()}

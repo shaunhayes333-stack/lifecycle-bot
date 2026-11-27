@@ -102,8 +102,15 @@ def audit(path):
                                    median_delta=statistics.median(b-a for a, b, _ in pairs),
                                    identical_values=sum(a == b for a, b, _ in pairs),
                                    later_lostmark=sum(lost for _, _, lost in pairs)))
+    sets = {lane: {mint for (l, h, mint), r in first.items() if l == lane and h == 3600000
+                   and r.get("stage") == "BASE_START" and number(r.get("net"))}
+            for lane in ("CORE", "EXPRESS", "MOONSHOT", "CYCLIC")}
+    overlap = [dict(lanes=[a, b], assets_a=len(sets[a]), assets_b=len(sets[b]),
+                    common=len(sets[a] & sets[b]), union=len(sets[a] | sets[b]))
+               for a, b in (("CORE", "EXPRESS"), ("CORE", "MOONSHOT"), ("CORE", "CYCLIC"))]
     return dict(sha256=digest, raw=counts, unique_assets=len({k[2] for k in first}),
-                earliest_decisions=len(first), cohorts=result, base_start_exact_decision_pairs=paired)
+                earliest_decisions=len(first), cohorts=result, base_start_exact_decision_pairs=paired,
+                base_start_1h_asset_overlap=overlap)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,8 @@ These are broad **historical research `net` labels for first BASE_START decision
 
 Formation is a useful candidate for CORE/EXPRESS/MOONSHOT research. It is not sufficient evidence for transplanting their entries into CYCLIC or CASHGEN. Missing prices are substantial: assigning missing outcomes a hypothetical -100% reverses even the CORE/EXPRESS/MOONSHOT broad-cohort means. The script exposes that sensitivity; it does **not** assert the missing tokens lost 100%.
 
+These lane results are correlated: CORE and EXPRESS share 301 of their 353/366 priced BASE_START assets; CORE and MOONSHOT share 310 of 353/352. This is largely shared market evidence viewed through different lane decisions, not three independent confirmations. Keep asset-disjoint validation and lane-specific attribution when sharing their learning.
+
 The precise population and horizon matter more than a pooled headline. Even CASHGEN's small PRICED-stamp one-hour subset averages +30.31% (47 assets), but its median is -21.75% and removing its best three makes the mean -25.24%. That is not dependable evidence for scaling it.
 
 ### Long-horizon evidence cannot yet choose exits

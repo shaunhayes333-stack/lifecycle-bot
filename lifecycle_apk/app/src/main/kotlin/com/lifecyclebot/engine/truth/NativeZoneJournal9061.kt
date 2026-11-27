@@ -13,7 +13,9 @@ internal object NativeZoneJournal9061 {
             FileOutputStream(dest,true).bufferedWriter().use{w->
                 repeat(count){i->
                     val row=encode(i)
-                    require(row.length<=8192 && '\n' !in row && '\r' !in row)
+                    // The codec owns schema/size eligibility. A large valid JSON row must not
+                    // poison the whole pending queue merely because training may reject it.
+                    require('\n' !in row && '\r' !in row)
                     w.append(row);w.newLine()
                 }
             }
