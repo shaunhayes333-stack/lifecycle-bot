@@ -32,7 +32,7 @@ object FrozenEdgeTarget9043 {
     }
 
     fun effectiveStop9043(value: Double): Double = if (value.isFinite() && value > 0.0) value else 100.0
-    fun effectiveCost9043(value: Double): Double = if (value.isFinite() && value > 0.0) value else 0.0
+    private fun effectiveCost9043(value: Double): Double = if (value.isFinite() && value > 0.0) value else 0.0
 
     fun receipt9043(netPct: Double, stopPct: Double, costPct: Double, origin: String): Receipt? {
         if (!netPct.isFinite() || origin !in setOf(DECISION_FROZEN, LEGACY_LABEL_TIME_STOP)) return null
