@@ -424,8 +424,15 @@ object ExitProfile7955 {
         val lane = canon(sealed8081?.entryLane ?: pos.tradingMode)
         // Entry identity is immutable. A later chart pattern or lane transition
         // cannot select a new exit ladder for a position already purchased.
+        // 9062: missing entry identity is unknown, not permission to rerank an open lot.
+        // The held exit thread was blocked for 31 s in LanePlaybook.strategyPick8153
+        // while this fallback competed with learning checkpoints. Keep the existing
+        // prior profile for NONE; candidate setup selection remains unchanged.
         val entrySetup8081 = sealed8081?.entrySetup?.takeIf { setupFired7961(it) }
-            ?: entrySetup7955(ts, lane, nowMs)
+            ?: "NONE"
+        if (entrySetup8081 == "NONE") try {
+            PipelineHealthCollector.labelInc("EXIT_PROFILE_UNKNOWN_ENTRY_PRIOR_9062")
+        } catch (_: Throwable) {}
         if (entrySetup8081 == sealed8081?.entrySetup) try {
             PipelineHealthCollector.labelInc("EXIT_PROFILE_EXACT_ENTRY_SETUP_8081")
         } catch (_: Throwable) {}
