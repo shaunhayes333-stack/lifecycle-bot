@@ -1,0 +1,3 @@
+# AATE 9053 — direct main integration
+
+Owner explicitly directs all repairs to main; no additional PR/branch dependency. Integrates 9048–9052 source and documentation, fixes the 9051/9052 dead-code guard by making the genuinely file-local entryReachable helper private, and binds delayed chain evidence wakeups to runtime generation and listener identity. No bypass of hard safety, no risk expansion. Earlier 9049 historical assertion addressed in 9050. Exact commit still requires release, required and historical tests, runtime, retained-data upgrade and handset validation. New learning heads remain shadow; profitability is unproven. The runtime generation and callback regressions are included in the historical Aate8957 suite. Do not release a failing build.

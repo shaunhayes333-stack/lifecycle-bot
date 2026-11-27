@@ -14,6 +14,13 @@ class Aate8957ChainAnswerTest {
     private fun src(p: String) = File("src/main/kotlin/com/lifecyclebot/$p").readText()
     @After fun tearDown() { ChainConfirm8950.answered8957 = null }
 
+    @Test fun delayedWakeIsBoundToGenerationAndListener() {
+        assertTrue(ChainConfirm8950.sameWake9053(12L,12L,true,true))
+        assertFalse(ChainConfirm8950.sameWake9053(12L,13L,true,true))
+        assertFalse(ChainConfirm8950.sameWake9053(12L,12L,false,true))
+        assertFalse(ChainConfirm8950.sameWake9053(12L,12L,true,false))
+    }
+
     @Test fun priceAndStageWaitsDoNotStartTimers() {
         val price = ChainConfirm8950.Input8950.PRICE_DEPTH
         val bars = ChainConfirm8950.Input8950.HISTORY
@@ -72,7 +79,7 @@ class Aate8957ChainAnswerTest {
         assertTrue(c.contains("val local = if (mint == ts.mint) ts else ts.copy(mint = mint)"))
         assertTrue(c.contains("for (input in inputs) ask8950(local, input, use, nowMs)"))
         assertTrue(c.contains("if(ping && needsTimedFallback8959(setOf(req.input)))"))
-        assertTrue(c.contains("if(run)rerun8957(mint,System.currentTimeMillis())"))
+        assertTrue(c.contains("if(run)rerun8957(mint,System.currentTimeMillis(),req.generation)"))
         assertTrue("only a ping actually sent re-runs (the 20 s per-input gap still binds)", c.contains("if (!due) return false"))
         val b = src("engine/BotService.kt")
         assertTrue(b.contains("com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->"))

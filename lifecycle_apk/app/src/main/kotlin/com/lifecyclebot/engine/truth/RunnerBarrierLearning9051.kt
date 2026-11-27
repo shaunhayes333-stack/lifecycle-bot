@@ -13,7 +13,7 @@ internal object RunnerBarrierLearning9051 {
     val targets = intArrayOf(30, 50, 100, 200, 500, 1000)
     const val HEADS = 18
 
-    fun entryReachable(decision: Long, entry: Long, delay: Long): Boolean =
+    private fun entryReachable(decision: Long, entry: Long, delay: Long): Boolean =
         decision > 0 && delay in 1L..60_000L && entry >= decision && entry - decision in delay..60_000L
 
     /** Path coverage is a conservative prerequisite, even when a target was observed. */
