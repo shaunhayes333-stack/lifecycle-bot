@@ -112,11 +112,13 @@ class Aate8394FillContractTest {
         val now=System.currentTimeMillis()
         val ts=com.lifecyclebot.data.TokenState(mint="scalp8394-${System.nanoTime()}",position=com.lifecyclebot.data.Position(
             qtyToken=1000.0,entryPrice=100.0,entryTime=now-60000,tradingMode="MOONSHOT",isPaperPosition=false))
-        val key="${ts.mint}|${ts.position.entryTime}"
+        // The scalp planner retains its mint/entry key; the durable runner book owns mode and position identity too.
+        val stateKey="${ts.mint}|${ts.position.entryTime}"
+        val key=RunnerLive8153.positionKey9043(ts)
         val states=ScalpExit8351::class.java.getDeclaredField("states").apply { isAccessible=true }.get(ScalpExit8351) as MutableMap<String,Any>
         val state=ScalpExit8351::class.java.declaredClasses.single { it.simpleName=="State8351" }.declaredConstructors
             .first { it.parameterCount==5 }.apply { isAccessible=true }.newInstance(true,9.28,13.92,0.0,0.0)
-        states[key]=state
+        states[stateKey]=state
         val offered=ArrayList<String>()
         val book=RunnerLive8153::class.java.getDeclaredField("book").apply { isAccessible=true }.get(RunnerLive8153) as RunnerRungBook8153
         try {
@@ -131,6 +133,8 @@ class Aate8394FillContractTest {
             SpikeCapture7943.rearm(ts,1,offered.last())
             ScalpExit8351.offer8351(ts,135.0,now+3000) { _,_,reason -> offered+=reason }
             assertEquals(3,offered.size)
+            SpikeCapture7943.onConfirmedPartial8081(ts,offered.last(),java.math.BigInteger.ZERO)
+            assertEquals(0,book.confirmedTier8153(key,scalp))
             SpikeCapture7943.onConfirmedPartial8081(ts,offered.last(),java.math.BigInteger.ONE)
             assertEquals(1,book.confirmedTier8153(key,scalp))
             ScalpExit8351.offer8351(ts,125.0,now+4000) { _,_,reason -> offered+=reason }
@@ -138,7 +142,7 @@ class Aate8394FillContractTest {
             val recovered=RunnerRungBook8153();recovered.restore8153(book.encode8153())
             assertEquals(1,recovered.confirmedTier8153(key,scalp))
         } finally {
-            states.remove(key)
+            states.remove(stateKey)
             (RunnerRungBook8153::class.java.getDeclaredField("book").apply { isAccessible=true }.get(book) as MutableMap<String,Any>).remove(key)
         }
     }

@@ -61,7 +61,10 @@ class Aate8904BasePocketTest {
         val base = chain.indexOf("BasePocket8904.evidence8904(ts, lane, nowMs)")
         assertTrue(agreement >= 0 && base > agreement && base < chain.indexOf("LlmBands8875.evidence8875("))
         assertTrue(LaneAuthority8577.answersPriors8874(BasePocket8904.KIND_8904))
-        assertTrue(src("engine/truth/ResearchRows8877.kt").contains("BasePocket8904.learnLine8904(line)"))
+        val rows = src("engine/truth/ResearchRows8877.kt")
+        val annotated = rows.indexOf("val safeLine = try { ResearchEvidence9043.annotate9043(line) }")
+        assertTrue("the live pocket receives the quality-annotated row", annotated >= 0 &&
+            rows.indexOf("BasePocket8904.learnLine8904(safeLine)") > annotated)
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("BasePocket8904.statusLine8904()"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 92. Audit of 21 Nov, and the base pocket (8904)"))
     }

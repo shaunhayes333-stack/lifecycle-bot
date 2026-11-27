@@ -78,7 +78,7 @@ class Aate8748HonestReplayTest {
         val providers = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
         assertTrue("the sniper follows the paying cell in supported-proof selection",
             providers.indexOf("PayingCell8723.evidence8723(ts, lane, nowMs)") in
-                0 until providers.indexOf("LaunchSniper8748.evidence8748(ts.mint, nowMs)"))
+                0 until providers.indexOf("LaunchSniper8748.evidence8748(ts.mint, nowMs, launchFire9043)"))
         val helius = File("src/main/kotlin/com/lifecyclebot/network/HeliusCurveTape8354.kt").readText()
         // V5.0.8750 (supersedes the direct call): every program print takes the one witnessed launch-evidence route first
         assertTrue(helius.indexOf("TradeTape8100.launchEvidence8750(") in 0 until helius.indexOf("if (!cares8354(mint, nowMs))"))

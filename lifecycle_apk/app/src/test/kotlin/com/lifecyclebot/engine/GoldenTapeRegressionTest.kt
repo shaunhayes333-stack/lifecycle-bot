@@ -14118,7 +14118,18 @@ class GoldenTapeRegressionTest {
         assertTrue(Regex("awaitConfirmationKeepingSignature7733\\((sig|signature|localSig8085|signed\\.signature)\\)").findAll(w).count() >= 3)
         assertTrue(w.contains("if (awaitFinality) awaitConfirmationKeepingSignature7733(signature)"))
         assertTrue(w.contains("} catch (sent: SentButUnconfirmed7733) {"))
-        assertTrue(w.contains("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: OnChainFailed8085) {\n                throw e\n            } catch (e: TxExpiredProven8085) {\n                throw e\n            } catch (e: Exception) {\n                lastException = e"))
+        val typedCatchStart = w.indexOf("} catch (e: SentButUnconfirmed7733) {\n                throw e\n            } catch (e: OnChainFailed8085) {")
+        assertTrue("the Ultra typed-outcome catch chain is present", typedCatchStart >= 0)
+        val typedCatchChain = w.substring(typedCatchStart).substringBefore("lastException = e")
+        var priorCatch = -1
+        for (type in listOf("OnChainFailed8085", "TxExpiredProven8085", "com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043")) {
+            val marker = "} catch (e: $type) {"
+            val at = typedCatchChain.indexOf(marker)
+            assertTrue("$type must be rethrown before generic transport retry", at > priorCatch)
+            assertTrue(typedCatchChain.substringAfter(marker).substringBefore("} catch").trimStart().startsWith("throw e"))
+            priorCatch = at
+        }
+        assertTrue(typedCatchChain.indexOf("} catch (e: Exception) {") > priorCatch)
         // ... the receipt is stamped on the pending row before anything after the send can throw ...
         assertTrue(ex.contains("try { HostWalletTokenTracker.recordSignedBuyBasis7708(ts.mint, ts.symbol, price, sol, sig, routedLaneTag) } catch (_: Throwable) {}"))
         assertEquals(2, Regex("\\s*broadcastSig7733 = sig").findAll(ex).count())

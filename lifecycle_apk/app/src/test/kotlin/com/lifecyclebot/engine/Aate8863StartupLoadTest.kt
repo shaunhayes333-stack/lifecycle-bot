@@ -178,12 +178,13 @@ class Aate8863StartupLoadTest {
 
     @Test fun theThreeLedgersWaitForTheOneReadAndTheOtherReadersAskTheTextFirst() {
         val replay = src("engine/truth/DatasetReplay8863.kt")
-        assertTrue(replay.contains("JobCost8813.measureBackground8817(\"datasetSeed\")"))
+        assertTrue(replay.contains("JobCost8813.measureYielding8866(\"datasetSeed\")"))
         assertTrue(replay.contains("{ o -> PocketLedger8610.seedRow8863(o) }") && replay.contains("{ o -> PayingCell8723.seedRow8863(o) }") &&
             replay.contains("{ o -> ManagedBands8719.seedRow8863(o) }"))
         for (ledger in listOf("PocketLedger8610", "PayingCell8723", "ManagedBands8719")) {
             val s = src("engine/truth/$ledger.kt")
             assertTrue(ledger, s.contains("ready = DatasetReplay8863.await8863()") && s.contains("internal fun seedRow8863(o: JSONObject)"))
+            assertTrue("$ledger retains queued live labels until the shared generation is ready", s.contains("DatasetReplay8863.afterSeed9043"))
             assertFalse("$ledger reads the dataset itself", s.contains("forEachLine") || s.contains("datasetFile()"))
         }
         assertTrue(src("engine/truth/TreeRanker8737.kt").contains("if (EdgeModel8537.refusedUnparsed8863(line)) continue"))

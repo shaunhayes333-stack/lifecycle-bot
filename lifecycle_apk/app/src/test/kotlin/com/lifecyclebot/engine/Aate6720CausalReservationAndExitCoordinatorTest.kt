@@ -56,10 +56,13 @@ class Aate6720CausalReservationAndExitCoordinatorTest {
             "sweepStaleReservationsLocked must exist",
             causal.contains("private fun sweepStaleReservationsLocked(nowMs: Long)"),
         )
+        val lockedAdmissionStart = causal.substringAfter("fun admit(", "")
+            .substringAfter("synchronized(lock) {", "")
+            .substringBefore("var stamp = ticketStamps[attemptId]", "")
         assertTrue(
             "TTL sweep must run inside the same lock as the admit check",
-            causal.contains("sweepStaleReservationsLocked(System.currentTimeMillis())") &&
-                causal.contains("§CAUSAL_RESERVATION_LIFECYCLE"),
+            lockedAdmissionStart.contains("sweepStaleReservationsLocked(nowMs9043())") &&
+                causal.contains("private fun nowMs9043(): Long = clockForTest9043?.invoke() ?: System.currentTimeMillis()"),
         )
         assertTrue(
             "Sweep must emit CAUSAL_RESERVATION_TTL_SWEPT_6720 telemetry",

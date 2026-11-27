@@ -26,7 +26,15 @@ class Aate8915LearnAsTradedTest {
 
     @Test fun wired() {
         val l = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(l.contains("val edgeNet8915 = edgeTarget8915(o.lane, gross, o.minPct7962, o.heldPeak8071, o.costPct, net)"))
+        assertTrue("the booked outcome uses the exit recipe frozen with its decision",
+            l.contains("val edgeNet8915 = edgeTarget8915(o.lane, gross, o.minPct7962, o.heldPeak8071, o.costPct, net, o.labelRecipe9043)"))
+        assertTrue(l.contains("val recipe9043 = try { freezeLabelRecipe9043(it) }") &&
+            l.contains("it.labelRecipe9043 = recipe9043?.takeIf { r -> r.valid9043() }"))
+        assertTrue(l.contains("EdgeModel8537.learn(it, edgeNet8915, witness)"))
+        val target = l.substringAfter("internal fun edgeTarget8915(").substringBefore("fun edgeTargetLine8915()")
+        assertTrue("new observations use the frozen doctrine; only legacy observations use the current lane fallback",
+            target.contains("recipe9043?.edgeNet9043(gross, minPct, heldPeakPct, costPct, net)") &&
+                target.contains("?: BasePocket8904.doctrineNet8910(lane, gross, minPct, heldPeakPct, costPct, net)"))
         val extreme = l.substring(l.indexOf("if (status8386 == \"OBSERVED_ONLY_UNWITNESSED_EXTREME\") {"))
         val block = extreme.substring(0, extreme.indexOf("continue"))
         assertFalse("the observation is kept", block.contains("pending.remove(key, o)"))

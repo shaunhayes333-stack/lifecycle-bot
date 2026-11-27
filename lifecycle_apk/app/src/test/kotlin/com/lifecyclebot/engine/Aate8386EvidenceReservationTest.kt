@@ -50,16 +50,22 @@ class Aate8386EvidenceReservationTest {
         assertEquals(1, ForwardReturnLabeler7731.curveWitness8337(1.0, 3.0, 100_000L, 100_000L))
     }
     @Test fun atomicRebaseAndRestoreRetainDecisionAndRunnerBasis() {
-        val original = LabelBasis8386(mark(1.0, 1_000, true), 1_000.0)
-        val rebased = original.rebase(mark(3.0, 6_000, true))
+        fun proven(px: Double, at: Long) = mark(px, at, true).copy(venue = "pump.curve", source = "CURVE_FRAME")
+        val original = LabelBasis8386(proven(1.0, 1_000), 1_000.0)
+        val rebased = original.rebase(proven(3.0, 6_000))
         val restored = LabelBasis8386.decode(rebased.json())
         assertEquals(3.0, restored.mark.usd, 0.0); assertEquals(3_000.0, restored.capUsd, 0.0)
         assertEquals(1.0, original.mark.usd, 0.0)
         for (multiple in listOf(100.0, 1000.0)) {
-            val outcome = mark(3.0 * multiple, 60_000, true)
+            val outcome = proven(3.0 * multiple, 60_000)
             assertTrue(LabelEvidence8386.eligible(restored.mark, outcome))
             assertEquals((multiple - 1) * 100, (outcome.usd / restored.mark.usd - 1) * 100, 0.0)
         }
+        val extreme = proven(3_000.0, 60_000)
+        assertFalse("an independent flag alone is not a typed source receipt", LabelEvidence8386.eligible(restored.mark, extreme.copy(source = "TEST")))
+        assertFalse("unknown decimals cannot prove an extreme", LabelEvidence8386.eligible(restored.mark, extreme.copy(decimals = -1)))
+        assertFalse("a generic venue label is not a pool or curve identity",
+            LabelEvidence8386.eligible(restored.mark.copy(venue = "venue"), extreme.copy(venue = "venue")))
     }
     @Test fun invalidUnitsDecimalsUnknownTimeAndCorrelatedCapsCannotValidateBasis() {
         val entry = mark(1.0, 1_000)

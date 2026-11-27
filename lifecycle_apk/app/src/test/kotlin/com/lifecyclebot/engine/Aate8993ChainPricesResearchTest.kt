@@ -42,7 +42,13 @@ class Aate8993ChainPricesResearchTest {
         assertEquals("CHAIN_8993:LOSTMARK8983/NATIVE_READY", done.getString("reason"))
         assertEquals(900_000L, done.getLong("horizonMs")); assertEquals("MOONSHOT", done.getString("lane")); assertFalse(done.has("e8993"))
         assertEquals(44.0, ResearchRows8877.rowNet8983(done), 1e-4)
-        assertEquals("LOSTMARK8983/NATIVE_READY", AuthorityTable8887.row8887(done)!!.reason)
+        val waiting = AuthorityTable8887.row8887(JSONObject(row))!!
+        val priced = AuthorityTable8887.row8887(done)!!
+        assertTrue("the unanswered read remains unknown", waiting.net.isNaN())
+        assertEquals("NATIVE_READY", waiting.reason)
+        assertEquals("chain and lost-mark provenance must not split the original cohort", waiting.reason, priced.reason)
+        assertEquals(44.0, priced.net, 1e-4)
+        assertEquals("the original decision reason is persisted independently of read provenance", "NATIVE_READY", done.getString("originalReason9043"))
         assertNull("a 101x ratio is not a move a coin made", f.finish8993(row, 0.00002 * 101.0))
         assertNull(f.finish8993(row, Double.NaN))
     }

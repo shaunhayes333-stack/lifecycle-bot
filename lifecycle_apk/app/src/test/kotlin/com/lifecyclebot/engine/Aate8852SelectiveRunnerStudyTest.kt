@@ -13,7 +13,7 @@ class Aate8852SelectiveRunnerStudyTest {
 
     private fun mark(mint: String, px: Double, atMs: Long, independent: Boolean = true): LabelMark8386 =
         LabelMark8386(mint, "pump.curve", px, atMs, atMs,
-            if (independent) "CURVE_FRAME" else "OFFWATCH", independentBasis = independent)
+            if (independent) "CURVE_FRAME" else "OFFWATCH", decimals = 6, independentBasis = independent)
 
     @After fun clear() = book.resetForTest()
 
@@ -51,6 +51,20 @@ class Aate8852SelectiveRunnerStudyTest {
         assertEquals(at + 5_000L, result.entryAtMs)
         assertEquals(at + 5_000L + book.SIX_HOURS_MS, result.endAtMs)
         assertTrue(book.line().contains("markedOnly=NO_QUOTES"))
+    }
+
+    @Test fun aSourceNameWithoutRecordedDecimalsCannotCompleteAn800xStudy() {
+        val mint = "unknown_decimals"
+        val entered = at + 5_000L
+        assertTrue(book.nominate(mint, "MOONSHOT", "MEME_NATIVE_READY", 92.0, at))
+        book.observe(mint, mark(mint, 1.0, entered).copy(decimals = -1), entered, 4.0, true)
+        book.observe(mint, mark(mint, 800.0, entered + book.SIX_HOURS_MS).copy(decimals = -1), entered + book.SIX_HOURS_MS)
+        assertTrue("an unsupported extreme cannot complete the study", book.resultsForTest().isEmpty())
+        book.matureMissing(entered + book.SIX_HOURS_MS + book.EXIT_GRACE_MS + 1L)
+        val result = book.resultsForTest().single()
+        assertEquals(RunnerStudy8852.State.EXIT_UNAVAILABLE, result.state)
+        assertNull(result.holdUsd10)
+        assertNull(result.priceOnlyExitUsd10)
     }
 
     @Test fun replayCapturesPartialProfitsAndPriceGivebackOnlyOnDensePaths() {

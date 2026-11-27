@@ -13,7 +13,8 @@ class Aate9035LaunchReplayTurnTest {
     @Test fun theLaunchReplayIsMeasuredAndTakesItsTurn() {
         assertTrue("launchReplay" in JobCost8813.GATED_9033)
         assertEquals(JobCost8813.TURN_WAIT_MAX_MS_9033, JobCost8813.turnWaitMs9033("launchReplay", waitsForHeadroom = true))
-        assertTrue(JobCost8813.turnsLine9033().contains("launch-replay"))
+        val turns = JobCost8813.turnsLine9033()
+        assertTrue(turns, turns.contains("decision seed first") && turns.contains("one exclusive turn"))
         val rp = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchReplay8744.kt").readText()
         val measured = rp.indexOf("JobCost8813.measureBackground8817(\"launchReplay\") {")
         assertTrue(measured > 0)
@@ -26,6 +27,7 @@ class Aate9035LaunchReplayTurnTest {
         // a measured run is counted like any other
         JobCost8813.resetForTest8813()
         JobCost8813.pressureForTest9033 = "NORMAL"
+        JobCost8813.seedReadyForTest9043 = { true }
         try {
             assertEquals(3, JobCost8813.measureBackground8817("launchReplay") { 3 })
             assertTrue(JobCost8813.statusLine8813().contains("launchReplay:runs1"))

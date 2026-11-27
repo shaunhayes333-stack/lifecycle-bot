@@ -54,7 +54,8 @@ class Aate8813JobCostTest {
         assertTrue(src("engine/lab/StrategyLab8755.kt").contains("JobCost8813.measureBackground8817(\"strategyLab\") { run(nowMs) }"))
         // superseded by V5.0.8863 — the three ledgers' dataset replays are one measured job (DatasetReplay8863 "datasetSeed");
         // each ledger's worker waits for it.
-        assertTrue(src("engine/truth/DatasetReplay8863.kt").contains("JobCost8813.measureBackground8817(\"datasetSeed\")"))
+        // 9043: decision seeding uses the yielding CPU group while retaining its exclusive batch turn.
+        assertTrue(src("engine/truth/DatasetReplay8863.kt").contains("JobCost8813.measureYielding8866(\"datasetSeed\")"))
         for (ledger in listOf("ManagedBands8719", "PayingCell8723", "PocketLedger8610"))
             assertTrue(ledger, src("engine/truth/$ledger.kt").contains("ready = DatasetReplay8863.await8863()"))
         assertTrue(src("engine/truth/EdgeModel8537.kt").contains("JobCost8813.measureBackground8817(\"edgeReplay\")"))

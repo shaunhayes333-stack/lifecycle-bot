@@ -238,7 +238,11 @@ class Aate8537EdgeModelTest {
 
     @Test fun wiring_labeler_candidate_live_proof_brief_and_export() {
         val lab = src("engine/truth/ForwardReturnLabeler7731.kt")
-        assertTrue(lab.contains("it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)"))
+        val frozen = lab.indexOf("val recipe9043 = try { freezeLabelRecipe9043(it) }")
+        val snapshot = lab.indexOf("it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs,")
+        assertTrue("the decision freezes its exit recipe before freezing the model snapshot", frozen >= 0 && snapshot > frozen)
+        assertTrue(lab.substring(snapshot).substringBefore("it.trajectoryVenueEpoch8851 =")
+            .contains("labelRecipe9043 = it.labelRecipe9043?.json9043()?.toString().orEmpty()"))
         assertTrue(lab.contains("o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, edgeNet8915, witness) }"))   // V5.0.8915 — the exit-graded target
         assertTrue(lab.contains("EdgeModel8537.saveNow()"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")

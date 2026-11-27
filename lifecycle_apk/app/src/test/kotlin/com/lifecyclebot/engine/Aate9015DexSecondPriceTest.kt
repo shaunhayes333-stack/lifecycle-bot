@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.truth.ResearchFollow8884
+import com.lifecyclebot.engine.truth.AuthorityTable8887
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,6 +40,15 @@ class Aate9015DexSecondPriceTest {
         assertTrue(fn.contains("batchPriceFetchTyped8087(chunk, DEX_SLOT_WAIT_MS_9015, heldMarkTraffic = false)"))
         assertTrue(fn.contains("poolsOf8285(m).filter { it.priceUsd == px }.maxOfOrNull { it.liquidityUsd }"))
         val a = File("src/main/kotlin/com/lifecyclebot/engine/truth/AuthorityTable8887.kt").readText()
-        assertTrue(a.contains("raw.startsWith(ResearchFollow8884.DEX_PREFIX_9015) -> raw.removePrefix(ResearchFollow8884.DEX_PREFIX_9015)"))
+        assertTrue("the authority uses the same quality and original-reason reader as the pockets",
+            a.contains("val read = ResearchEvidence9043.read9043(o)") && a.contains("read.net, read.originalReason"))
+        val reason = "LPSTATE8725_LP_BLOCKED:LT30/NOT_DLMM_cpamdpZC"
+        val source = ResearchFollow8884.DEX_PREFIX_9015 + "LOSTMARK8983/" + reason
+        val row = JSONObject().put("t", 1L).put("horizonMs", 14_400_000L).put("lane", "MOONSHOT")
+            .put("net", 12.0).put("reason", source)
+        val read = AuthorityTable8887.row8887(row)!!
+        assertEquals(reason, read.reason)
+        assertEquals(12.0, read.net, 0.0)
+        assertEquals("the priced source remains available for audit", source, row.getString("reason"))
     }
 }

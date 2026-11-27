@@ -61,7 +61,7 @@ class Aate8723PayingCellTest {
         // V5.0.8961: preserve paying-cell precedence among supported proofs; an unsupported cell cannot hide the sniper.
         val providers = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
         assertTrue(providers.indexOf("PayingCell8723.evidence8723(ts, lane, nowMs)") in
-            0 until providers.indexOf("LaunchSniper8748.evidence8748(ts.mint, nowMs)"))
+            0 until providers.indexOf("LaunchSniper8748.evidence8748(ts.mint, nowMs, launchFire9043)"))
         // 1. safety and structure are decided before the cell is read, and a RUG_PRONE wait is never answered by it
         assertTrue(adm.indexOf("return done(Terminal8136.REFUSE, \"SAFETY_REFUSED_8136\", true, c.selectedSetup)") in 1 until market)
         assertTrue(adm.indexOf("return done(Terminal8136.REFUSE, \"STRUCTURAL_RISK_8136\", true, c.selectedSetup)") in 1 until market)

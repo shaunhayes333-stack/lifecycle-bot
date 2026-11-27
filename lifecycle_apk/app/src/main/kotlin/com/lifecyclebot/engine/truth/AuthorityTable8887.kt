@@ -79,7 +79,7 @@ object AuthorityTable8887 {
     internal fun head8887(line: String): Pair<Long, Long>? =
         HEAD_8887.find(line)?.let { m -> m.groupValues[1].toLongOrNull()?.let { t -> m.groupValues[2].toLongOrNull()?.let { h -> t to h } } }
 
-    /** Pure: one research row, or null when it carries no net. */
+    /** Pure: retain priced and explicitly unavailable outcomes in their original cohort; reject late or malformed reads. */
     internal fun row8887(o: JSONObject): Row8887? {
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val lane = o.optString("lane").trim().uppercase()

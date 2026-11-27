@@ -17,7 +17,7 @@ class Aate9043EntryContinuityTest {
         CandidateAdmission8136.Terminal8136.REFUSE, reason, true, "IGNITION_5M", -1.0, listOf("fixture"), costPct = 4.0)
 
     @Test fun composedAdmissionKeepsModelExemptionForLearnedStageButHardGuardsStillBind() {
-        val stage = "LIVE_STAGE_LOSSES_8626"
+        val stage = "LIVE_STAGE_LOSES_8626"
         val admitted = LaneAuthority8577.apply8577(candidate(), refused(stage), stage)
         assertTrue(admitted.compact, admitted.admitted)
         assertTrue(admitted.trace.any { it == "entryStateAdvisory9043=$stage" })

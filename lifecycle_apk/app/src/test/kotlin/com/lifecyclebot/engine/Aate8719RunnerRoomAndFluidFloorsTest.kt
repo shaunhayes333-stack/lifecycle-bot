@@ -58,7 +58,12 @@ class Aate8719RunnerRoomAndFluidFloorsTest {
     }
 
     @Test fun wiring() {
-        assertTrue(src("engine/truth/EdgeModel8537.kt").contains("ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct)"))
+        val learn = src("engine/truth/EdgeModel8537.kt").substringAfter("fun learn(s: Snap, netPct: Double").substringBefore("fun verdict(")
+        assertTrue("managed bands still receive the raw outcome and round-trip cost",
+            learn.contains("ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct,"))
+        assertTrue("the stop comes from the same validated training receipt", learn.contains("stopPct9043 = target9043.stopPct,"))
+        assertTrue("the decision key prevents a queued live observation from duplicating its seeded row",
+            learn.contains("decisionKey9043 = s.mint + \"|\" + s.atMs + \"|\" + s.raw.lane.trim().uppercase() + \"|\" + s.horizonMs"))
         assertTrue(src("engine/LaneAgeLiquidityTruth8140.kt").contains("ManagedBands8719.liquidityOpen8719(lane, liquidityUsd)"))
         assertTrue(src("engine/market/LaneHunter7297.kt").contains("ManagedBands8719.capFloor8719(lane, byCloses, MAX_EDGE_STEPS)"))
         assertTrue(src("v3/scoring/ShitCoinExpress.kt").contains("LaneHunter7297.floorFor(\"EXPRESS\", MIN_MARKET_CAP_USD)"))

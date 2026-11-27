@@ -57,7 +57,11 @@ class Aate8929TapeDownTest {
         assertNull("not a meme lane", AgreementPocket8874.coinEvidenceOf8895("CRYPTO_ALT", null, AgreementPocket8874.researchRecord8929()))
         val s = src("engine/truth/AgreementPocket8874.kt")
         assertTrue(s.contains("coinEvidenceOf8895(l, laneRec, research) != null"))
-        assertTrue(src("engine/truth/ResearchRows8877.kt").contains("AgreementPocket8874.learnLine8929(line)"))
+        val rows = src("engine/truth/ResearchRows8877.kt")
+        val sanitize = rows.indexOf("val safeLine = try { ResearchEvidence9043.annotate9043(line) }")
+        val file = rows.indexOf("AgreementPocket8874.learnLine8929(safeLine)")
+        assertTrue("retained research passes the shared quality contract before it can teach the agreement pocket", sanitize >= 0 && file > sanitize)
+        assertFalse("the unsanitized row cannot take a second path into the pocket", rows.contains("AgreementPocket8874.learnLine8929(line)"))
         assertTrue("full-size admission unchanged", s.contains("else (evidenceOf8874(key, recordOf(key)) ?: coinEvidence8895(raw.lane, recordOf(key)))"))
     }
 

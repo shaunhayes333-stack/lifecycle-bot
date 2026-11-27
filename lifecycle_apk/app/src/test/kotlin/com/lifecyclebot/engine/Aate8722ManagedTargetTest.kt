@@ -21,7 +21,15 @@ class Aate8722ManagedTargetTest {
         repeat(4) { o.add(1.5, 10.0) }
         assertEquals("a +1.5 % prediction is a pick as it stands", 4, o.selN)
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/EdgeModel8537.kt").readText()
-        assertTrue(src.contains("val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)"))
+        val learn = src.substringAfter("fun learn(s: Snap, netPct: Double").substringBefore("fun verdict(")
+        assertTrue("the live target is taken from its validated frozen receipt",
+            learn.contains("val target9043 = targetReceipt9043(s, netPct)") && learn.contains("if (target9043 == null) {") &&
+                learn.contains("val y = target9043.value"))
+        assertTrue("MIND and the out-of-sample record learn that same banked target",
+            learn.contains("Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y)") &&
+                learn.contains("Oos() }.add(s.pred, y)"))
+        assertTrue("replay reads the stored target rather than recomputing it under a later stop",
+            src.contains("val y = trainingTarget9043(o)") && src.contains("return FrozenEdgeTarget9043.read9043(row)?.value ?: Double.NaN"))
         // superseded by V5.0.8801 — the epoch moved on again (old rows' price shape reads unknown); it never moves back
         assertTrue(EdgeModel8537.MODEL_EPOCH_8642 >= 8722)
     }

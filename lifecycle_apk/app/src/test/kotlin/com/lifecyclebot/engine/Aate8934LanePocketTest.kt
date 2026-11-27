@@ -74,7 +74,11 @@ class Aate8934LanePocketTest {
         assertTrue("the own-lane pocket follows the base pocket and precedes the LLM bands",
             base >= 0 && lane > base && lane < providers.indexOf("LlmBands8875.evidence8875("))
         assertTrue(src("engine/truth/LaneAuthority8577.kt").contains("LanePocket8934.KIND_8934,"))
-        assertTrue(src("engine/truth/ResearchRows8877.kt").contains("LanePocket8934.learnLine8934(line)"))
+        val rows = src("engine/truth/ResearchRows8877.kt")
+        val sanitize = rows.indexOf("val safeLine = try { ResearchEvidence9043.annotate9043(line) }")
+        val file = rows.indexOf("LanePocket8934.learnLine8934(safeLine)")
+        assertTrue("the lane pocket receives the shared sanitized row after its provenance is recorded", sanitize >= 0 && file > sanitize)
+        assertFalse("the raw row must not bypass quality handling", rows.contains("LanePocket8934.learnLine8934(line)"))
         val f = src("engine/truth/ResearchFollow8884.kt")
         assertTrue(f.contains("JupiterPriceIds8418.ids8418(mints, Int.MAX_VALUE)"))
         assertTrue(f.contains("read8934(\"https://api.jup.ag/price/v3?ids=\" + ids.joinToString(\",\"), \"jupiter_price_keyed\", key)"))

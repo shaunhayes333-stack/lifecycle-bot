@@ -33,9 +33,10 @@ class Aate8968RuleDelayTest {
 
     @Test fun launchAndBaseFiresCarryTheirRulesDelay() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchSniper8748.kt").readText()
-        assertTrue(src.contains("armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs))"))
-        assertTrue(src.contains("armed = baseProven != null, triggerEventMs = eventMs, gradedDelayMs8968 = baseRule.rule.delayMs))"))
-        assertTrue(src.contains("nowMs - minOf(f.triggerEventMs, f.atMs) in 0L..window8968(f.gradedDelayMs8968)"))
+        val compact = src.replace(Regex("\\s+"), " ")
+        assertTrue(compact.contains("armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs, sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043))"))
+        assertTrue(compact.contains("armed = baseProven != null, triggerEventMs = eventMs, gradedDelayMs8968 = baseRule.rule.delayMs, sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043))"))
+        assertTrue(src.contains("fireElapsed9043(f, nowMs) in 0L..window8968(f.gradedDelayMs8968)"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 153. A rule is traded at the delay it was proven at (8968)"))
     }
 }

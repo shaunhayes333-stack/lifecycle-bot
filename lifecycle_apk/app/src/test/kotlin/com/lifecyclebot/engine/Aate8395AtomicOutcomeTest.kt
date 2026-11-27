@@ -9,8 +9,8 @@ class Aate8395AtomicOutcomeTest {
     private val id="mint|MOONSHOT|1000"
     private fun row()=CortexGradeRecord8144('D',id,"mint|MOONSHOT",1000,"MOONSHOT","BASE","TREND","EARLY","LOW","SMALL",2,30.0,true,true,false)
     private fun proof(net:Double,gross:Double,at:Long=301000,independent:Boolean=true)=CortexOutcomeProof8395(id,at-1000,at,net,gross,
-        LabelMark8386("mint","curve",1.0,1000,1000,"CHAIN",decimals=6,independentBasis=independent),
-        LabelMark8386("mint","curve",1+gross/100,at,at,"CHAIN",decimals=6,independentBasis=independent))
+        LabelMark8386("mint","pump.curve",1.0,1000,1000,if(independent) "CURVE_FRAME" else "OFFWATCH",decimals=6,independentBasis=independent),
+        LabelMark8386("mint","pump.curve",1+gross/100,at,at,if(independent) "CURVE_FRAME" else "OFFWATCH",decimals=6,independentBasis=independent))
     private fun apply(b:CortexGradeBook8144,p:CortexOutcomeProof8395)=b.labelOutcome8395(p.decisionId,p.netPct,p.grossPct,p.netPct,true,p.horizonMs,p.observedAtMs,p.observedAtMs,p)
     @Test fun firstIndependentlyWitnessedExtremeIsAcceptedWithoutPreSettingAFlag() {
         val b=CortexGradeBook8144();val r=row();b.addDecision(r)
@@ -27,6 +27,20 @@ class Aate8395AtomicOutcomeTest {
         assertEquals(CortexOutcomeDisposition8395.OBSERVED_ONLY,apply(b,proof(199995.0,200000.0,independent=false)))
         assertTrue(r.executablePct.isNaN());assertEquals("",r.modelContribution8395)
         assertTrue(r.eligibleToGrade8395);assertEquals(199995.0,r.observedNetPct,0.0)
+    }
+    @Test fun incompleteTypedProofCannotAuthorizeAnExtremeValue() {
+        val proven = proof(199995.0,200000.0)
+        val incomplete = listOf(
+            proven.copy(entry=proven.entry!!.copy(source="CHAIN"),outcome=proven.outcome!!.copy(source="CHAIN")),
+            proven.copy(entry=proven.entry!!.copy(venue="curve"),outcome=proven.outcome!!.copy(venue="curve")),
+            proven.copy(outcome=proven.outcome!!.copy(decimals=-1)),
+        )
+        for (p in incomplete) {
+            val b=CortexGradeBook8144();val r=row();b.addDecision(r)
+            assertEquals(CortexOutcomeDisposition8395.OBSERVED_ONLY,apply(b,p))
+            assertTrue(r.executablePct.isNaN());assertEquals("",r.modelContribution8395)
+            assertEquals(199995.0,r.observedNetPct,0.0)
+        }
     }
     @Test fun priorWitnessCannotAuthorizeAnotherValueOrAnotherEpisode() {
         val b=CortexGradeBook8144();val r=row();b.addDecision(r);val p=proof(199995.0,200000.0)

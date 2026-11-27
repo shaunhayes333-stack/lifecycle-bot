@@ -50,6 +50,9 @@ class Aate8749LatencyAndMemoryTest {
         assertTrue(mind.contains("if (n % SAVE_EVERY_8749 == 0L) save8749()"))
         assertTrue(mind.substringAfter("fun learn8746(").substringBefore("frozen.remove").contains("restore8749()"))
         val cohort = File("src/main/kotlin/com/lifecyclebot/engine/truth/LaunchCohort8173.kt").readText()
-        assertTrue(cohort.contains("LaunchSniper8748.noteBuyConfirmed8749(mint, nowMs)"))
+        val outcome = cohort.substringAfter("fun noteBuyOutcome8173(").substringBefore("fun statusLine8173()")
+        assertTrue("chain confirmation carries the exact signed attempt into the launch clock",
+            outcome.contains("attemptId: String") && outcome.contains("signature: String") &&
+                outcome.contains("if (slot == 0) try { LaunchSniper8748.noteBuyConfirmed8749(mint, nowMs, attemptId, signature)"))
     }
 }

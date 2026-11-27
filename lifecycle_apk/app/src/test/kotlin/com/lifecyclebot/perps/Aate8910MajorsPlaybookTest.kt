@@ -140,7 +140,7 @@ class Aate8910MajorsPlaybookTest {
         assertTrue(alt.contains("val sl = if (setupLevels8910) signal.setupStop8910 else slDesk8910"))
         assertTrue(alt.contains("val tp8110 = if (setupLevels8910) tp else laneTp8110(signal, isSpot, finalTp, finalSize, candidate.liquidityUsd) ?: tp"))
         val contract = src("engine/truth/CanonicalAssetEntryContract6551.kt")
-        assertEquals("every backing read carries the strategy", 6,
+        assertEquals("every backing read, including early data classification, carries the strategy", 7,
             Regex(Regex.escape("candidate.evidence[\"trend8886\"], candidate.evidence[\"strategy7803\"])")).findAll(contract).count())
         val brief = src("engine/DiagnosisBrief8438.kt")
         assertTrue(brief.contains("CryptoTwin8883.strategyLine8910()"))

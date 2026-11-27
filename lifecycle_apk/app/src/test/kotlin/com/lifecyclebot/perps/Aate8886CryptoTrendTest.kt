@@ -142,8 +142,11 @@ class Aate8886CryptoTrendTest {
         assertTrue(alt.contains("canonicalFinalSize6570, lev, tp8110, sl, paper7803, trend8886?.key.orEmpty())"))
         assertTrue(alt.contains("signal, isSpot, candidate, mktSym, finalSize, lev, tp8110, sl, false, trend8886?.key.orEmpty()), candidate.selectedLane)"))
         val contract = src("engine/truth/CanonicalAssetEntryContract6551.kt")
-        assertEquals("backs, both capacity waits, the engine pass, the reserve and its wait", 6,
+        assertEquals("early data classification, backs, both capacity waits, the engine pass, the reserve and its wait", 7,
             Regex(Regex.escape("candidate.evidence[\"trend8886\"]")).findAll(contract).count())
+        val dataClassification = contract.substringAfter("val entryAssessment8871 =").substringBefore("val candidateConfidence7260 =")
+        assertTrue(dataClassification.contains("CryptoSignalEngine8857.deferBeforeEconomics9043("))
+        assertTrue(dataClassification.contains("candidate.evidence[\"trend8886\"], candidate.evidence[\"strategy7803\"])"))
         val backing = src("engine/truth/CryptoSpotPaperBacking8788.kt")
         assertTrue(backing.contains("val record = effective8910(laneRecord, cellBacks, cellLosing, stratBacks, stratLosing)"))   // V5.0.8910 — and the strategy
         assertTrue(backing.contains("if (!(try { com.lifecyclebot.engine.LiveNoPaper8184.closeOutInLive8872() } catch (_: Throwable) { false })) return false to false"))

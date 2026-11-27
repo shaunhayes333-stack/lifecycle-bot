@@ -28,7 +28,12 @@ class Aate9013RowsCarryPathAndDeskSetupTest {
         assertTrue("an unread dip is null, not zero", JSONObject(ResearchRows8877.pathJson9013(Double.NaN, 60_000L, Double.NaN)).isNull("dip"))
         assertEquals("the age and every earlier field are where they were", 3.0, row(p).getDouble("age"), 1e-9)
         val lab = File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-        assertTrue(lab.contains("ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955)))"))
+        val rowCall = lab.substringAfter("ResearchRows8877.note8877(ResearchRows8877.line8877(").substringBefore("// V5.0.8891")
+        assertTrue(rowCall.contains("ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955),"))
+        assertTrue("the same path row carries the marks needed to validate its price basis",
+            rowCall.contains("priceProof9043 = ResearchEvidence9043.priceProof9043(o.basis8386.mark, o.lastAcceptedMark8395,"))
+        assertTrue("the same path row carries the decision's exit recipe",
+            rowCall.contains("labelRecipe9043 = o.labelRecipe9043?.json9043()?.toString().orEmpty()"))
     }
 
     @Test fun aStopAndATargetCanBePutInOrder() {

@@ -127,7 +127,10 @@ class Aate8418LearningIntegrityTest {
         val book = CortexGradeBook8144()
         val r = rec("m1|SHITCOIN|1000", lane = "SHITCOIN").also { book.addDecision(it) }
         val proof = CortexOutcomeProof8395(r.id, 299_000L, 300_000L, 50_000.0, 50_000.0,
-            mark(1.0, 1_000, "CURVE_FRAME"), mark(501.0, 300_000, "CURVE_FRAME"))
+            mark(1.0, 1_000, "CURVE_FRAME", independent = true).copy(venue = "pump.curve"),
+            mark(501.0, 300_000, "CURVE_FRAME", independent = true).copy(venue = "pump.curve"))
+        assertFalse("a source name without the captured typed proof is insufficient for this extreme",
+            proof.copy(entry = proof.entry!!.copy(independentBasis = false)).witnessed8395())
         assertTrue(proof.witnessed8395())
         r.executablePct = 50_000.0; r.firstGross8324 = 50_000.0; r.firstAvailableAtMs8372 = 300_000L
         r.firstOutcomeProof8395 = JSONObject(proof.encode8395()).put("exec", 50_000.0).toString()

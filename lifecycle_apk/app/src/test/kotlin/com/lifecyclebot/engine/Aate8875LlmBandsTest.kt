@@ -73,7 +73,9 @@ class Aate8875LlmBandsTest {
         val edge = src("engine/truth/EdgeModel8537.kt").substringAfter("fun learn(s: Snap, netPct: Double").substringBefore("fun verdict(")
         val read = edge.indexOf("val llmP8875 = try { LlmBands8875.frozenP8875(Mind8746.frozenFor8767(s.mint, s.raw.lane, s.atMs)) }")
         assertTrue("read before the mind consumes the frozen voters", read in 0 until edge.indexOf("Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y)"))
-        assertTrue(edge.contains("appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875)"))
+        assertTrue("the frozen answer and the exact training receipt travel in the same dataset append",
+            edge.contains("appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875, target9043 = target9043)"))
+        assertTrue(edge.contains("val target9043 = targetReceipt9043(s, netPct)") && edge.contains("val y = target9043.value"))
         assertTrue(edge.contains("LlmBands8875.learn8875(s.mint, s.raw.lane, llmP8875, netPct, s.atMs)"))
         val adm = src("engine/truth/CandidateAdmission8136.kt")
         val chain = adm.substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")

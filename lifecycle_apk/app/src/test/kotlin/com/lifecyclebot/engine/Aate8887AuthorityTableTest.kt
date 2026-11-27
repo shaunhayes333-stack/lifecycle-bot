@@ -44,7 +44,14 @@ class Aate8887AuthorityTableTest {
         val dead = AuthorityTable8887.row8887(later("NO_PRICE_JUP_8884:ADMIT", JSONObject.NULL))!!
         assertTrue("an unroutable coin stays in as unpriced", dead.net.isNaN()); assertEquals("ADMIT", dead.reason)
         assertNull("a late read is not the horizon's read", AuthorityTable8887.row8887(later("LATE_READ_8884:ADMIT", 50.0)))
-        assertNull("a 1 h row without a net is not a read", AuthorityTable8887.row8887(later("ADMIT", JSONObject.NULL)))
+        for (horizon in listOf(h, 24 * h)) {
+            val unknown = AuthorityTable8887.row8887(later("ADMIT", JSONObject.NULL).put("horizonMs", horizon))!!
+            assertTrue("an explicit missing outcome stays in its original cohort at either horizon", unknown.net.isNaN())
+            assertEquals("ADMIT", unknown.reason)
+            assertEquals(horizon, unknown.horizonMs)
+        }
+        assertNull("a malformed row with no outcome field is not an explicit unpriced read",
+            AuthorityTable8887.row8887(later("ADMIT", JSONObject.NULL).apply { remove("net") }))
     }
 
     @Test fun theVerdictNeedsTheMarginTheHalvesAndRowsTheUnpricedCannotFlatter() {

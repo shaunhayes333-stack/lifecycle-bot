@@ -123,7 +123,9 @@ class Aate8331RunnerTest {
         // A fill confirms the ladder its tranche was requested on, never a ladder the request did not use.
         val live = src("engine/RunnerLive8153.kt")
         assertTrue(live.contains("else if (pending8331 != null && pending8331.tier == tier && pending8331.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394) pending8331.ladder else ladderOf8153(plan8153(ts))"))
-        assertTrue(live.contains("if (book.confirm8153(key8153(ts), ladder8331, tier, signature, proceedsSol, soldCostSol)) {"))
+        assertTrue(live.contains("val key = signedOwner?.positionKey ?: key8153(ts)"))
+        assertTrue(live.contains("val ladder8331 = signedOwner?.ladder ?:"))
+        assertTrue(live.contains("if (book.confirm8153(key, ladder8331, tier, signature, proceedsSol, soldCostSol, consumedRaw)) {"))
         // The sealed entry identity reaches the plan through the position's own snapshot (mint-checked) and sealed style.
         assertTrue(live.contains("val runnerAdmit = snap?.takeIf { it.mint == ts.mint }?.runnerEntry == true"))
         assertTrue(src("engine/RunnerGrab7967.kt").contains("else RunnerFunnel8331.ladderForPlan8331(try { RunnerLive8153.plan8153(ts) } catch (_: Throwable) { RunnerPlan8153.Plan8153.SCALP })"))
@@ -225,6 +227,10 @@ class Aate8331RunnerTest {
         assertTrue(f.stage8331(Stage8331.RUNG_TRIGGERED, "m|1|T1"))
         assertTrue(f.stage8331(Stage8331.RUNG_TRIGGERED, "m|1|T2"))   // per tier
         assertFalse(f.stage8331(Stage8331.RUNG_TRIGGERED, "m|1|T2"))
+        assertTrue(f.stage8331(Stage8331.TICKET_ACCEPTED, "m|1|T1"))
+        assertFalse(f.stage8331(Stage8331.TICKET_ACCEPTED, "m|1|T1"))
+        assertEquals(1L, f.count8331(Stage8331.TICKET_ACCEPTED))
+        assertEquals("a dispatch ticket is not a network submission", 0L, f.count8331(Stage8331.SELL_SENT))
         assertTrue(f.blocked8331("BUDGET_REFUSED", "m|1|T1"))
         assertFalse(f.blocked8331("BUDGET_REFUSED", "m|1|T1"))
         assertTrue(f.blocked8331("TICKET_HELD"))
@@ -236,8 +242,11 @@ class Aate8331RunnerTest {
         assertEquals(1L, f.blockedCount8331("BUDGET_REFUSED"))
         assertEquals(2L, f.blockedCount8331("TICKET_HELD"))
         val line = f.statusLine8331()
-        assertTrue(line, line.startsWith("runnerFunnel8331[held=2 planSealed=0 rungArmed=0 rungTriggered=2 sellSent=0 sellLanded=0 proceedsBooked=0 blockedWhy={"))
+        assertTrue(line, line.startsWith("runnerFunnel8331[held=2 planSealed=0 rungArmed=0 rungTriggered=2 ticketAccepted=1 sellSent=0 sellLanded=0 proceedsBooked=0 blockedWhy={"))
         assertTrue(line, line.contains("TICKET_HELD=2") && line.contains("BUDGET_REFUSED=1") && line.endsWith("}]"))
+        assertTrue(f.stage8331(Stage8331.SELL_SENT, "m|1|T1"))
+        assertFalse(f.stage8331(Stage8331.SELL_SENT, "m|1|T1"))
+        assertEquals(1L, f.count8331(Stage8331.SELL_SENT))
         f.resetForTest8331()
         assertTrue(f.statusLine8331().endsWith("blockedWhy={-}]"))
         // Wiring: every stage has its hook, and the line is on the runner report, the bank line and the plan line.
