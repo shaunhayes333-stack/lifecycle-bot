@@ -1,4 +1,38 @@
-# 9062: held exits retain entry identity without reranking
+# 9062: held exit identity, witnessed price supply and stop clocks
+
+## Price and data repairs included
+
+The label collector's legacy endpoint view treats OFFWATCH as a market read and
+then selects the newest candidate. A newer provider snapshot can therefore hide
+a still-fresh independent chain mark. Native research subsequently rejects the
+dependent winner, despite a usable source already having been collected.
+
+`NativePriceEvidence9062` selects a separate, strictly witnessed candidate from
+that same collected list. It preserves event and publication clocks, USD units,
+asset identity, source proof, venue and decimals. Missing decimals may use the
+existing mint observation only if that evidence was available by decision time.
+Conflicts, unknowns and marks older than five seconds remain unusable. The cache
+is capped at 2,048 assets and never refreshes a mark's event time on lookup.
+Native decision/path capture can recover this candidate when its supplied mark
+fails proof. No new request, subscription, worker or live-order authority is added;
+the legacy endpoint price choice is unchanged. `recoveredProof9062` counts uses,
+not unique observations or demonstrated profitability.
+
+The prior native venue check accepted any string at least 32 characters long,
+including `MINT_ROUTE:<mint>`. Native enrollment, witnessed-trade capture and
+journal reload now require the explicit curve identity or a base58 pool-address
+shape. This does not replace on-chain account validation; it prevents a routing
+alias from masquerading as venue evidence. Existing journal files remain intact;
+rows lacking the required venue identity cannot train the native models.
+
+StopSlip kept its first trigger until a canonical close, even when an executable
+quote invalidated the unsigned stop. The execution tracker closed that attempt,
+but a later valid stop inherited the old slippage clock. Cleanup is now connected
+to the successful identity-bound CloseLease invalidation. It removes only the
+exact captured diagnostic trigger; a later trigger survives stale cleanup.
+Signed/unresolved attempts retain their first trigger and real retry latency.
+`invalidated9062` exposes these cancelled diagnostic clocks. This corrects data;
+it does not erase actual execution delay or change sell permission.
 
 ## Observed defect and change
 
@@ -64,6 +98,13 @@ different thread holds the actual LanePlaybook monitor. It must return the
 lane/NONE profile before that monitor is released. Additional tests retain a
 frozen EXPRESS/DIAMOND_HANDS_RUNNER identity despite a changed display lane,
 and preserve the entry lane for blank/NONE/NO_TRIGGER setup values.
+
+`Aate9062PriceEvidenceTest` covers a fresh witnessed price hidden by a newer
+provider endpoint, clock/units/source/venue/decimal rejection, cache ordering,
+and actual collector/native-consumer wiring. The production journal test also
+rejects a forged route alias on reload. The pure model suite includes these
+price checks. `Aate9062StopClockTest` exercises actual lease invalidation,
+re-arming, stale cleanup and signed-owner protection.
 
 The required CI suite includes these tests. Full historical tests, signed APK
 verification, previous-release upgrade, and device runtime acceptance remain

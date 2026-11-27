@@ -27,6 +27,7 @@ object StopSlip8327 {
     private val triggers8327 = ConcurrentHashMap<String, Trigger8327>()   // mint -> first trigger of the open exit
     private val routes8327 = ConcurrentHashMap<String, String>()          // mint -> family of the last CONFIRMED sell
     private val subscribed8327 = AtomicBoolean(false)
+    private val invalidated9062 = java.util.concurrent.atomic.AtomicLong()
 
     private class Agg8327 {
         var n = 0L; var slipSum = 0.0; var worstSlip = 0.0; var t2fSum = 0L; var t2fMax = 0L; var ageSum = 0L; var ageMax = 0L
@@ -70,6 +71,22 @@ object StopSlip8327 {
         routes8327[mint] = family
     }
 
+    /** Capture the exact diagnostic trigger before identity-bound, unsigned stop cancellation. */
+    fun triggerFor9062(mint: String): Trigger8327? = triggers8327[mint]
+
+    /** Called only inside CloseLease's successful quote-invalidation cleanup.
+     * A re-armed stop must start a new clock; a later trigger cannot be erased by old cleanup.
+     */
+    fun invalidateUnbroadcast9062(mint: String, expected: Trigger8327?): Boolean {
+        if (expected == null) return false
+        var removed = false
+        triggers8327.computeIfPresent(mint) { _, current ->
+            if (current === expected) { removed = true; null } else current
+        }
+        if (removed) { routes8327.remove(mint); invalidated9062.incrementAndGet() }
+        return removed
+    }
+
     private fun ensureSubscribed8327() {
         if (!subscribed8327.compareAndSet(false, true)) return
         try { CanonicalOutcomeBus.subscribe { o -> try { onOutcome8327(o) } catch (_: Throwable) {} } } catch (_: Throwable) { subscribed8327.set(false) }
@@ -94,8 +111,8 @@ object StopSlip8327 {
 
     fun statusLine8327(): String {
         val body = aggs8327.entries.sortedBy { it.key }.joinToString(" ") { "${it.key}{${it.value.text()}}" }.ifBlank { "-" }
-        return "stopSlip8327[open=${triggers8327.size} $body]"
+        return "stopSlip8327[open=${triggers8327.size} invalidated9062=${invalidated9062.get()} $body]"
     }
 
-    internal fun resetForTest8327() { triggers8327.clear(); routes8327.clear(); aggs8327.clear() }
+    internal fun resetForTest8327() { triggers8327.clear(); routes8327.clear(); aggs8327.clear(); invalidated9062.set(0L) }
 }

@@ -24262,6 +24262,7 @@ class Executor(
             com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") != null ||
                 TradeVerifier.activeSellSig(ts.mint) != null
         } catch (_: Throwable) { true }
+        val rejectedStop9062 = com.lifecyclebot.engine.sell.StopSlip8327.triggerFor9062(ts.mint)
         val cancelled = com.lifecyclebot.engine.sell.CloseLease.invalidateSignal8521(ts.mint, reason, anotherOwns, lease) {
             try { PendingSellQueue.removeInvalidatedSignal8521(ts.mint, reason) } catch (_: Throwable) {}
             try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
@@ -24275,6 +24276,7 @@ class Executor(
             } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, SellResult.SIGNAL_INVALIDATED.name) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.invalidateUnbroadcastSignal8521(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.StopSlip8327.invalidateUnbroadcast9062(ts.mint, rejectedStop9062) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("EXIT_SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
             com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp)
         }

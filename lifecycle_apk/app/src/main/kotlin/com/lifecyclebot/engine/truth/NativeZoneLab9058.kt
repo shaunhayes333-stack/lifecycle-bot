@@ -27,6 +27,7 @@ internal object NativeZoneLab9058 {
     private val missingSignal9059 = AtomicLong()
     private val scopeOverflow9059 = AtomicLong()
     private val noProof = AtomicLong()
+    private val recoveredProof9062 = AtomicLong()
     private enum class ProofReject { BASIS_UNKNOWN, DEPENDENT_BASIS, UNTRUSTED_SOURCE, VENUE_UNKNOWN, DECIMALS_CONFLICT, DECIMALS_UNKNOWN, CLOCK_OR_PRICE }
     private val proofReject9061 = Array(ProofReject.values().size){AtomicLong()}
     private val noCost = AtomicLong()
@@ -48,7 +49,7 @@ internal object NativeZoneLab9058 {
         if(!m.known())return reject(ProofReject.BASIS_UNKNOWN)
         if(!m.independentBasis)return reject(ProofReject.DEPENDENT_BASIS)
         if(!LabelEvidence8386.independentSource8418(m.source))return reject(ProofReject.UNTRUSTED_SOURCE)
-        if(!LabelEvidence8386.venueIdentity8787(m.venue))return reject(ProofReject.VENUE_UNKNOWN)
+        if(!NativePriceEvidence9062.knownVenue(m.venue))return reject(ProofReject.VENUE_UNKNOWN)
         val supply=MintSupply8418.of8418(m.mint)?.takeIf{it.observedAtMs in 1L..at}
         if(supply!=null&&m.decimals>=0&&m.decimals!=supply.decimals)return reject(ProofReject.DECIMALS_CONFLICT)
         val decimals=if(m.decimals>=0)m.decimals else supply?.decimals?:return reject(ProofReject.DECIMALS_UNKNOWN)
@@ -72,7 +73,8 @@ internal object NativeZoneLab9058 {
         } ?: run{
             missingSignal9059.incrementAndGet();return
         }
-        val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: run{noProof.incrementAndGet();return}
+        val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: cachedProof9062(ts.mint,at)
+            ?: run{noProof.incrementAndGet();return}
         if(!reserved9059&&!tracker.reserve(ts.mint,lane,at,signal.channel()))return
         val shared=if(crypto)com.lifecyclebot.engine.BotService.status.tokens[ts.mint]?.takeIf{it.mint==ts.mint} else null
         fun fact(field:TokenFacts.Field,age:Long):Double {
@@ -164,8 +166,11 @@ internal object NativeZoneLab9058 {
     }
 
     fun acceptedMark(mark:LabelMark8386,now:Long){
-        if(tracker.hasActive9058(mark.mint)) proof(mark,now)?.let{tracker.mark(it,now)}
+        if(tracker.hasActive9058(mark.mint)) (proof(mark,now) ?: cachedProof9062(mark.mint,now))?.let{tracker.mark(it,now)}
     }
+
+    private fun cachedProof9062(mint:String,now:Long):NativeZoneSequence9058.Mark? =
+        NativePriceEvidence9062.markFor(mint,now)?.let{proof(it,now)}?.also{recoveredProof9062.incrementAndGet()}
 
     /** On the already witnessed executed stream, no new RPC or subscription.
      * Missing pool/decimals or SOL-rate evidence stays unknown. Receipt is actual publication time.
@@ -174,7 +179,7 @@ internal object NativeZoneLab9058 {
         if(!tracker.hasActive9058(mint))return
         val now=maxOf(trade.recvMs,System.currentTimeMillis())
         if(!trade.sourceTimeKnown8386 || trade.priceOnly || now-trade.atMs !in 0L..5_000L ||
-            !LabelEvidence8386.venueIdentity8787(trade.pool) ||
+            !NativePriceEvidence9062.knownVenue(trade.pool) ||
             !PrintWitness8750.witnessedPrint8750(mint,trade.atMs,trade.priceSol))return
         val supply=MintSupply8418.of8418(mint)?.takeIf{it.observedAtMs in 1L..now}?:return
         val rate=com.lifecyclebot.engine.WalletManager.labelSolPrice8580(now)
@@ -196,7 +201,7 @@ internal object NativeZoneLab9058 {
         val m=NativeZoneSequence9058.Mark(o.getString("asset"),o.getString("venue"),o.getInt("decimals"),
             o.getLong("event"),o.getLong("read"),o.getDouble("usd"),o.getString("source"))
         return m.takeIf{it.validAt(it.receipt)&&LabelEvidence8386.independentSource8418(it.source)&&
-            LabelEvidence8386.venueIdentity8787(it.venue)}
+            NativePriceEvidence9062.knownVenue(it.venue)}
     }
 
     private fun encode(r:NativeZoneSequence9058.Completed,available:Long):String {
@@ -390,5 +395,6 @@ internal object NativeZoneLab9058 {
         " scopeOverflow9059="+scopeOverflow9059.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
         " checkpoint9061="+checkpointRuns9061.get()+" storageDeferred9061="+storageDeferred9061.get()+
         " proofReject9061="+ProofReject.values().joinToString(","){it.name+":"+proofReject9061[it.ordinal].get()}+
+        " recoveredProof9062="+recoveredProof9062.get()+
         " predictions="+predicted.get()+" models="+feedback9059.count()+" authority=NONE]"
 }
