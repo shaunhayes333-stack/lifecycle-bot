@@ -87,7 +87,13 @@ class Aate8198CortexCloseDeliveryTest {
         assertFalse(commitFn.contains("GlobalScope"))
         // the periodic writer never splits graded state from its receipt while a close grade is uncommitted
         val persistFn = c.substringAfter("private fun persistBlocking8094(force8652: Boolean = false) { synchronized(persistLock8325) {")
-        assertTrue(persistFn.contains("if (uncommittedCloseGrades8198.isNotEmpty()) return"))
+        val pending = persistFn.substringAfter("if (uncommittedCloseGrades8198.isNotEmpty()) {", "")
+            .substringBefore("// V5.0.8429", "")
+        assertTrue(pending.contains("if (force8652) {"))
+        assertTrue(pending.contains("commitWaitingCloses9031()"))
+        assertTrue(pending.contains("else requestCloseCheckpoint9045()"))
+        assertTrue(pending.contains("return"))
+        assertFalse("a pending close cannot fall through to an ordinary snapshot", pending.contains("periodic = true"))
     }
 
     @Test fun aMidGradeFailureIsATerminalExclusionNeverAnAckOrADoubleGrade() {

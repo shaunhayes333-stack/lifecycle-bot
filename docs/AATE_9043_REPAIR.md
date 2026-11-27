@@ -1,9 +1,11 @@
-# AATE 5.0.9044 — entry timing, evidence, and execution continuity
+# AATE 5.0.9045 — entry timing, evidence, and execution continuity
 
-The 9043-named code and tests identify this repair generation. Release candidate 5.0.9044
-also makes direct proof wake-up keys monotonic, so a frozen or backward wall clock cannot
-reuse an earlier BotService wake identity. The version advances to preserve upgrade ordering
-while validation of the preceding candidate finishes independently.
+The 9043-named code and tests identify the first repair generation. Version 5.0.9044
+also made direct proof wake-up keys monotonic, so a frozen or backward wall clock cannot
+reuse an earlier BotService wake identity. Its complete automated release passed, but review
+of the runtime artifact exposed persistence contention on the canonical-close delivery thread.
+Version 5.0.9045 addresses that measured path and advances both version aliases to preserve
+upgrade order from the already-published 9044 candidate.
 
 ## Scope and starting point
 
@@ -50,6 +52,39 @@ bounded CPU slices while retaining that turn, so they do not claim to free memor
 Cold migration, dataset rotation and an incompatible epoch still require a full rebuild.
 First-start duration and device tail latency must be measured; a cache implementation alone
 does not prove a five-second entry budget or the requested two-hour handset soak.
+
+### Canonical-close persistence contention found in the 9044 runtime audit
+
+Candidate `b0b97f26addb6d53ee1d111dcd6e4c934a2fbf6c` passed 3,507 required tests and
+10,297 historical tests, with zero failures, errors or skips. Its
+[runtime run](https://github.com/shaunhayes333-stack/lifecycle-bot/actions/runs/45975017393)
+also passed. Reviewing the artifact exposed a remaining timing defect in an unchanged
+baseline Cortex path: a durable-close caller waited 42.162 seconds for `persistLock8325`.
+A reported snapshot encoded for 30.854 seconds outside the Cortex assessment monitor but
+inside that persistence lock; the corresponding close-job measurement was 30.855 seconds
+wall time and 1.016 seconds of that thread's CPU. Snapshot capture separately held the
+shared Cortex monitor for 3.251 seconds. These are distinct measurements, not one global
+30-second freeze. Bot loops and canonical PAPER receipts progressed during the wait.
+
+The serialized encoder must remain bounded to avoid concurrent whole-graph buffers under
+the observed allocation pressure. Canonical-close delivery therefore queues durability on
+the persistence worker and returns `RETRY`; an exact durable receipt remains the condition
+for acknowledgement. Books, pending observations, grades and their close receipts retain
+their atomic transaction and once-only grading contract. Scheduled, coalesced retries must
+continue through pacing and transient store refusal without needing a new market tick.
+
+Snapshot capture also uses a capture-local identity memo for detached voter-edge arrays.
+Assessments sharing a live voter-table array share one detached copy within that snapshot;
+different source arrays and later snapshots remain separate. Mutable values, predictions,
+traces, selection limits and receipts keep their existing copy/selection behavior. The memo
+does not survive capture or cache a second whole graph. Capture own-thread CPU and copied/
+reused edge-array counts are reported beside elapsed snapshot timing so the next runtime
+can distinguish reduced copying from scheduling or garbage-collection delays.
+
+This repair does not by itself establish a handset p99 or eliminate the separately observed
+snapshot-capture hold. The runtime was PAPER with no live wallet/positions; it cold-seeded
+only 78 dataset rows after restart. Its doze check exercised light idle because deep idle
+was unavailable on that emulator. These boundaries remain explicit in acceptance reporting.
 
 ### Entry policy, evidence waits, handoff and attribution
 
@@ -131,7 +166,7 @@ receipts/basis; no entry history or P&L is invented to make reconciliation green
 
 ## Acceptance and delivery contract
 
-The required build filter includes every `Aate9043*` test. Existing required and historical
+The required build filter includes every `Aate9043*` and `Aate9045*` test. Existing required and historical
 suites, signed APK verification, retained-state upgrade checks, and exact-commit Android
 runtime/device checks remain required. No failure baseline or acceptance threshold is relaxed.
 

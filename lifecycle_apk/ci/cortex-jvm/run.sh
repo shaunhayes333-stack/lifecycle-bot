@@ -67,6 +67,8 @@ production=(
   "$sources/truth/EntryFloorEvidence8528.kt"
   "$sources/cortex/CortexLabelFeed8291.kt"
   "$sources/cortex/CortexSampleBudget8871.kt"
+  "$sources/cortex/CortexCloseCheckpoint9045.kt"
+  "$sources/cortex/CortexSnapshotArrays9045.kt"
   "$sources/ObservedPriceIdentity8871.kt"
   "$sources/cortex/LanePlaybookDecision8871.kt"
   "$sources/cortex/ForwardOutcomeDelivery8404.kt"
@@ -126,6 +128,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   "$tests/Aate8871CortexSamplingTest.kt" \
   "$tests/Aate8871FrozenPriceIdentityTest.kt" "$tests/Aate8871CortexProofIdentityTest.kt" \
   "$tests/Aate9043ResearchEvidenceTest.kt" \
+  "$tests/Aate9045CortexCloseCheckpointTest.kt" "$tests/Aate9045SnapshotArraysTest.kt" \
   "$tests/Aate8871PlaybookEpisodeClockTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
@@ -146,6 +149,8 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate8871CortexSamplingTest \
   com.lifecyclebot.engine.Aate8871FrozenPriceIdentityTest \
   com.lifecyclebot.engine.Aate9043ResearchEvidenceTest \
+  com.lifecyclebot.engine.Aate9045CortexCloseCheckpointTest \
+  com.lifecyclebot.engine.Aate9045SnapshotArraysTest \
   com.lifecyclebot.engine.Aate8871CortexProofIdentityTest \
   com.lifecyclebot.engine.Aate8871PlaybookEpisodeClockTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \
