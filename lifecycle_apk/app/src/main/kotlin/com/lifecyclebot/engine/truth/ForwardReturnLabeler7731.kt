@@ -1507,7 +1507,7 @@ object ForwardReturnLabeler7731 {
                 it.pred8855 = it.edge8537?.pred ?: Double.NaN   // V5.0.8855 — kept after the label consumes the snapshot
                 it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN   // V5.0.8877 — for the hour's research row
                 it.age9002 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
-                it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)) } catch (_: Throwable) { "" }
+                it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.readForLearning9056(ts.mint, nowMs)) } catch (_: Throwable) { "" }
                 it.precursor9049 = try { ResearchRows8877.precursor9049(it.mint, l, it.atMs, it.edge8537, it.flow8924) } catch (_: Throwable) { "" }
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0

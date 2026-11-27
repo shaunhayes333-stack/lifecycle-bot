@@ -20,7 +20,12 @@ internal object SharedRunnerLab9051 {
     private val rawKeys = listOf("age","runup","pxPeak","dd","bp","chg5m","chg1h","volAccel","holderVel","txVel","top","turnover",
         "newBuyers15s8666","agePrice","ageBp","ageChg","ageLiq","ageHolders","secsSincePrint","oppVolAccel","oppTxAccel","oppLiqDelta","liq","mcap","v3","cost","venue")
     private val flowKeys = listOf("buyers60","new15","perMin","buyShare","netSol60","buyTx15","buyTxPrev15","repeat60","txPerMin","accel")
-    private val width = rawKeys.size + flowKeys.size
+    private val legacyWidth9056 = rawKeys.size + flowKeys.size
+    private const val FEATURE_SCHEMA_9056 = "F9056"
+    private val evidenceKeys9056 = listOf("coverage60","coverage15","observed60","observedSpanMs","signedShare","receiptLagMs",
+        "buy5","net5","net15","netPrev15")
+    private val identityKeys9056 = setOf("buyers60","new15","perMin","repeat60")
+    private val width = legacyWidth9056 + evidenceKeys9056.size
     private val lanePattern9052 = Regex("[A-Z0-9_]{1,64}")
     private val appended = AtomicLong()
     private val censored = AtomicLong()
@@ -37,25 +42,56 @@ internal object SharedRunnerLab9051 {
             it.startsWith("PERPS_") || it.startsWith("EVM_") || it.startsWith("XSTOCK_") ||
             it.startsWith("MARKETS_") || it.startsWith("STOCK_") }
     }
-    private fun features(p: JSONObject): DoubleArray? {
+    internal fun features(p: JSONObject): DoubleArray? {
         if (!p.optBoolean("rawPresent") || p.optInt("v") != 1) return null
         fun d(k: String) = p.optDouble(k,Double.NaN)
         fun fresh(k: String, seconds: Double) = d(k) in 0.0..seconds
-        val flow = p.optJSONObject("flow")?.takeIf { p.optLong("atMs") - it.optLong("asOfMs") in 0L..20_000L }
+        val decision = p.optLong("atMs")
+        val flow = p.optJSONObject("flow")
+        val proof = ResearchRows8877.flowEvidence9056(flow, decision)
+        fun observed(k: String): Double {
+            if (proof == null || flow == null) return Double.NaN
+            if (k in identityKeys9056 && !proof.identities60) return Double.NaN
+            return flow.optDouble(k,Double.NaN).takeIf { it.isFinite() } ?: Double.NaN
+        }
         val v = DoubleArray(width) { i ->
-            if (i >= rawKeys.size) flow?.optDouble(flowKeys[i-rawKeys.size],Double.NaN) ?: Double.NaN
-            else {
-                val k=rawKeys[i]
-                when {
-                    k=="bp" && !fresh("ageBp",20.0) -> Double.NaN
-                    (k=="chg5m" || k=="chg1h") && !fresh("ageChg",60.0) -> Double.NaN
-                    k=="liq" && !fresh("ageLiq",15.0) -> Double.NaN
-                    (k=="top" || k=="holderVel") && !fresh("ageHolders",120.0) -> Double.NaN
-                    else -> d(k)
+            when {
+                i >= legacyWidth9056 -> if (proof == null) Double.NaN else when(evidenceKeys9056[i-legacyWidth9056]) {
+                    "coverage60" -> proof.coverage60
+                    "coverage15" -> proof.coverage15
+                    "observed60" -> proof.n60.toDouble()
+                    "observedSpanMs" -> proof.spanMs.toDouble()
+                    "signedShare" -> proof.signed60.toDouble()/proof.n60
+                    "receiptLagMs" -> (proof.receiptMs-proof.lastEventMs).toDouble()
+                    "buy5" -> proof.buy5.toDouble()
+                    "net5" -> proof.net5
+                    "net15" -> proof.net15
+                    "netPrev15" -> proof.netPrev15
+                    else -> Double.NaN
+                }
+                i >= rawKeys.size -> observed(flowKeys[i-rawKeys.size])
+                else -> {
+                    val k=rawKeys[i]
+                    when {
+                        k=="newBuyers15s8666" -> observed("new15")
+                        k=="bp" && !fresh("ageBp",20.0) -> Double.NaN
+                        (k=="chg5m" || k=="chg1h") && !fresh("ageChg",60.0) -> Double.NaN
+                        k=="liq" && !fresh("ageLiq",15.0) -> Double.NaN
+                        (k=="top" || k=="holderVel") && !fresh("ageHolders",120.0) -> Double.NaN
+                        else -> d(k)
+                    }
                 }
             }
         }
         return v
+    }
+
+    /** Retain older mark labels and independent raw features, but remove unstamped flow and identity fields. */
+    internal fun upgradeLegacy9056(x: DoubleArray): DoubleArray? {
+        if (x.size!=legacyWidth9056) return null
+        return DoubleArray(width) { i ->
+            if (i>=rawKeys.size || rawKeys[i]=="newBuyers15s8666") Double.NaN else x[i]
+        }
     }
 
     /** Only called by ResearchRows' one existing writer after the raw row was appended. */
@@ -74,7 +110,7 @@ internal object SharedRunnerLab9051 {
             val now=System.currentTimeMillis()
             if (now<t) return
             val dest=file() ?: return
-            dest.appendText(listOf(lane,asset,t.toString(),now.toString(),x.joinToString(","),labels.joinToString(",")).joinToString("\t")+"\n")
+            dest.appendText(listOf(lane,asset,t.toString(),now.toString(),x.joinToString(","),labels.joinToString(","),FEATURE_SCHEMA_9056).joinToString("\t")+"\n")
             if(labels.all { it<0 }) censored.incrementAndGet()
             if(appended.incrementAndGet()%128L==0L && dest.length()>MAX_BYTES) trim(dest)
         } catch (_: Exception) { writeFailed.incrementAndGet() }
@@ -128,9 +164,10 @@ internal object SharedRunnerLab9051 {
     private fun decode(line:String): Scoped? { return try {
         if(line.length>4096)return null
         val c=line.split('\t')
-        if(c.size!=6)return null
+        if(c.size!=6 && !(c.size==7 && c[6]==FEATURE_SCHEMA_9056))return null
         val lane=scope(c[0]) ?: return null
-        val x=c[4].split(',').map{it.toDouble()}.toDoubleArray()
+        val raw=c[4].split(',').map{it.toDouble()}.toDoubleArray()
+        val x=if(c.size==6) upgradeLegacy9056(raw) ?: return null else raw
         val y=c[5].split(',').map{it.toInt()}.toIntArray()
         if(x.size!=width || y.size!=RunnerBarrierLearning9051.HEADS || y.any{it !in -1..1})null
         else Scoped(lane,RunnerBarrierLearning9051.Sample(c[1],c[2].toLong(),c[3].toLong(),x,y))

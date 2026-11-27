@@ -64,6 +64,46 @@ class Aate9051BarrierLearningTest {
         assertEquals(rows.last().decision,selected.last().sample.decision)
         assertNull(c.fit(RunnerBarrierLearning9051.Split(rows,rows.map{it.copy(asset="v")},rows.map{it.copy(asset="t")}),0))
     }
+    @Test fun walletlessVolumeRemainsEvidenceWithoutInventingBuyerCounts9056() {
+        val flow = com.lifecyclebot.engine.market.BuyerFlow8666
+        val now = 1_800_000L
+        flow.clearForTest()
+        try {
+            flow.note("green9056", "alice", 2.0, true, now-20_000L, "a", now-19_000L)
+            flow.note("green9056", "", 4.0, true, now-2_000L, "b", now)
+            flow.note("green9056", "seller", 1.0, false, now-10_000L, "c", now)
+            val frozen = flow.readForLearning9056("green9056", now)!!
+            val j = org.json.JSONObject(com.lifecyclebot.engine.truth.ResearchRows8877.flowJson8924(frozen))
+            assertTrue(j.isNull("buyers60"));assertTrue(j.isNull("new15"));assertTrue(j.isNull("repeat60"))
+            assertEquals(5.0,j.getDouble("netSol60"),1e-9)
+            val e=com.lifecyclebot.engine.truth.ResearchRows8877.flowEvidence9056(j,now)!!
+            assertEquals(0.5,e.coverage60,1e-9);assertEquals(0.0,e.coverage15,1e-9)
+            assertEquals(4.0,e.net5,1e-9);assertEquals(3.0,e.net15,1e-9);assertEquals(2.0,e.netPrev15,1e-9)
+            assertEquals(3,e.signed60)
+            val precursor=org.json.JSONObject().put("v",1).put("rawPresent",true).put("atMs",now)
+                .put("newBuyers15s8666",0).put("flow",j)
+            val features=com.lifecyclebot.engine.truth.SharedRunnerLab9051.features(precursor)!!
+            assertEquals(46,features.size)
+            assertTrue(features[12].isNaN());assertTrue(features[26].isNaN());assertEquals(5.0,features[30],1e-9)
+            assertEquals(0.5,features[36],1e-9);assertEquals(4.0,features[43],1e-9)
+            val historical=com.lifecyclebot.engine.truth.SharedRunnerLab9051.upgradeLegacy9056(DoubleArray(36){1.0})!!
+            assertEquals(46,historical.size);assertEquals(1.0,historical[0],0.0)
+            assertTrue(historical[12].isNaN());assertTrue(historical.drop(26).all{it.isNaN()})
+            flow.note("green9056", "bob", 4.0, true, now-2_000L, "b", now+1)
+            assertNull(flow.readForLearning9056("green9056",now))
+            val repaired=flow.readForLearning9056("green9056",now+1)!!
+            assertTrue(repaired.evidence9056!!.identities60)
+            assertEquals(2,repaired.distinctBuyers60s)
+            assertEquals(3.0,repaired.txPerMin,0.0)
+            assertTrue(j.isNull("buyers60"))
+            assertNull(com.lifecyclebot.engine.truth.ResearchRows8877.flowEvidence9056(j,now+1))
+            flow.note("sellOnly9056", "", 1.0, false, now, "s", now)
+            val sell=org.json.JSONObject(com.lifecyclebot.engine.truth.ResearchRows8877.flowJson8924(
+                flow.readForLearning9056("sellOnly9056",now)))
+            assertEquals(0,sell.getInt("buyers60"));assertEquals(-1.0,sell.getDouble("netSol60"),0.0)
+        } finally { flow.clearForTest() }
+    }
+
     @Test fun legacyLabSplitEmbargoesLabelsAndKeepsAssetsDisjoint() {
         val h=3_600_000L
         val rows=(0 until 20).map { i -> val t=10L+i*2*h

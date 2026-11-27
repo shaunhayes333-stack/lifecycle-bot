@@ -190,9 +190,39 @@ object ResearchRows8877 {
     fun flowJson8924(v: com.lifecyclebot.engine.market.BuyerFlow8666.View?): String {
         if (v == null) return ""
         fun n(x: Double) = if (x.isFinite()) "%.4g".format(java.util.Locale.US, x) else "null"
-        return "{\"asOfMs\":${v.atMs},\"buyers60\":${v.distinctBuyers60s},\"new15\":${v.newBuyers15s},\"perMin\":${n(v.buyersPerMin)},\"buyShare\":${n(v.buySharePct)}," +
-            "\"netSol60\":${n(v.netSol60s)},\"buyTx15\":${v.buyTx15s},\"buyTxPrev15\":${v.buyTxPrev15s},\"repeat60\":${v.repeatBuyers60s}," +
-            "\"txPerMin\":${n(v.txPerMin)},\"accel\":${n(v.volumeAccelScore)},\"sustained\":${v.sustainedDemand}}"
+        val e = v.evidence9056
+        // Legacy manually constructed views remain serializable, but cannot establish receipt/identity evidence.
+        if (e != null && !e.validFor(e.cutoffMs, v.atMs)) return ""
+        val known = e == null || e.identities60
+        val buyers = if (known) v.distinctBuyers60s.toString() else "null"
+        val new15 = if (known) v.newBuyers15s.toString() else "null"
+        val perMin = if (known) n(v.buyersPerMin) else "null"
+        val repeat60 = if (known) v.repeatBuyers60s.toString() else "null"
+        val sustained = if (known) v.sustainedDemand.toString() else "null"
+        val proof = e?.let {
+            ",\"ev9056\":{\"cutoff\":${it.cutoffMs},\"receipt\":${it.receiptMs},\"n\":${it.n60}," +
+                "\"b60\":${it.buy60},\"id60\":${it.id60},\"b15\":${it.buy15},\"id15\":${it.id15}," +
+                "\"signed\":${it.signed60},\"span\":${it.spanMs},\"b5\":${it.buy5}," +
+                "\"net5\":${it.net5},\"net15\":${it.net15},\"netPrev15\":${it.netPrev15}}"
+        }.orEmpty()
+        return "{\"asOfMs\":${v.atMs},\"buyers60\":$buyers,\"new15\":$new15,\"perMin\":$perMin,\"buyShare\":${n(v.buySharePct)}," +
+            "\"netSol60\":${n(v.netSol60s)},\"buyTx15\":${v.buyTx15s},\"buyTxPrev15\":${v.buyTxPrev15s},\"repeat60\":$repeat60," +
+            "\"txPerMin\":${n(v.txPerMin)},\"accel\":${n(v.volumeAccelScore)},\"sustained\":$sustained$proof}"
+    }
+
+    /** One shared parser for the stamped research flow; old unstamped rows are not proof. */
+    internal fun flowEvidence9056(flow: org.json.JSONObject?, decisionMs: Long):
+        com.lifecyclebot.engine.market.BuyerFlowEvidence9056.Snapshot? {
+        return try {
+            if (flow == null) return null
+            val e = flow.getJSONObject("ev9056")
+            val asOf = flow.getLong("asOfMs")
+            val stamp = com.lifecyclebot.engine.market.BuyerFlowEvidence9056.Snapshot(
+                e.getLong("cutoff"), asOf, e.getLong("receipt"), e.getInt("n"), e.getInt("b60"),
+                e.getInt("id60"), e.getInt("b15"), e.getInt("id15"), e.getInt("signed"),
+                e.getLong("span"), e.getInt("b5"), e.getDouble("net5"), e.getDouble("net15"), e.getDouble("netPrev15"))
+            stamp.takeIf { it.validFor(decisionMs, asOf) }
+        } catch (_: Exception) { null }
     }
 
     /** Compact immutable decision features from the existing EdgeModel snapshot, never re-read at label time.

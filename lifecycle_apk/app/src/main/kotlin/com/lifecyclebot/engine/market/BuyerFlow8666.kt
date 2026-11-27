@@ -28,11 +28,12 @@ object BuyerFlow8666 {
     internal data class Print(val atMs: Long, val wallet: String, val sol: Double, val buy: Boolean,
                               val firstSeenBuyer: Boolean = true,
                               /** Retained only on walletless prints so a richer duplicate can fill its identity. */
-                              val missingWalletSignature: String = "")
+                              val missingWalletSignature: String = "", val signed9056: Boolean = false)
     private class MintWindow {
         val prints = ArrayDeque<Print>()
         val seenBuyerAtMs = LinkedHashMap<String, Long>()
         val signatures = LinkedHashMap<String, Long>()
+        var latestMutationReceipt9056 = 0L
     }
 
     data class View(
@@ -49,6 +50,7 @@ object BuyerFlow8666 {
         /** Same 0..100 momentum score scale as MomentumPredictorAI, but actual adjacent 15s trade windows. */
         val volumeAccelScore: Double,
         val sustainedDemand: Boolean = false,
+        val evidence9056: BuyerFlowEvidence9056.Snapshot? = null,
     )
 
     private val prints = ConcurrentHashMap<String, MintWindow>()
@@ -77,6 +79,7 @@ object BuyerFlow8666 {
         if (receivedAtMs - nowMs !in 0L..WINDOW_MS) { stale8790.incrementAndGet(); return }
         val q = prints.computeIfAbsent(mint) { MintWindow() }
         synchronized(q) {
+            q.latestMutationReceipt9056 = maxOf(q.latestMutationReceipt9056, receivedAtMs)
             // The same signed swap may arrive from several providers. A later
             // provider may supply the wallet omitted by the first; count it once.
             q.signatures.entries.removeAll { receivedAtMs - it.value > WINDOW_MS }
@@ -119,7 +122,7 @@ object BuyerFlow8666 {
             }
             while (q.seenBuyerAtMs.size > MAX_KNOWN_WALLETS) q.seenBuyerAtMs.remove(q.seenBuyerAtMs.keys.first())
             val row = Print(nowMs, wallet, sol, buy, firstSeen,
-                missingWalletSignature = if (wallet.isBlank()) signature else "")
+                missingWalletSignature = if (wallet.isBlank()) signature else "", signed9056 = signature.isNotBlank())
             accepted8790.incrementAndGet()
             if (wallet.isBlank()) signedWalletless8790.incrementAndGet()
             if (q.prints.isEmpty() || q.prints.peekLast().atMs <= nowMs) q.prints.addLast(row)
@@ -159,6 +162,28 @@ object BuyerFlow8666 {
         val view = calculate(observed, nowMs)
         if (view == null) emptyReads8790.incrementAndGet() else freshReads8790.incrementAndGet()
         return view
+    }
+
+    /** A frozen research view; late delivery or identity repair cannot leak into an older decision.
+     * Live readers remain on the existing read() contract. No provider request or order authority.
+     */
+    internal fun readForLearning9056(mint: String, nowMs: Long): View? {
+        val q = prints[mint]
+        if (q == null) { emptyReads8790.incrementAndGet(); return null }
+        val (observed, receipt) = synchronized(q) {
+            if (q.latestMutationReceipt9056 !in 1L..nowMs) {
+                emptyReads8790.incrementAndGet(); return null
+            }
+            q.prints.toList() to q.latestMutationReceipt9056
+        }
+        val view = calculate(observed, nowMs)
+        if (view == null) { emptyReads8790.incrementAndGet(); return null }
+        val evidence = BuyerFlowEvidence9056.Builder(nowMs)
+        for (row in observed) evidence.add(row.atMs, row.buy, row.wallet.isNotBlank(), row.signed9056, row.sol)
+        val frozen = evidence.freeze(receipt)
+        if (frozen == null || !frozen.validFor(nowMs, view.atMs)) { emptyReads8790.incrementAndGet(); return null }
+        freshReads8790.incrementAndGet()
+        return view.copy(evidence9056 = frozen)
     }
 
     /**

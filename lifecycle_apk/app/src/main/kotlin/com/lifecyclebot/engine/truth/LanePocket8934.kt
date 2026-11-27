@@ -103,7 +103,8 @@ object LanePocket8934 {
         val buyers = f?.takeIf {
             // Legacy direct rows are retained. A stamped flow must be from
             // the decision's own causal freshness window, never the recovery.
-            !it.has("asOfMs") || at - it.optLong("asOfMs") in 0L..20_000L
+            if (it.has("ev9056")) ResearchRows8877.flowEvidence9056(it, at)?.identities60 == true
+            else !it.has("asOfMs") || at - it.optLong("asOfMs") in 0L..20_000L
         }?.optDouble("buyers60", Double.NaN) ?: Double.NaN
         return age to buyers
     }
