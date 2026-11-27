@@ -71,7 +71,7 @@ object LlmBands8875 {
         if (!net.isFinite()) return
         val key = key8875(lane, band8875(p) ?: return) ?: return
         ensureLoaded()
-        io.execute { try { add(mint, key, atMs, net) } catch (_: Throwable) {} }
+        io.execute { try { DatasetReplay8863.afterSeed9043 { ready = true; add(mint, key, atMs, net) } } catch (_: Throwable) {} }
     }
 
     private fun recordOf(key: String): DoubleArray? {
@@ -134,4 +134,43 @@ object LlmBands8875 {
         add(mint, key8875(lane, band8875(p) ?: return) ?: return, atMs, net)
     }
     internal fun recordForTest8875(lane: String, band: Int): DoubleArray? = key8875(lane, band)?.let { recordOf(it) }
+
+    // V5.0.9043: called only by the shared seed owner, before live-label workers leave await8863.
+    internal fun writeSeed9043(out: java.io.DataOutputStream) {
+        out.writeLong(learned.get())
+        out.writeInt(cells.size)
+        for ((key, cell) in cells) synchronized(cell) {
+            out.writeUTF(key); out.writeDouble(cell.n); out.writeDouble(cell.sum); out.writeDouble(cell.sq)
+            out.writeDouble(cell.ran)
+        }
+        out.writeInt(lastFiled.size)
+        for ((key, at) in lastFiled) { out.writeUTF(key); out.writeLong(at) }
+    }
+
+    internal fun readSeed9043(input: java.io.DataInputStream) {
+        clearSeed9043()
+        learned.set(input.readLong().also { require(it >= 0L) })
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF()
+            val cell = Cell()
+            cell.n = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.sum = DatasetSeedCheckpoint9043.finite(input)
+            cell.sq = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.ran = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            require(cells.putIfAbsent(key, cell) == null) { "duplicate checkpoint cell" }
+        }
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF(); val at = input.readLong()
+            require(lastFiled.putIfAbsent(key, at) == null) { "duplicate checkpoint observation" }
+        }
+    }
+
+    internal fun clearSeed9043() {
+        cells.clear(); learned.set(0L)
+        lastFiled.clear()
+
+
+
+    }
 }
+

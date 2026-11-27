@@ -39,12 +39,22 @@ object EvidenceWait8948 {
     private const val CAP_8948 = 256
     private const val MAX_REASONS_8948 = 24
 
-    private class Wait8948(val firstMs: Long) {
+    private data class Key9043(val mint: String, val lane: String, val opportunity: String)
+    private class Wait8948(val firstMs: Long, val firstElapsedMs: Long, val deadlineElapsedMs: Long, val legacyClock: Boolean) {
         @Volatile var causes: String = ""
-        @Volatile var directMs: Long = 0L
+        @Volatile var ended: Boolean = false
     }
-
-    private val waits = ConcurrentHashMap<String, Wait8948>()
+    private data class Request9043(val elapsedMs: Long, val legacyClock: Boolean)
+    private val lock9043 = Any()
+    private val waits = ConcurrentHashMap<Key9043, Wait8948>()
+    // Detailed rows may be trimmed; an ended obligation's identity may not be forgotten and reopened. At capacity,
+    // new proof-priority obligations are explicitly declined (normal candidate evaluation continues unchanged).
+    private const val MAX_COMPLETED_IDENTITIES_9043 = 32_768
+    private val completed9043 = HashSet<Key9043>()
+    private val capacityDeclined9043 = AtomicLong(0L)
+    // Request ownership is per mint, independent of every lane's obligation and its terminal.
+    private val lastDirect9043 = HashMap<String, Request9043>()
+    private val suppressedReopen9043 = AtomicLong(0L)
     private val noted = AtomicLong(0L)
     private val asked = AtomicLong(0L)
     private val directs = AtomicLong(0L)
@@ -57,28 +67,74 @@ object EvidenceWait8948 {
     /** Pure: does a wait first seen at [firstMs] still ride at [nowMs]? */
     internal fun riding8948(firstMs: Long, nowMs: Long): Boolean = nowMs - firstMs in 0L..WINDOW_MS_8948
 
-    /**
-     * CandidateAdmission8136 (LIVE, a candidate carrying market-cell evidence of [kind]): its admission ended [terminal]
-     * ([reason]); a DEFER_DATA files the wait and asks every live proof; any other terminal closes the coin's wait.
-     */
+    /** A real completed trade opens a new entry episode; price/quote/candidate version churn does not. */
+    internal fun evidenceOpportunity9043(kind: String, evidenceId: String, setup: String?, lastExitMs: Long): String =
+        "$kind:$evidenceId|setup=${setup.orEmpty()}|afterExit=${lastExitMs.coerceAtLeast(0L)}"
+
+    /** Compatibility adapter for legacy callers. Production uses the scoped, monotonic-clock API below. */
     fun note8948(ts: TokenState, kind: String, terminal: String, reason: String, causes: List<String>, nowMs: Long = System.currentTimeMillis()) {
+        noteScoped9043(ts, kind, terminal, reason, causes, "LEGACY", "legacy:$kind", nowMs, nowMs, null, null, true)
+    }
+
+    /**
+     * One lane's evidence obligation. [opportunityId] is a stable source/evidence identity, NEVER a cycle/candidate
+     * version. Repeated DEFERs preserve its deadline, including after expiry; only a distinct opportunity opens another.
+     * A terminal closes only this exact opportunity. This schedules proof work, never admission.
+     */
+    fun note9043(ts: TokenState, kind: String, terminal: String, reason: String, causes: List<String>, lane: String,
+                 opportunityId: String, nowMs: Long = System.currentTimeMillis(),
+                 elapsedMs: Long = System.nanoTime() / 1_000_000L, deadlineMs: Long? = null, deadlineElapsedMs: Long? = null) {
+        noteScoped9043(ts, kind, terminal, reason, causes, lane, opportunityId, nowMs, elapsedMs, deadlineMs, deadlineElapsedMs, false)
+    }
+
+    private fun noteScoped9043(ts: TokenState, kind: String, terminal: String, reason: String, causes: List<String>, lane: String,
+                               opportunityId: String, nowMs: Long, elapsedMs: Long, deadlineMs: Long?, deadlineElapsedMs: Long?, legacyClock: Boolean) {
         val mint = ts.mint
-        if (mint.isBlank() || kind.isBlank()) return
-        sweep8948(nowMs)
-        if (terminal != "DEFER_DATA") { close8948(mint, terminal, reason, nowMs); return }
-        val w = waits[mint] ?: Wait8948(nowMs).also {
-            if (waits.size >= CAP_8948) return
-            waits[mint] = it
-            noted.incrementAndGet()
-            count8948(kinds, kind.take(24))
+        if (mint.isBlank() || lane.isBlank()) return
+        val nl = lane.trim().uppercase()
+        val sendDirect = synchronized(lock9043) {
+            sweep8948(nowMs, elapsedMs)
+            val key = Key9043(mint, nl, opportunityId)
+            if (terminal != "DEFER_DATA") {
+                if (opportunityId.isBlank()) return
+                val w = waits[key]
+                if (w != null) close8948(key, w, terminal, reason, if (w.legacyClock) nowMs else elapsedMs)
+                else if (completed9043.size + waits.values.count { !it.ended } < MAX_COMPLETED_IDENTITIES_9043) completed9043.add(key)
+                return
+            }
+            if (kind.isBlank() || opportunityId.isBlank()) return
+            if (key in completed9043) { suppressedReopen9043.incrementAndGet(); return }
+            val w = waits[key] ?: run {
+                if (waits.values.count { !it.ended } >= CAP_8948) return
+                if (completed9043.size + waits.values.count { !it.ended } >= MAX_COMPLETED_IDENTITIES_9043) {
+                    capacityDeclined9043.incrementAndGet(); return
+                }
+                // Retain bounded tombstones so rescanning an expired opportunity cannot restart a 120 s window.
+                if (waits.size >= CAP_8948 * 4) waits.entries.filter { it.value.ended }
+                    .sortedBy { it.value.firstElapsedMs }.take(CAP_8948).forEach { waits.remove(it.key) }
+                val remaining = (deadlineElapsedMs?.minus(elapsedMs) ?: deadlineMs?.minus(nowMs) ?: WINDOW_MS_8948)
+                    .coerceIn(0L, WINDOW_MS_8948)
+                Wait8948(nowMs, elapsedMs, elapsedMs + remaining, legacyClock).also {
+                    waits[key] = it; noted.incrementAndGet(); count8948(kinds, kind.take(24))
+                }
+            }
+            if (w.ended) { suppressedReopen9043.incrementAndGet(); return }
+            w.causes = causes.distinct().joinToString("+").take(160).ifBlank { "UNNAMED" }
+            if (elapsedMs < w.firstElapsedMs || elapsedMs > w.deadlineElapsedMs ||
+                (deadlineElapsedMs?.let { elapsedMs >= it } ?: deadlineMs?.let { nowMs >= it }) == true) {
+                expire9043(key, w); return
+            }
+            val last = lastDirect9043[mint]
+            val ready = last == null || (last.legacyClock == legacyClock && elapsedMs - last.elapsedMs >= DIRECT_GAP_MS_8948)
+            if (ready) lastDirect9043[mint] = Request9043(elapsedMs, legacyClock)
+            lastDirect9043.entries.removeIf { (m, r) -> r.legacyClock == legacyClock && elapsedMs - r.elapsedMs > WINDOW_MS_8948 + DIRECT_GAP_MS_8948 &&
+                waits.none { it.key.mint == m && !it.value.ended } }
+            ready
         }
-        if (!riding8948(w.firstMs, nowMs)) return
-        w.causes = causes.joinToString("+").take(48).ifBlank { "UNNAMED" }
         ask8948(ts, nowMs)
         try { ChainConfirm8950.confirm8950(ts, causes, "EVIDENCE", nowMs) } catch (_: Throwable) {}   // V5.0.8950 — each named input on chain
         try { com.lifecyclebot.network.PumpFunWS.deserve8952(mint, "PROVEN_WAIT", nowMs) } catch (_: Throwable) {}   // V5.0.8952 — its own prints, live
-        if (direct8948(w.directMs, nowMs)) {
-            w.directMs = nowMs
+        if (sendDirect) {
             directs.incrementAndGet()
             try { com.lifecyclebot.engine.SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
             try { direct8948?.invoke(mint, nowMs / DIRECT_GAP_MS_8948) } catch (_: Throwable) {}
@@ -100,22 +156,24 @@ object EvidenceWait8948 {
         try { AuthorityProofPrefetch8136.prefetchIfLive8136(ts.mint) } catch (_: Throwable) {}
     }
 
-    private fun close8948(mint: String, terminal: String, reason: String, nowMs: Long) {
-        val w = waits.remove(mint) ?: return
+    private fun close8948(key: Key9043, w: Wait8948, terminal: String, reason: String, elapsedMs: Long) {
+        if (w.ended) return
+        w.ended = true; completed9043.add(key)
         if (terminal == "ADMIT") {
             admitted.incrementAndGet()
-            waitMsAdmitted.addAndGet((nowMs - w.firstMs).coerceAtLeast(0L))
+            waitMsAdmitted.addAndGet((elapsedMs - w.firstElapsedMs).coerceAtLeast(0L))
             try { PipelineHealthCollector.labelInc("EVIDENCE_WAIT_8948_ADMITTED") } catch (_: Throwable) {}
         } else count8948(refused, "$terminal:${reason.take(40)}")
     }
 
-    private fun sweep8948(nowMs: Long) {
-        val it = waits.entries.iterator()
-        while (it.hasNext()) {
-            val e = it.next()
-            if (riding8948(e.value.firstMs, nowMs)) continue
-            it.remove()
-            count8948(expired, e.value.causes.ifBlank { "UNNAMED" })
+    private fun expire9043(key: Key9043, w: Wait8948) {
+        if (!w.ended) { w.ended = true; completed9043.add(key); count8948(expired, w.causes.ifBlank { "UNNAMED" }) }
+    }
+
+    private fun sweep8948(nowMs: Long, elapsedMs: Long) {
+        for ((key, w) in waits) {
+            val t = if (w.legacyClock) nowMs else elapsedMs
+            if (!w.ended && (t < w.firstElapsedMs || t > w.deadlineElapsedMs)) expire9043(key, w)
         }
     }
 
@@ -124,24 +182,31 @@ object EvidenceWait8948 {
     }
 
     /** HandoffPriority8190: the coins waiting now (mint -> the end of their window), so each rides the next cycles. */
-    fun targets8948(nowMs: Long = System.currentTimeMillis()): List<Pair<String, Long>> =
-        waits.entries.filter { riding8948(it.value.firstMs, nowMs) }.map { it.key to it.value.firstMs + WINDOW_MS_8948 }
+    fun targets8948(nowMs: Long = System.currentTimeMillis(), elapsedMs: Long = System.nanoTime() / 1_000_000L): List<Pair<String, Long>> =
+        synchronized(lock9043) {
+            sweep8948(nowMs, elapsedMs)
+            waits.entries.filter { !it.value.ended }.groupBy { it.key.mint }.map { (mint, ws) ->
+                mint to ws.maxOf { (_, w) -> nowMs + w.deadlineElapsedMs - if (w.legacyClock) nowMs else elapsedMs }
+            }
+        }
 
     /** Brief: waits filed, proofs asked, how the waits ended. */
-    fun statusLine8948(nowMs: Long = System.currentTimeMillis()): String {
-        sweep8948(nowMs)
+    fun statusLine8948(nowMs: Long = System.currentTimeMillis(), elapsedMs: Long = System.nanoTime() / 1_000_000L): String {
+        synchronized(lock9043) { sweep8948(nowMs, elapsedMs) }
         fun top(m: ConcurrentHashMap<String, AtomicLong>) =
             m.entries.sortedByDescending { it.value.get() }.take(6).joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         val a = admitted.get()
-        return "evidenceWait8948[waiting=${waits.size} noted=${noted.get()} asked=${asked.get()} direct=${directs.get()} kinds{${top(kinds)}} admitted=$a" +
+        return "evidenceWait8948[waiting=${waits.values.count { !it.ended }} noted=${noted.get()} asked=${asked.get()} direct=${directs.get()} kinds{${top(kinds)}} admitted=$a" +
             "${if (a > 0L) " meanWaitS=${waitMsAdmitted.get() / a / 1000L}" else ""} refused{${top(refused)}} expired{${top(expired)}} " +
             "rule=a LIVE coin with market-cell evidence that defers on data has its proofs requested directly (fresh safety report with the " +
             "chain reads, its own pipeline pass now and 1.5 s on, price, authority; at most every ${DIRECT_GAP_MS_8948 / 1000}s) and keeps a cycle " +
-            "slot up to ${WINDOW_MS_8948 / 1000}s until the admission decides it; nothing admitted here, every gate unchanged]"
+            "slot up to ${WINDOW_MS_8948 / 1000}s per lane/opportunity (source deadline preserved); suppressedReopen9043=${suppressedReopen9043.get()} capacityDeclined9043=${capacityDeclined9043.get()}; nothing admitted here, every gate unchanged]"
     }
 
     internal fun resetForTest8948() {
-        waits.clear(); noted.set(0L); asked.set(0L); directs.set(0L); admitted.set(0L); waitMsAdmitted.set(0L)
+        waits.clear(); synchronized(lock9043) { lastDirect9043.clear(); completed9043.clear() }
+        suppressedReopen9043.set(0L); capacityDeclined9043.set(0L)
+        noted.set(0L); asked.set(0L); directs.set(0L); admitted.set(0L); waitMsAdmitted.set(0L)
         refused.clear(); expired.clear(); kinds.clear()
     }
 }

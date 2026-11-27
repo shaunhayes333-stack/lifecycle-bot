@@ -252,9 +252,9 @@ class Aate8331RunnerTest {
         val live = src("engine/RunnerLive8153.kt")
         assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.HELD, key8153(ts))"))
         assertTrue(live.contains("if (plan != RunnerPlan8153.Plan8153.SCALP) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PLAN_SEALED, key8153(ts))"))
-        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, \"${'$'}key|T${'$'}{p.tier}\")"))
-        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_LANDED, \"${'$'}{key8153(ts)}|T${'$'}tier\")"))
-        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, \"${'$'}{key8153(ts)}|T${'$'}tier\")"))
+        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.TICKET_ACCEPTED, \"${'$'}key|T${'$'}{p.tier}\")"))
+        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_LANDED, \"${'$'}key|T${'$'}tier\")"))
+        assertTrue(live.contains("RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, \"${'$'}key|T${'$'}tier\")"))
         assertTrue(live.contains("RunnerFunnel8331.statusLine8331()"))
         assertTrue(src("engine/truth/RunnerCapture8017.kt").contains("val funnel8331 = try { com.lifecyclebot.engine.RunnerFunnel8331.statusLine8331() } catch (_: Throwable) { \"runnerFunnel8331 unavailable\" }"))
     }

@@ -61,8 +61,33 @@ object CryptoSignalEngine8857 {
         if (!d.costPct.isFinite() || d.costPct < 0.0) return true
         return d.trace.any { line ->
             line.startsWith("criticalUnobserved8170=") ||
-                (line.startsWith("missing=") && line.removePrefix("missing=").split(',').any { it.trim() == "price" })
+                // A buy-door safety proof is a critical prerequisite even when the admission
+                // before that proof check was positive. Never treat proof hydration as history.
+                line.startsWith("buyDoorProof8703=") ||
+                (line.startsWith("missing=") && line.removePrefix("missing=").split(',').any {
+                    it.trim().equals("price", true) || it.trim().startsWith("proof:", true)
+                })
         }
+    }
+
+    /**
+     * The canonical pre-economics data wait uses the SAME admission as the later learned-door
+     * decision. Previously every DATA_INCOMPLETE returned before this classification, including
+     * a missing move-history estimate for an independently backed crypto lane. Only that existing
+     * backed LIVE crypto exception continues; all critical facts, other assets and unbacked lanes
+     * still wait. Continuing is not admission: economics, sizing, safety and permit reservation
+     * below this point retain their ordinary authority.
+     */
+    internal fun deferBeforeEconomics9043(
+        liveCrypto: Boolean,
+        reason: String,
+        admission: CandidateAdmission8136.Decision8136?,
+        backed: () -> Boolean,
+    ): Boolean {
+        if (admission?.terminal != CandidateAdmission8136.Terminal8136.DEFER_DATA ||
+            !DataWaitRecovery8957.isDataWait(reason)) return false
+        if (!liveCrypto || binds8857(reason) { admission }) return true
+        return !(try { backed() } catch (_: Throwable) { false })
     }
 
     /**

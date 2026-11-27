@@ -205,10 +205,10 @@ object LaunchCohort8173 {
     }
 
     /** SignedTxLedger8085.transition: a BUY reached chain truth ([state] CONFIRMED / FAILED_ON_CHAIN / EXPIRED_PROVEN). */
-    fun noteBuyOutcome8173(mint: String, route: String, state: String, nowMs: Long = System.currentTimeMillis()) {
+    fun noteBuyOutcome8173(mint: String, route: String, state: String, nowMs: Long = System.currentTimeMillis(), attemptId: String = "", signature: String = "") {
         val slot = when (state) { "CONFIRMED" -> 0; "EXPIRED_PROVEN" -> 1; "FAILED_ON_CHAIN" -> 2; else -> return }
         if (mint.isBlank()) return
-        if (slot == 0) try { LaunchSniper8748.noteBuyConfirmed8749(mint, nowMs) } catch (_: Throwable) {}   // V5.0.8749 measured latency
+        if (slot == 0) try { LaunchSniper8748.noteBuyConfirmed8749(mint, nowMs, attemptId, signature) } catch (_: Throwable) {}   // V5.0.9043 exact signed attempt
         val r = route.trim().uppercase().ifBlank { "UNKNOWN" }
         if (r == "PUMPPORTAL") {
             routeMemos.compute(mint) { _, p -> nextMemo8173(p, slot == 0, nowMs) }

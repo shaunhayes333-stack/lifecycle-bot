@@ -240,6 +240,7 @@ object TreeRanker8737 {
         class R(val x: DoubleArray, val y: Double, val key: String)
         val out = ArrayList<R>()
         for (line in lines) {
+            com.lifecyclebot.engine.JobCost8813.cooperate9043()
             if (EdgeModel8537.refusedUnparsed8863(line)) continue   // V5.0.8863 — replayAccept8642 below would refuse it: no object built
             val o = try { org.json.JSONObject(line) } catch (_: Throwable) { continue }
             val net = o.optDouble("net", Double.NaN)
@@ -255,7 +256,7 @@ object TreeRanker8737 {
             if (lane.uppercase() !in EdgeModel8537.LANES || !EdgeModel8537.replayAccept8642(o)) continue
             val mint = o.optString("mint", "")
             val cost = d("cost")
-            val y = EdgeModel8537.managedTarget8722(lane.uppercase(), net, if (cost.isFinite()) cost else 0.0)
+            val y = EdgeModel8537.trainingTarget9043(o)
                 .coerceIn(CLIP_LO, CLIP_HI)
             if (!y.isFinite()) continue
             val x = doubleArrayOf(d("liq"), d("mcap"), d("age"), d("runup"), d("dd"), d("bp"), d("chg5m"), d("chg1h"), d("top"),
@@ -286,6 +287,7 @@ object TreeRanker8737 {
         val idx = IntArray(n) { it }
         val allFeats = IntArray(nf) { it }
         repeat(trees) { k ->
+            com.lifecyclebot.engine.JobCost8813.cooperate9043()
             val g = DoubleArray(n) { ys[it] - f[it] }
             val rnd = java.util.Random(8798L + k)
             val rows = if (rowFrac >= 1.0) idx else idx.filter { rnd.nextDouble() < rowFrac }.toIntArray().takeIf { it.size >= 2 } ?: idx
@@ -311,6 +313,7 @@ object TreeRanker8737 {
             var bestGain = 0.0; var bf = -1; var bs = 0; var bNanLeft = false
             val hg = DoubleArray(BINS + 1); val hw = DoubleArray(BINS + 1)
             for (fi in feats) {
+                com.lifecyclebot.engine.JobCost8813.cooperate9043()
                 java.util.Arrays.fill(hg, 0.0); java.util.Arrays.fill(hw, 0.0)
                 for (i in rows) { val b = bins[i][fi]; hg[b] += g[i] * w[i]; hw[b] += w[i] }
                 var lg = 0.0; var lw = 0.0

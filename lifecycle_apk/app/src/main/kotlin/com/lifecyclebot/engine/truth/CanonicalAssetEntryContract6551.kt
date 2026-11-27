@@ -162,8 +162,12 @@ object CanonicalEntryAuthority6551 {
         // learners but cannot spend canonical capital.
         val entryAssessment8871 = com.lifecyclebot.engine.cortex.CrossAssetCortex7931.assessEntry8871(candidate)
         entryAssessment8871.refusal?.let { why ->
-            if (entryAssessment8871.admission?.terminal == CandidateAdmission8136.Terminal8136.DEFER_DATA &&
-                DataWaitRecovery8957.isDataWait(why)) return deferred(candidate, venue, why)
+            if (CryptoSignalEngine8857.deferBeforeEconomics9043(
+                    candidate.mode.equals("LIVE", true) && candidate.assetClass == AssetClass.CRYPTO_ALT,
+                    why, entryAssessment8871.admission,
+                ) { CryptoSpotPaperBacking8788.backs8788(candidate.evidence["lane8788"], System.currentTimeMillis(),
+                    candidate.evidence["trend8886"], candidate.evidence["strategy7803"]) })
+                return deferred(candidate, venue, why)
         }
 
         val candidateConfidence7260 = try {
@@ -838,7 +842,7 @@ object CanonicalEntryAuthority6551 {
     }
 
     private fun deferred(c: CanonicalAssetEntryCandidate6551, venue: String, reason: String): CanonicalAssetEntryResult6551.Deferred {
-        CanonicalEntryAuthority6540.markAuthBlockFor6551(c.assetClass, c.symbol, reason)
+        CanonicalEntryAuthority6540.markAuthWaitFor9043(c.assetClass, c.symbol, reason)
         try { com.lifecyclebot.engine.cortex.CrossAssetCortex7931.observe(c, false, reason) } catch (_: Throwable) {}
         return CanonicalAssetEntryResult6551.Deferred(reason)
     }

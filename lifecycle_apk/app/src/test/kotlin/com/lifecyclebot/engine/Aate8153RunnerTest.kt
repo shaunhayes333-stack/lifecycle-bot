@@ -231,7 +231,9 @@ class Aate8153RunnerTest {
         assertFalse(b.request8153(k, s, 2, "SPIKE_CAPTURE_7943_T2_130PCT", 100L))       // one tranche at a time
         assertTrue(b.advance8153(k, Stage8153.TICKET_ACCEPTED, 200L))
         assertFalse(b.advance8153(k, Stage8153.REQUESTED, 300L))                        // never backwards
-        assertFalse(b.settle8153(k, inFlight = true, nowMs = 400L))                     // the sell lock: BROADCAST
+        assertFalse(b.settle8153(k, inFlight = true, nowMs = 400L))                     // a lock alone is not a broadcast
+        assertEquals(Stage8153.TICKET_ACCEPTED, b.pending8153(k)!!.stage)
+        assertTrue(b.advance8153(k, Stage8153.BROADCAST, 400L))                          // the actual submit boundary
         assertEquals(Stage8153.BROADCAST, b.pending8153(k)!!.stage)
         assertEquals(0, b.confirmedTier8153(k, s))                                      // nothing confirmed before the fill
         assertFalse(b.settle8153(k, inFlight = false, nowMs = 400L + 74_000L))          // inside the verifier window
@@ -276,12 +278,14 @@ class Aate8153RunnerTest {
         assertEquals(1, after.restore8153(text))                                         // twice: still the same state
         assertEquals(2, after.confirmedTier8153(k, r))
         assertTrue(after.promoted8153(k))
-        assertNull(after.pending8153(k))
+        assertNotNull(after.pending8153(k))                                            // requests survive restart
         assertEquals(0.3, after.bankedProceedsSol8153(k), 1e-12)
         assertFalse(after.confirm8153(k, r, 2, "SIG-R", 0.3, 0.05)) // signature dedupe survives a process restart
         assertEquals(0.3, after.bankedProceedsSol8153(k), 1e-12)
         assertFalse(after.request8153(k, r, 2, "RUNNER_MILESTONE_8136_T2_410PCT", 20L)) // the filled rung is not re-sold
-        assertTrue(after.request8153(k, r, 3, "RUNNER_MILESTONE_8136_T3_1010PCT", 20L)) // the unconfirmed one retries
+        assertFalse(after.request8153(k, r, 3, "RUNNER_MILESTONE_8136_T3_1010PCT", 20L))
+        assertTrue(after.settle8153(k, false, 5_010L))                                 // proven unsent request may expire
+        assertTrue(after.request8153(k, r, 3, "RUNNER_MILESTONE_8136_T3_1010PCT", 5_011L))
         // Gross opportunity vs net banked on the status line; a closed position moves to the closed totals.
         assertTrue(after.statusLine8153().contains("grossOppSol=0.4000"))
         assertTrue(after.statusLine8153().contains("netBankedSol=+0.2500"))

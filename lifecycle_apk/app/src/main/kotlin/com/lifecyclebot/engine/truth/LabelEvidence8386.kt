@@ -42,6 +42,7 @@ object LabelEvidence8386 {
         if (entry.decimals >= 0 && outcome.decimals >= 0 && entry.decimals != outcome.decimals) return "OBSERVED_ONLY_DECIMALS"
         if (outcome.observedAtMs < entry.observedAtMs) return "OBSERVED_ONLY_TIME_ORDER"
         val ratio = outcome.usd / entry.usd
+        if (!ratio.isFinite() || ratio <= 0.0) return "OBSERVED_ONLY_INVALID_PRICE_RATIO_9043"
         // V5.0.8418 §EXTREME_MOVES_TRAIN — a <= 0.1x move (a rug, a dead coin) is always booked: identity, units, decimals and
         // time order were checked above, and dropping the downside taught the books that rugs never happen.
         // superseded by V5.0.8418 — 8386 "(ratio >= 10.0 || ratio <= 0.1) && !(both independentBasis) -> UNWITNESSED_EXTREME".
@@ -64,9 +65,27 @@ object LabelEvidence8386 {
         // A >= 10x move needs both marks chain-provable ([independent8418]: curve account / curve tape print / parsed swap /
         // pool reserve read). A proof requirement, never a cap: a witnessed 100x / 1000x trains at its full value.
         if (ratio >= 10.0 && !(independent8418(entry) && independent8418(outcome))) return "OBSERVED_ONLY_UNWITNESSED_EXTREME"
+        // 9043: the 27-Nov research export contained a 41,906,101x vault-price ratio. A chain-looking source name
+        // waived the jump check; the exported row contains no persisted typed price proof. Large, proven moves are uncapped;
+        // unsupported ones stay unavailable until their typed identity/units and source evidence are supplied.
+        if (ratio > EXTREME_PROOF_RATIO_9043 && !extremePairProven9043(entry, outcome,
+                if (migrated != null) migrated else try { migrationHook8911?.invoke(entry, outcome) == true } catch (_: Throwable) { false }))
+            return "OBSERVED_ONLY_EXTREME_PROOF_MISSING_9043"
         return "VALID_8386"
     }
     fun eligible(entry: LabelMark8386?, outcome: LabelMark8386?) = status(entry, outcome) == "VALID_8386"
+
+    const val EXTREME_PROOF_RATIO_9043 = 100.0
+
+    /** Pure proof check; no return ceiling and no current market lookup. Legacy unknown decimals are not proof. */
+    fun extremePairProven9043(entry: LabelMark8386?, outcome: LabelMark8386?, migrated: Boolean = false): Boolean {
+        if (entry == null || outcome == null || !entry.known() || !outcome.known()) return false
+        if (entry.mint != outcome.mint || entry.units != outcome.units || entry.decimals < 0 || entry.decimals != outcome.decimals) return false
+        if (outcome.observedAtMs < entry.observedAtMs || !entry.independentBasis || !outcome.independentBasis ||
+            !independentSource8418(entry.source) || !independentSource8418(outcome.source)) return false
+        if (!venueIdentity8787(entry.venue) || !venueIdentity8787(outcome.venue)) return false
+        return entry.venue == outcome.venue || migrationCarries8911(migrated, entry.venue, outcome.venue)
+    }
 
     const val VENUE_MISMATCH_8783 = "OBSERVED_ONLY_VENUE_MISMATCH_8783"
 

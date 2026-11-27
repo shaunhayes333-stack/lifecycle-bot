@@ -31,6 +31,8 @@ object SignedTxLedger8085 {
         // V5.0.8087 — first real submission time (expiry attribution: sign -> submit -> expiry).
         @Volatile var submittedAtMs8087: Long = 0L,
     ) {
+        /** Restoring bytes restores liability evidence, never an unsent entry's in-memory execution authorization. */
+        @Volatile internal var recovered9043: Boolean = false
         val unresolved: Boolean get() = state == State.SIGNED || state == State.SUBMIT_ATTEMPTED ||
             state == State.ACCEPTED || state == State.OUTCOME_UNKNOWN
     }
@@ -59,6 +61,15 @@ object SignedTxLedger8085 {
             val writer = persister ?: throw IllegalStateException("SIGNED_ORDER_STORAGE_UNAVAILABLE")
             writer(durableRows8094(rows.values.toList())) // throws before broadcast; retain the signed identity for retry/proof
         } else persist()
+        // The ledger is durable before this hook: recovery can reconstruct the exact rung
+        // even if the process dies before its own checkpoint. A changed request cannot sign/send.
+        if (e.side == "SELL" && e.intentId.startsWith("RUNG9043:") && e.state == State.SIGNED &&
+            !com.lifecyclebot.engine.RunnerLive8153.signed9043(e)) {
+            e.state = State.SUBMIT_REJECTED // locally proven unsent: the network boundary has not been entered
+            e.detail = "RUNG_SIGNATURE_OWNER_MISMATCH_9043"
+            persist()
+            throw IllegalStateException(e.detail)
+        }
         count("TX_SIGNED_SIGNATURE_PERSISTED_8085")
         if (e.side == "SELL") try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onPhase8144(e.mint, "SIGNED") } catch (_: Throwable) {}  // V5.0.8144
         return e
@@ -121,18 +132,31 @@ object SignedTxLedger8085 {
     /** V5.0.8144 — every row (in-memory ledger, resolved + unresolved) for the reconciliation classifier. */
     fun allRows8144(): List<Entry> = rows.values.toList()
 
-    fun transition(signature: String, to: State, detail: String = "", acceptedBy: String = "", nowMs: Long = System.currentTimeMillis()) {
+    @Synchronized fun transition(signature: String, to: State, detail: String = "", acceptedBy: String = "", nowMs: Long = System.currentTimeMillis()) {
         val e = rows[signature] ?: return
+        if (to == State.SUBMIT_ATTEMPTED && e.state == State.SUBMIT_REJECTED &&
+            (e.detail == "LAUNCH_OPPORTUNITY_EXPIRED_9043" || e.detail == "LAUNCH_LINEAGE_UNMATCHED_9043"))
+            throw com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043(e.detail)
         // terminal chain truth never moves back to a provider-side state
         if (e.state == State.CONFIRMED || e.state == State.FAILED_ON_CHAIN || e.state == State.EXPIRED_PROVEN || e.state == State.SUBMIT_REJECTED) return
         if (to == State.SUBMIT_ATTEMPTED && e.state != State.SIGNED) return
+        if (to == State.SUBMIT_ATTEMPTED && e.side == "BUY" && e.recovered9043)
+            throw com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043("ENTRY_AUTHORITY_LOST_REVALIDATE_9043")
+        if (to == State.SUBMIT_ATTEMPTED && e.side == "BUY") {
+            com.lifecyclebot.engine.truth.LaunchSniper8748.dispatchRefusal9043(e.intentId, nowMs)?.let { refusal ->
+                // No transport has received this signature: this is a local expired authorization, not a failed fill.
+                e.state = State.SUBMIT_REJECTED; e.updatedAtMs = nowMs; e.detail = refusal
+                persist(); count(refusal)
+                throw com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043(refusal)
+            }
+        }
         if (to == State.OUTCOME_UNKNOWN && e.state == State.ACCEPTED && acceptedBy.isBlank()) { e.detail = detail; return }
         if (e.side == "SELL") stage8087(e.mint, to)
         if (to == State.SUBMIT_ATTEMPTED && e.submittedAtMs8087 == 0L) e.submittedAtMs8087 = nowMs
         if (to == State.EXPIRED_PROVEN) attributeExpiry8087(e, detail, nowMs)
         if (to == State.EXPIRED_PROVEN && e.side == "BUY") try { com.lifecyclebot.engine.LandingMeter8169.noteBuyUnlanded8169(e.mint, nowMs) } catch (_: Throwable) {}  // V5.0.8169
         e.state = to; e.updatedAtMs = nowMs
-        if (e.side == "BUY") try { com.lifecyclebot.engine.truth.LaunchCohort8173.noteBuyOutcome8173(e.mint, e.route, to.name, nowMs) } catch (_: Throwable) {}  // V5.0.8173
+        if (e.side == "BUY") try { com.lifecyclebot.engine.truth.LaunchCohort8173.noteBuyOutcome8173(e.mint, e.route, to.name, nowMs, e.intentId, e.signature) } catch (_: Throwable) {}  // V5.0.9043 exact signed attempt
         if (detail.isNotBlank()) e.detail = try { com.lifecyclebot.engine.SellLanding8368.mergeDetail8368(e.detail, detail) } catch (_: Throwable) { detail.take(160) }  // V5.0.8368 — an expiry keeps the preflight rejection text
         if (acceptedBy.isNotBlank()) e.acceptedBy = (if (e.acceptedBy.isBlank()) acceptedBy else "${e.acceptedBy},$acceptedBy").take(80)
         if (e.side == "SELL") routeLanding8164(e, to)
@@ -144,6 +168,8 @@ object SignedTxLedger8085 {
             else -> {}
         }
         persist()
+        if (e.side == "SELL" && e.intentId.startsWith("RUNG9043:"))
+            try { com.lifecyclebot.engine.RunnerLive8153.ledgerState9043(e) } catch (_: Throwable) { count("RUNG_LEDGER_SYNC_FAILED_9043") }
     }
 
     /** The unresolved row signed for (mint, side), other than [exceptSignature], or null. */
@@ -154,6 +180,9 @@ object SignedTxLedger8085 {
 
     fun unresolved(nowMs: Long = System.currentTimeMillis()): List<Entry> =
         rows.values.filter { it.unresolved }
+
+    /** Recovery may retry an existing submit, but SIGNED alone is not proof that a first broadcast was authorized. */
+    internal fun mayRebroadcast9043(e: Entry): Boolean = e.unresolved && e.state != State.SIGNED
 
     private fun trim(nowMs: Long) {
         if (rows.size <= MAX_ROWS) return
@@ -190,8 +219,11 @@ object SignedTxLedger8085 {
     fun restore(lines: List<String>, onRecovered: (Entry) -> Unit = {}): Int {
         var n = 0
         for (l in lines) decode(l)?.let { e ->
+            e.recovered9043 = true
             if (rows.putIfAbsent(e.signature, e) == null) {
                 n++
+                if (e.side == "SELL" && e.intentId.startsWith("RUNG9043:"))
+                    try { com.lifecyclebot.engine.RunnerLive8153.recovered9043(e) } catch (_: Throwable) { count("RUNG_LEDGER_RECOVERY_FAILED_9043") }
                 if (e.unresolved) { count("TX_SIGNATURE_RECOVERED_8085"); try { onRecovered(e) } catch (_: Throwable) {} }
             }
         }

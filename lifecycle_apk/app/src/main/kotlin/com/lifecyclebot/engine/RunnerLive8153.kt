@@ -36,7 +36,22 @@ object RunnerLive8153 {
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
     }
 
-    private fun key8153(ts: TokenState): String = "${ts.mint}|${ts.position.entryTime}"
+    internal fun positionKey9043(ts: TokenState): String = RunnerIdentity9043.positionKey(
+        ts.mint, ts.position.entryTime, ts.position.isPaperPosition, ts.position.positionId)
+
+    private fun key8153(ts: TokenState): String {
+        val key = positionKey9043(ts)
+        val legacy = "${ts.mint}|${ts.position.entryTime}"
+        if (book.containsKey9043(legacy) && ts.position.positionId.isNotBlank()) {
+            val unique = try {
+                com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions()
+                    .filter { it.mint == ts.mint && it.openedAtMs == ts.position.entryTime }
+                    .singleOrNull()?.let { it.positionId == ts.position.positionId && it.mode.equals(if (ts.position.isPaperPosition) "PAPER" else "LIVE", true) } == true
+            } catch (_: Throwable) { false }
+            if (book.migrateLegacy9043(legacy, key, unique)) save8153()
+        }
+        return key
+    }
 
     // ── durable store (restart restores rungs and promotions idempotently) ──
 
@@ -176,7 +191,7 @@ object RunnerLive8153 {
         val free = book.pending8153(key8153(ts)) == null
         if (free) return true
         val settled = book.settle8153(key8153(ts), inFlight, nowMs)
-        if (settled) count8153("SPIKE_TRANCHE_EXPIRED_RETRYABLE_8153")
+        if (settled) { count8153("SPIKE_TRANCHE_EXPIRED_RETRYABLE_8153"); save8153() }
         return settled
     }
 
@@ -184,26 +199,30 @@ object RunnerLive8153 {
         ensureLoaded8153()
         // V5.0.8507 — the funnel's RUNG_TRIGGERED / RUNG_ARMED stages had no writer (8499-8506: always 0, the ladder read
         // as dead). Triggered = the price reached a runner tier and asked for its sale; armed = the book accepted it.
-        val runner8507 = ladder == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0
+        val runner8507 = !ts.position.isPaperPosition && ladder == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0
         if (runner8507) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_TRIGGERED, "${key8153(ts)}|T$tier")
         val ok = book.request8153(key8153(ts), ladder, tier, reason, nowMs)
         if (runner8507 && ok) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_ARMED, "${key8153(ts)}|T$tier")
+        if (ok) save8153()
         return ok
     }
 
     fun advance8153(ts: TokenState, stage: RunnerRungBook8153.Stage8153, nowMs: Long, expectedReason8397: String? = null, expectedRequestAtMs8397: Long? = null): Boolean {
         val key = key8153(ts)
         val advanced = book.advance8153(key, stage, nowMs, expectedReason8397, expectedRequestAtMs8397)
-        // V5.0.8331 — the runner funnel: a runner rung's tranche reached the sell door (once per position and tier).
+        // A ticket is local ownership, not evidence that a transaction reached the network.
         if (advanced && stage == RunnerRungBook8153.Stage8153.TICKET_ACCEPTED && !ts.position.isPaperPosition) {
             val p = book.pending8153(key)
-            if (p != null && p.ladder == RunnerRungBook8153.LADDER_RUNNER_8153) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, "$key|T${p.tier}")
+            if (p != null && p.ladder == RunnerRungBook8153.LADDER_RUNNER_8153) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.TICKET_ACCEPTED, "$key|T${p.tier}")
         }
+        if (advanced) save8153()
         return advanced
     }
 
-    fun revert8153(ts: TokenState, why: RunnerRungBook8153.Revert8153, nowMs: Long, slowAfter: Int = 16) {
-        if (book.revert8153(key8153(ts), why, nowMs, slowAfter) != null) count8153("SPIKE_TRANCHE_${why.name}_NOT_CONSUMED_8153")
+    fun revert8153(ts: TokenState, why: RunnerRungBook8153.Revert8153, nowMs: Long, slowAfter: Int = 16): Boolean {
+        val reverted = book.revert8153(key8153(ts), why, nowMs, slowAfter) != null
+        if (reverted) { count8153("SPIKE_TRANCHE_${why.name}_NOT_CONSUMED_8153"); save8153() }
+        return reverted
     }
 
     fun pendingRequest8397(ts: TokenState, reason: String): RunnerRungBook8153.Pending8153? {
@@ -216,17 +235,79 @@ object RunnerLive8153 {
         val accepted = book.acceptDispatch8397(key, reason, requestedAtMs, nowMs, expectedLadder8397)
         if (accepted && !ts.position.isPaperPosition) book.pending8153(key)?.let { p ->
             if (p.ladder == RunnerRungBook8153.LADDER_RUNNER_8153)
-                RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, "$key|T${p.tier}")
+                RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.TICKET_ACCEPTED, "$key|T${p.tier}")
         }
+        if (accepted) save8153()
         return accepted
     }
 
     fun revertMatching8397(ts: TokenState, reason: String, requestedAtMs: Long, nowMs: Long, slowAfter: Int = 16,
                            expectedLadder8397: String? = null): Boolean {
         val reverted = book.revertMatching8397(key8153(ts), reason, requestedAtMs, nowMs, slowAfter, expectedLadder8397)
-        if (reverted) count8153("SPIKE_TRANCHE_REJECTED_NOT_CONSUMED_8153")
+        if (reverted) { count8153("SPIKE_TRANCHE_REJECTED_NOT_CONSUMED_8153"); save8153() }
         return reverted
     }
+
+    fun remainingTier9043(ts: TokenState, ladder: String): Int? = book.remainder9043(key8153(ts), ladder)?.tier
+
+    fun capRequestedRaw9043(ts: TokenState, reason: String, raw: Long): Long {
+        val p = pendingRequest8397(ts, reason) ?: return raw
+        return if (p.requestedRaw.signum() > 0) java.math.BigInteger.valueOf(raw).min(p.requestedRaw).longValueExact() else raw
+    }
+
+    /** Called at the exact live send boundary, after sizing, on the same request the dispatch adapter accepted. */
+    fun sellIntent9043(ts: TokenState, reason: String, raw: Long, route: String): com.lifecyclebot.network.SignedTxLedger8085.Intent {
+        val p = pendingRequest8397(ts, reason)
+        val rung = rungOf8153(reason) > 0
+        if (rung) check(p != null && p.stage == RunnerRungBook8153.Stage8153.TICKET_ACCEPTED && !ts.position.isPaperPosition && raw > 0L) {
+            "RUNG_REQUEST_NOT_OWNED_9043"
+        }
+        // Unrelated protective/ordinary exits retain the ledger's existing canonical owner resolver.
+        if (!rung) return com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "SELL", rawQty = raw, route = route)
+        val id = if (p != null && rung) RunnerIdentity9043.Request(key8153(ts), p.ladder, p.tier, p.atMs, p.reason).attemptId else ""
+        return com.lifecyclebot.network.SignedTxLedger8085.Intent(ts.mint, "SELL", raw, ts.position.positionId, id, route)
+    }
+
+    /** SignedTxLedger has already persisted the exact identity; this must succeed before it permits network submission. */
+    fun signed9043(e: com.lifecyclebot.network.SignedTxLedger8085.Entry): Boolean {
+        val request = RunnerIdentity9043.parse(e.intentId) ?: return !e.intentId.startsWith("RUNG9043:")
+        if (e.side != "SELL" || RunnerIdentity9043.mode(request.positionKey) != "LIVE") return false
+        ensureLoaded8153()
+        val ok = book.signed9043(request, e.signature, java.math.BigInteger.valueOf(e.rawQty), e.createdAtMs)
+        if (ok) save8153()
+        return ok
+    }
+
+    /** Recovery reads the persisted request, never whichever position happens to reuse this mint now. */
+    fun recovered9043(e: com.lifecyclebot.network.SignedTxLedger8085.Entry) {
+        val request = RunnerIdentity9043.parse(e.intentId) ?: return
+        if (e.side != "SELL" || com.lifecyclebot.network.SignedTxLedger8085.isBooked8418(e)) return
+        ensureLoaded8153()
+        book.signed9043(request, e.signature, java.math.BigInteger.valueOf(e.rawQty), e.createdAtMs, recovering = true)
+        ledgerState9043(e)
+        save8153()
+    }
+
+    fun ledgerState9043(e: com.lifecyclebot.network.SignedTxLedger8085.Entry) {
+        val request = RunnerIdentity9043.parse(e.intentId) ?: return
+        if (e.side != "SELL") return
+        ensureLoaded8153()
+        val sent = e.submittedAtMs8087 > 0L && book.submitted9043(request, e.signature, e.submittedAtMs8087)
+        if (sent && request.ladder == RunnerRungBook8153.LADDER_RUNNER_8153)
+            RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_SENT, "${request.positionKey}|T${request.tier}")
+        if (e.state in setOf(com.lifecyclebot.network.SignedTxLedger8085.State.FAILED_ON_CHAIN,
+                com.lifecyclebot.network.SignedTxLedger8085.State.EXPIRED_PROVEN,
+                com.lifecyclebot.network.SignedTxLedger8085.State.SUBMIT_REJECTED)) {
+            if (book.failed9043(request, e.signature, e.updatedAtMs)) {
+                try { ExitTruthArbiterLive8144.releaseTranche8144(e.mint, request.reason) } catch (_: Throwable) {}
+                count8153("SPIKE_SIGNED_FAILURE_RETRYABLE_9043")
+            }
+        }
+        save8153()
+    }
+
+    fun rungReasonForSignature9043(signature: String): String? =
+        com.lifecyclebot.network.SignedTxLedger8085.get(signature)?.let { RunnerIdentity9043.parse(it.intentId)?.reason }
 
     /** Pure: the spike / runner rung a reason sells (1-based), or 0. */
     fun rungOf8153(reason: String): Int = SPIKE_RUNG_8153.find(reason)?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..16 } ?: 0
@@ -237,6 +318,7 @@ object RunnerLive8153 {
         ensureLoaded8153()
         val ladder = expectedLadder8397 ?: if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
             else book.pending8153(key8153(ts))?.takeIf { it.tier == tier && it.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394 }?.ladder ?: ladderOf8153(plan8153(ts))
+        if (book.remainder9043(key8153(ts), ladder)?.tier == tier) return // an applied underfill is not a completed rung
         book.confirmAppliedTier8198(key8153(ts), ladder, tier)
         save8153()
     }
@@ -249,36 +331,42 @@ object RunnerLive8153 {
     fun bookSlice8153(ts: TokenState, reason: String, signature: String, consumedRaw: java.math.BigInteger, proceedsSol: Double, soldCostSol: Double) {
         if (consumedRaw.signum() <= 0) return
         ensureLoaded8153()
-        val tier = rungOf8153(reason)
+        val signedOwner = com.lifecyclebot.network.SignedTxLedger8085.get(signature)?.takeIf { it.side == "SELL" && it.mint == ts.mint }
+            ?.let { RunnerIdentity9043.parse(it.intentId) }
+        val key = signedOwner?.positionKey ?: key8153(ts)
+        val tier = signedOwner?.tier ?: rungOf8153(reason)
         // V5.0.8331 — the fill confirms the ladder its tranche was REQUESTED on (the pending tranche's), else the plan's:
         // the request ladder and the plan ladder could differ (RunnerGrab7967.tiersFor7967 vs RunnerPlan8153).
-        val pending8331 = book.pending8153(key8153(ts))
-        val ladder8331 = if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
+        val pending8331 = book.pending8153(key)
+        val ladder8331 = signedOwner?.ladder ?: if (reason.startsWith("SCALP_TAKE_PROFIT_8351_T")) RunnerRungBook8153.LADDER_SCALP_EXIT_8394
             else if (pending8331 != null && pending8331.tier == tier && pending8331.ladder != RunnerRungBook8153.LADDER_SCALP_EXIT_8394) pending8331.ladder else ladderOf8153(plan8153(ts))
-        if (book.confirm8153(key8153(ts), ladder8331, tier, signature, proceedsSol, soldCostSol)) {
+        if (book.confirm8153(key, ladder8331, tier, signature, proceedsSol, soldCostSol, consumedRaw)) {
             count8153("SLICE_PROCEEDS_BOOKED_8153")
-            if (ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, "${key8153(ts)}|T$tier")
+            if (RunnerIdentity9043.mode(key) == "LIVE" && ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.PROCEEDS_BOOKED, "$key|T$tier")
         }
-        if (ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_LANDED, "${key8153(ts)}|T$tier")
+        if (RunnerIdentity9043.mode(key) == "LIVE" && ladder8331 == RunnerRungBook8153.LADDER_RUNNER_8153 && tier > 0) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.SELL_LANDED, "$key|T$tier")
         save8153()
     }
 
     /** Retire the closed lot's exact entry key; nearby re-entries retain their earned runner state. */
     fun retire8153(mint: String, entryMs: Long, positionId: String? = null) {
         if (mint.isBlank()) return
-        val exactEntryMs = if (positionId != null) {
+        ensureLoaded8153()
+        val key = if (positionId != null) {
             val lot = com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.getPosition(positionId) ?: return
             if (lot.mint != mint || lot.lifecycle != com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.Lifecycle.CLOSED ||
                 lot.remainingQtyRaw.signum() != 0) return
-            // The durable legacy key predates mode/ID suffixes. If another book owns
-            // that exact entry clock, a receipt for this lot cannot retire its state.
-            if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
-                    it.mint == mint && it.openedAtMs == lot.openedAtMs && it.positionId != positionId }) return
-            lot.openedAtMs
-        } else entryMs
-        if (exactEntryMs <= 0L) return
-        ensureLoaded8153()
-        val key = "$mint|$exactEntryMs"
+            val exact = RunnerIdentity9043.positionKey(mint, lot.openedAtMs, lot.mode.equals("PAPER", true), positionId)
+            if (book.containsKey9043(exact)) exact else {
+                // An old unattributed key can be retired only without another owner of the same clock.
+                if (com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.openPositions().any {
+                        it.mint == mint && it.openedAtMs == lot.openedAtMs && it.positionId != positionId }) return
+                "$mint|${lot.openedAtMs}"
+            }
+        } else {
+            if (entryMs <= 0L) return
+            book.keys8153().filter { it == "$mint|$entryMs" || it.startsWith("$mint|$entryMs|") }.singleOrNull() ?: return
+        }
         val retired = book.retire8153(key)
         continuation.remove(key)
         lastVerdict.remove(key)

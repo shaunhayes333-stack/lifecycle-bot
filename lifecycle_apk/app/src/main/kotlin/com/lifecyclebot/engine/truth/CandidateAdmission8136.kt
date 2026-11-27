@@ -205,7 +205,12 @@ object CandidateAdmission8136 {
         val regimeCold8546: Boolean = false,
         /** V5.0.9001 — LIVE: points the coin's own age band runs below the lane's pooled admitted labels (AgeProof9001). */
         val ageGap9001: Double = 0.0,
+        /** Source fire captured with this candidate; policy and telemetry read the same immutable evidence. */
+        val launchFire9043: LaunchSniper8748.Fire? = null,
+        val launchSnapshotCaptured9043: Boolean = false,
+        val sourceExitAt9043: Long = 0L,
     ) {
+        val launchOpportunity9043: Pair<String, Long>? get() = launchFire9043?.let { LaunchSniper8748.opportunity9043(it) }
         /** V5.0.9001 — what comes off a record POOLED over every age (setup, timing, Cortex cohort, runner grab) at a support test. */
         val pooledShortfall9001: Double get() = liveShortfall8290 + ageGap9001
         /** V5.0.8316 — every fired setup's record past the realised shortfall (support tests only). */
@@ -1836,7 +1841,10 @@ object CandidateAdmission8136 {
     /** Pure: the causes a DEFER_DATA decision's [trace] names. Optional gaps listed beside a cause are not causes. */
     internal fun deferCauses8700(trace: List<String>): List<String> {
         val out = ArrayList<String>(3)
-        trace.firstOrNull { it.startsWith("entryWait8506=") }?.let { out += "ENTRY_WAIT_" + it.removePrefix("entryWait8506=").trim().uppercase() }
+        // Only the bare entry-wait trace is a binding data defer. The annotated forms say doorAdvisory/overriddenBy;
+        // counting them as missing inputs sent refresh work at a condition this decision had already answered.
+        trace.firstOrNull { it.startsWith("entryWait8506=") && !it.removePrefix("entryWait8506=").trim().contains(' ') }
+            ?.let { out += "ENTRY_WAIT_" + it.removePrefix("entryWait8506=").trim().uppercase() }
         val critical = trace.firstOrNull { it.startsWith("criticalUnobserved8170=") }?.removePrefix("criticalUnobserved8170=")
             ?.split(',')?.map { it.substringBefore(':').trim().uppercase() }?.filter { it.isNotBlank() }.orEmpty()
         critical.distinct().forEach { out += "CRITICAL_$it" }
@@ -2046,10 +2054,20 @@ object CandidateAdmission8136 {
                 try { com.lifecyclebot.engine.DecisionEpisode8535.noteAdmission8535(candidate.lane, ts.mint, version, it.terminal.name, it.reason, it.chosenSetup, it.trace, nowMs,
                     evidence8876 = candidate.marketCell8723?.kind.orEmpty()) } catch (_: Throwable) {}   // V5.0.8876 — the evidence funnel
                 // V5.0.8948 — a LIVE evidence coin's data wait asks every live proof at once and rides the cycle until decided
-                if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { EvidenceWait8948.note8948(ts, k, it.terminal.name, it.reason, deferCauses8700(it.trace), nowMs) } catch (_: Throwable) {} }
+                if (mode == "LIVE") try {
+                    val evidence9043 = candidate.marketCell8723
+                    val launchWait9043 = candidate.launchOpportunity9043?.takeIf { evidence9043?.kind == LaunchSniper8748.KIND_8748 }
+                    EvidenceWait8948.note9043(ts, evidence9043?.kind.orEmpty(), it.terminal.name, it.reason, deferCauses8700(it.trace),
+                        candidate.lane, launchWait9043?.first ?: evidence9043?.let { e ->
+                            EvidenceWait8948.evidenceOpportunity9043(e.kind, e.id, candidate.selectedSetup, candidate.sourceExitAt9043) }.orEmpty(),
+                        nowMs, deadlineMs = launchWait9043?.second,
+                        deadlineElapsedMs = candidate.launchFire9043?.takeIf { launchWait9043 != null }?.let { LaunchSniper8748.deadlineElapsed9043(it) })
+                } catch (_: Throwable) {}
                 // V5.0.8949 — an admitted armed launch-rule fire holds on the rule's own stop once bought
                 if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { LaunchSniper8748.noteAdmission8949(ts.mint, k, it.terminal.name, nowMs) } catch (_: Throwable) {} }
-                if (mode == "LIVE") try { LaunchSniper8748.noteAdmission9025(ts.mint, it.terminal.name, it.reason, nowMs) } catch (_: Throwable) {}   // V5.0.9025 — the fire's clock
+                if (mode == "LIVE") try { LaunchSniper8748.noteAdmission9025(ts.mint, it.terminal.name, it.reason, nowMs,
+                    candidate.lane, version, candidate.launchOpportunity9043?.first.orEmpty(),
+                    fireDependent = it.trace.any { t -> t.startsWith(LaneAuthority8577.FIRE_TRACE_9025) }) } catch (_: Throwable) {}   // V5.0.9043 — exact candidate/fire identity
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
@@ -2262,9 +2280,11 @@ object CandidateAdmission8136 {
         // V5.0.8874 — the edge model's verdict is read once: the candidate carries it, and the agreement pocket reads its forecast.
         val edge8874 = EdgeModel8537.verdict(ts, lane, cost8153, nowMs)
         LanePocket8934.noteHuntDecision8961(ts, lane, fit?.stage?.name.orEmpty(), edge8874?.predPct, nowMs)
+        val launchFire9043 = if (live8290) LaunchSniper8748.capturedFire9043(ts.mint, nowMs) else null
         return Candidate8136(
             mint = ts.mint,
             lane = lane,
+            launchFire9043 = launchFire9043, launchSnapshotCaptured9043 = true, sourceExitAt9043 = ts.lastExitTs,
             selectedSetup = selected,
             firedSetups8528 = try { pb.matchedSetups8083(ts, lane, nowMs).filter(::triggered8535).toSet() } catch (_: Throwable) { emptySet() },
             edge8537 = edge8874,  // V5.0.8537 (read once above, V5.0.8874)
@@ -2273,7 +2293,7 @@ object CandidateAdmission8136 {
             // V5.0.8756 — then the graded smart-money signal (a proven wallet's / two converging wallets' buy, armed on its test record)
             marketCell8723 = selectMarketEvidence8961(sequence {
                 yield(PayingCell8723.evidence8723(ts, lane, nowMs))
-                yield(LaunchSniper8748.evidence8748(ts.mint, nowMs))
+                yield(LaunchSniper8748.evidence8748(ts.mint, nowMs, launchFire9043))
                 yield(ManualRead8806.evidence8806(ts.mint, nowMs))
                 yield(com.lifecyclebot.engine.chart.ColourShape8807.evidence8807(ts.mint, nowMs))
                 yield(SmartMoney8756.evidence8756(ts.mint, nowMs))

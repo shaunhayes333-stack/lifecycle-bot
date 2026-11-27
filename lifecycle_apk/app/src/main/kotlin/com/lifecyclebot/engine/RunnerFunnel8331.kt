@@ -14,7 +14,8 @@ import java.util.concurrent.atomic.AtomicLong
  *   planSealed      its one plan (RunnerPlan8153) read RUNNER_SEALED / RUNNER_PROMOTED
  *   rungTriggered   the authoritative mark reached a runner rung above the confirmed one (SpikeCapture7943.onMark)
  *   rungArmed       the rung's tranche was REQUESTED (RunnerRungBook8153: not pending, not in backoff)
- *   sellSent        the tranche reached the sell door (TICKET_ACCEPTED)
+ *   ticketAccepted  the tranche reached the local sell door (not a network submission)
+ *   sellSent        the exact signed request reached the network submission boundary
  *   sellLanded      the chain-confirmed fill of a runner rung (Executor.commitVerifiedLiveSlice7835 -> bookSlice8153)
  *   proceedsBooked  its proceeds were booked on finality (once per signature)
  *   blockedWhy      why a triggered rung did not advance: OFFCHAIN_MARK, TICKET_HELD, PENDING_OR_BACKOFF, BUDGET_REFUSED,
@@ -30,7 +31,7 @@ import java.util.concurrent.atomic.AtomicLong
  * The launch ladder (TradePlan7739 LAUNCH_EARLY) counts beside it: [launchLine8331] armed / firstHit / targetHit.
  */
 object RunnerFunnel8331 {
-    enum class Stage8331 { HELD, PLAN_SEALED, RUNG_TRIGGERED, RUNG_ARMED, SELL_SENT, SELL_LANDED, PROCEEDS_BOOKED }
+    enum class Stage8331 { HELD, PLAN_SEALED, RUNG_TRIGGERED, RUNG_ARMED, TICKET_ACCEPTED, SELL_SENT, SELL_LANDED, PROCEEDS_BOOKED }
 
     private const val MAX_SEEN_8331 = 6_000
     private const val MAX_BLOCK_KEYS_8331 = 24
@@ -121,6 +122,7 @@ object RunnerFunnel8331 {
         val why = blocked.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
         return "runnerFunnel8331[held=${count8331(Stage8331.HELD)} planSealed=${count8331(Stage8331.PLAN_SEALED)} " +
             "rungArmed=${count8331(Stage8331.RUNG_ARMED)} rungTriggered=${count8331(Stage8331.RUNG_TRIGGERED)} " +
+            "ticketAccepted=${count8331(Stage8331.TICKET_ACCEPTED)} " +
             "sellSent=${count8331(Stage8331.SELL_SENT)} sellLanded=${count8331(Stage8331.SELL_LANDED)} " +
             "proceedsBooked=${count8331(Stage8331.PROCEEDS_BOOKED)} blockedWhy={$why}]"
     }

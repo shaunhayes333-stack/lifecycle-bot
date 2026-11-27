@@ -209,6 +209,12 @@ object ExecutionAttemptLease {
         emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=NON_TERMINAL reason=$reason")
     }
 
+    /** Local authorization expiry spent no provider attempt. Preserve any earlier genuine failure/backoff exactly. */
+    fun releaseForRevalidation9043(key: String, side: String, mint: String, symbol: String, reason: String) {
+        states.computeIfPresent(key) { _, old -> old.copy(activeUntilMs = 0L, lastReason = reason, symbol = symbol) }
+        emit("${side.uppercase()}_REVALIDATION_RELEASE_9043", side, mint, symbol, "reason=$reason no_new_failure=true no_new_backoff=true")
+    }
+
     fun terminalFail(key: String, side: String, mint: String, symbol: String, reason: String, processor: String) {
         val n = now()
         pruneExpired(n)

@@ -4,13 +4,13 @@ import com.lifecyclebot.data.TokenState
 
 /** The production dispatch/receipt boundary for both spike and scalp rungs. */
 object RungDispatch8397 {
-    data class Offer8397(val entryTime: Long, val requestAtMs: Long?, val ladder: String?)
+    data class Offer8397(val entryTime: Long, val requestAtMs: Long?, val ladder: String?, val positionKey9043: String = "")
 
     /** Capture on the offering thread, before BotService queues its IO coroutine. */
     fun capture8397(ts: TokenState, reason: String): Offer8397 {
         val entryTime = ts.position.entryTime
         val pending = RunnerLive8153.pendingRequest8397(ts, reason)
-        return Offer8397(entryTime, pending?.atMs, pending?.ladder)
+        return Offer8397(entryTime, pending?.atMs, pending?.ladder, RunnerLive8153.positionKey9043(ts))
     }
 
     /**
@@ -20,7 +20,8 @@ object RungDispatch8397 {
      */
     suspend fun dispatch8397(ts: TokenState, reason: String, offer: Offer8397 = capture8397(ts, reason),
                             sell: suspend () -> Boolean): Boolean {
-        if (!ts.position.isOpen || ts.position.entryTime != offer.entryTime) return false
+        if (!ts.position.isOpen || ts.position.entryTime != offer.entryTime ||
+            RunnerLive8153.positionKey9043(ts) != offer.positionKey9043) return false
         if (RunnerLive8153.rungOf8153(reason) > 0 && offer.requestAtMs == null) return false
         if (offer.requestAtMs != null) {
             // An expired/superseded queued callback must not sell for a newer request with the same reason.
@@ -32,7 +33,7 @@ object RungDispatch8397 {
             return applied
         } finally {
             // A completed old position must never advance/release the replacement position's ladder.
-            if (ts.position.isOpen && ts.position.entryTime == offer.entryTime) {
+            if (ts.position.isOpen && ts.position.entryTime == offer.entryTime && RunnerLive8153.positionKey9043(ts) == offer.positionKey9043) {
                 if (applied) {
                     SpikeCapture7943.onApplied8153(ts, reason, offer.ladder)
                 } else {

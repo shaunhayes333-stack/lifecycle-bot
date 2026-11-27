@@ -19,7 +19,7 @@ class Aate8397RunnerExecutionTest {
     private fun token(now: Long) = TokenState(mint = "runner8397-${System.nanoTime()}", position = Position(
         qtyToken = 1000.0, entryPrice = 100.0, entryTime = now - 60_000L,
         tradingMode = "MOONSHOT", isPaperPosition = false))
-    private fun key(ts: TokenState) = "${ts.mint}|${ts.position.entryTime}"
+    private fun key(ts: TokenState) = RunnerLive8153.positionKey9043(ts)
 
     @Suppress("UNCHECKED_CAST")
     private fun installScalp(ts: TokenState) {
@@ -27,7 +27,7 @@ class Aate8397RunnerExecutionTest {
             .get(ScalpExit8351) as MutableMap<String, Any>
         val ctor = ScalpExit8351::class.java.declaredClasses.single { it.simpleName == "State8351" }
             .declaredConstructors.first { it.parameterCount == 5 }.apply { isAccessible = true }
-        states[key(ts)] = ctor.newInstance(true, 9.28, 13.92, 0.0, 0.0)
+        states["${ts.mint}|${ts.position.entryTime}"] = ctor.newInstance(true, 9.28, 13.92, 0.0, 0.0)
     }
 
     @Suppress("UNCHECKED_CAST")

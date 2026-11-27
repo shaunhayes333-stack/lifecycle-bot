@@ -83,7 +83,7 @@ object AgreementPocket8874 {
         if (!net.isFinite() || !inPocket8874(mint, mcapUsd, v3, predPct)) return
         val key = key8874(lane) ?: return
         ensureLoaded()
-        io.execute { try { add(mint, key, atMs, net) } catch (_: Throwable) {} }
+        io.execute { try { DatasetReplay8863.afterSeed9043 { ready = true; add(mint, key, atMs, net) } } catch (_: Throwable) {} }
     }
 
     private fun recordOf(key: String): DoubleArray? {
@@ -388,4 +388,53 @@ object AgreementPocket8874 {
     internal fun resetForTest8874() { cells.clear(); lastFiled.clear(); served.clear(); admission.clear(); learned.set(0L); ready = true; synchronized(coins8895) { coins8895.clear() } }
     internal fun addForTest8874(lane: String, mint: String, net: Double, atMs: Long) { add(mint, key8874(lane) ?: return, atMs, net) }
     internal fun recordForTest8874(lane: String): DoubleArray? = key8874(lane)?.let { recordOf(it) }
+
+    // V5.0.9043: called only by the shared seed owner, before live-label workers leave await8863.
+    internal fun writeSeed9043(out: java.io.DataOutputStream) {
+        out.writeLong(learned.get())
+        out.writeInt(cells.size)
+        for ((key, cell) in cells) synchronized(cell) {
+            out.writeUTF(key); out.writeDouble(cell.n); out.writeDouble(cell.sum); out.writeDouble(cell.sq)
+            out.writeDouble(cell.ran)
+        }
+        out.writeInt(lastFiled.size)
+        for ((key, at) in lastFiled) { out.writeUTF(key); out.writeLong(at) }
+        synchronized(coins8895) {
+            out.writeInt(coins8895.size)
+            for ((mint, coin) in coins8895) { out.writeUTF(mint); out.writeLong(coin.firstMs); out.writeDouble(coin.worstNet) }
+        }
+    }
+
+    internal fun readSeed9043(input: java.io.DataInputStream) {
+        clearSeed9043()
+        learned.set(input.readLong().also { require(it >= 0L) })
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF()
+            val cell = Cell()
+            cell.n = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.sum = DatasetSeedCheckpoint9043.finite(input)
+            cell.sq = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.ran = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            require(cells.putIfAbsent(key, cell) == null) { "duplicate checkpoint cell" }
+        }
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF(); val at = input.readLong()
+            require(lastFiled.putIfAbsent(key, at) == null) { "duplicate checkpoint observation" }
+        }
+        synchronized(coins8895) {
+            repeat(DatasetSeedCheckpoint9043.count(input, COIN_WINDOW_8895)) {
+                val mint = input.readUTF(); val at = input.readLong(); val net = DatasetSeedCheckpoint9043.finite(input)
+                require(coins8895.put(mint, Coin8895(at, net)) == null) { "duplicate checkpoint coin" }
+            }
+        }
+    }
+
+    internal fun clearSeed9043() {
+        cells.clear(); learned.set(0L)
+        lastFiled.clear()
+        synchronized(coins8895) { coins8895.clear() }
+
+
+    }
 }
+

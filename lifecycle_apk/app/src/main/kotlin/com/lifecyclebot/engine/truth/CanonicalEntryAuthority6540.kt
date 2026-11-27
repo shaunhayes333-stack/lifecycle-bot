@@ -57,6 +57,7 @@ object CanonicalEntryAuthority6540 {
         val intents: Long,
         val dispatches: Long,
         val opensConfirmed: Long,
+        val authWait: Long = 0L,
     ) {
         val attritionCandidateToOpen: Double
             get() = if (candidates <= 0L) 0.0 else opensConfirmed.toDouble() / candidates
@@ -82,6 +83,7 @@ object CanonicalEntryAuthority6540 {
         Venue.MARKETS_PERPS to AtomicLong(),
         Venue.CRYPTO to AtomicLong(),
     )
+    private val waitCount9043 = Venue.values().associateWith { AtomicLong() }
     private val sizedCount = mapOf(
         Venue.MARKETS_SPOT to AtomicLong(),
         Venue.MARKETS_PERPS to AtomicLong(),
@@ -107,6 +109,7 @@ object CanonicalEntryAuthority6540 {
         val assetClass: AssetClass, val candidates: Long, val submits: Long,
         val allows: Long, val blocks: Long, val sized: Long, val intents: Long,
         val dispatches: Long, val dispatchRejects: Long, val pending: Long, val opens: Long,
+        val waits: Long = 0L,
     )
     private val classStages6567 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
     private val completedWindows6569 = java.util.concurrent.ConcurrentHashMap<AssetClass, AtomicLong>()
@@ -128,9 +131,13 @@ object CanonicalEntryAuthority6540 {
     // categories so the next run distinguishes unavailable routes, wallet
     // limits, stage/EV refusals and actual canonical throughput regressions.
     private val canonicalBlockReasons8849 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
+    private val canonicalWaitReasons9043 = java.util.concurrent.ConcurrentHashMap<String, AtomicLong>()
     internal fun canonicalBlockReasonKey8849(reason: String): String =
         reason.substringBefore(':').substringBefore(',').trim().take(80).ifBlank { "UNSPECIFIED" }
     private fun canonicalBlockSummary8849(assetClass: AssetClass): String = canonicalBlockReasons8849.entries
+        .filter { it.key.startsWith("${assetClass.tag}|") }.sortedByDescending { it.value.get() }.take(10)
+        .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "none" }
+    private fun canonicalWaitSummary9043(assetClass: AssetClass): String = canonicalWaitReasons9043.entries
         .filter { it.key.startsWith("${assetClass.tag}|") }.sortedByDescending { it.value.get() }.take(10)
         .joinToString(",") { "${it.key.substringAfter('|')}=${it.value.get()}" }.ifBlank { "none" }
     fun markPreSubmitRefusal7835(assetClass: AssetClass, reason: String) {
@@ -170,13 +177,14 @@ object CanonicalEntryAuthority6540 {
             fun n(stage: String) = classStages6567[classKey6567(c, stage)]?.get() ?: 0L
             AssetClassStats6567(c, n("CANDIDATE"), n("SUBMIT"), n("ALLOW"), n("BLOCK"),
                 n("SIZED"), n("INTENT"), n("DISPATCH"), n("DISPATCH_REJECT"),
-                CanonicalEntryAuthority6551.undispatchedPendingCount6569(c), n("OPEN"))
+                CanonicalEntryAuthority6551.undispatchedPendingCount6569(c), n("OPEN"), n("WAIT"))
         }
     fun assetClassFunnelReport6567(): String = assetClassStats6567().joinToString("\n") { r ->
         "  ${r.assetClass.tag}: candidate=${r.candidates} submit=${r.submits} fdgAllow=${r.allows} " +
-            "fdgBlock=${r.blocks} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} dispatchReject=${r.dispatchRejects} pending=${r.pending} unexplained=${(r.intents-r.dispatches-r.dispatchRejects-r.pending).coerceAtLeast(0L)} open=${r.opens}"
+            "fdgBlock=${r.blocks} dataWait=${r.waits} submissionUnexplained=${(r.submits-r.allows-r.blocks-r.waits).coerceAtLeast(0L)} sized=${r.sized} intent=${r.intents} dispatch=${r.dispatches} dispatchReject=${r.dispatchRejects} pending=${r.pending} unexplained=${(r.intents-r.dispatches-r.dispatchRejects-r.pending).coerceAtLeast(0L)} open=${r.opens}"
     } + "\nCrossAsset canonical block reasons 8849: " +
         "CRYPTO_ALT{${canonicalBlockSummary8849(AssetClass.CRYPTO_ALT)}}\n" +
+        "CrossAsset canonical wait reasons 9043: CRYPTO_ALT{${canonicalWaitSummary9043(AssetClass.CRYPTO_ALT)}}\n" +
         "CrossAsset producer liveness 6569:\n" + producerLivenessReport6569()
 
 
@@ -277,6 +285,7 @@ object CanonicalEntryAuthority6540 {
         intents = intentCount[venue]?.get() ?: 0L,
         dispatches = dispatchCount[venue]?.get() ?: 0L,
         opensConfirmed = openCount[venue]?.get() ?: 0L,
+        authWait = waitCount9043[venue]?.get() ?: 0L,
     )
 
     fun snapshotAll(): List<VenueStats> = Venue.values().map { snapshot(it) }
@@ -323,6 +332,18 @@ object CanonicalEntryAuthority6540 {
         markAuthBlock(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, reason)
     }
 
+    /** A recoverable WAIT is a submitted decision outcome, never a terminal FDG block. */
+    internal fun markAuthWaitFor9043(assetClass: AssetClass, symbol: String, reason: String) {
+        bumpClass6567(assetClass, "WAIT")
+        val venue = if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT
+        waitCount9043[venue]?.incrementAndGet()
+        val key = "${assetClass.tag}|${canonicalBlockReasonKey8849(reason)}"
+        if (canonicalWaitReasons9043.containsKey(key) || canonicalWaitReasons9043.size < 128)
+            canonicalWaitReasons9043.computeIfAbsent(key) { AtomicLong() }.incrementAndGet()
+        bump("CANONICAL_AUTH_WAIT")
+        try { ForensicLogger.lifecycle("CANONICAL_AUTH_WAIT_9043", "class=${assetClass.tag} venue=$venue symbol=$symbol reason=$reason") } catch (_: Throwable) {}
+    }
+
     internal fun markIntentCreatedFor6551(assetClass: AssetClass, symbol: String, id: String) { bumpClass6567(assetClass, "INTENT"); markIntentCreated(if (assetClass == AssetClass.PERPS) Venue.MARKETS_PERPS else if (assetClass == AssetClass.CRYPTO_ALT || assetClass == AssetClass.SOLANA_TOKEN) Venue.CRYPTO else Venue.MARKETS_SPOT, symbol, id) }
 
     internal fun markDispatchRejectFor6569(assetClass: AssetClass, symbol: String, reason: String) {
@@ -344,11 +365,13 @@ object CanonicalEntryAuthority6540 {
         submitCount.values.forEach { it.set(0L) }
         allowCount.values.forEach { it.set(0L) }
         blockCount.values.forEach { it.set(0L) }
+        waitCount9043.values.forEach { it.set(0L) }
         sizedCount.values.forEach { it.set(0L) }
         intentCount.values.forEach { it.set(0L) }
         dispatchCount.values.forEach { it.set(0L) }
         openCount.values.forEach { it.set(0L) }
         classStages6567.clear(); completedWindows6569.clear(); zeroCandidateWindows6569.clear()
         lastCandidateAtWindow6569.clear(); lastRejectSummary6569.clear(); preSubmitReasons7835.clear()
+        canonicalBlockReasons8849.clear(); canonicalWaitReasons9043.clear()
     }
 }

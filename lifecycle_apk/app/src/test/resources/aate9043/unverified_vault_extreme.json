@@ -1,0 +1,45 @@
+{
+  "t": 1795738947200,
+  "horizonMs": 3600000,
+  "mint": "Q63Ud2GrbqSKDP6KZjBnozPFQiPjBLMRxDiR2AYakrt",
+  "lane": "LPSTATE8725_LP_BLOCKED",
+  "admitted": false,
+  "stage": "BASE_START",
+  "setup": "NONE",
+  "pred": 33.3494,
+  "v3": 51.0,
+  "mcap": 47315.2,
+  "liq": 88612.0,
+  "cost": 2.60543,
+  "net": 4190610000.0,
+  "gross": 4190610000.0,
+  "peakPct": 4190610000.0,
+  "heldPeakPct": 2.96527,
+  "minPct": 0.0,
+  "reason": "LPSTATE8725_LP_BLOCKED:LT30/NOT_DLMM_pAMMBay6",
+  "age": 5.37,
+  "diag8891": {
+    "skips": {
+      "ELIGIBILITY": 0,
+      "CACHE": 13,
+      "COPY": 0,
+      "CURVE_CONTRADICTED": 0,
+      "CURVE_HELD": 0,
+      "JUMP": 0,
+      "INELIGIBLE": 0
+    },
+    "accepted": 7,
+    "lastSkip": "",
+    "basisVenue": "9ky35ZmLoe9JkaTPvB4822YHj2TCtoUuiEK4tYRZLthq",
+    "basisSource": "POOL_RESERVES_VAULT_8571",
+    "skipVenue": "",
+    "skipSource": "",
+    "lastAcceptAgoS": 26,
+    "via": "TICK"
+  },
+  "path9013": {
+    "dip": 0.0,
+    "tPeakS": 1324,
+    "gb5": null
+  }
+}

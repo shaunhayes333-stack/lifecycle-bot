@@ -55,7 +55,7 @@ object AuthorityTable8887 {
     /** One decision's read, as the research row carries it. */
     internal data class Row8887(val atMs: Long, val horizonMs: Long, val lane: String, val admitted: Boolean, val stage: String,
                                 val setup: String, val pred: Double, val v3: Double, val mcap: Double, val liq: Double,
-                                val net: Double, val reason: String)
+                                val net: Double, val reason: String, val quarantined9043: Boolean = false)
 
     /** One graded cell. */
     data class Cell8887(val horizonMs: Long, val lane: String, val factor: String, val value: String, val n: Int, val unpriced: Int,
@@ -66,7 +66,7 @@ object AuthorityTable8887 {
                         // ranking used the worst-case SE against the priced mean. The priced series now has its own SE and halves,
                         // the worst case its own mean, and the coverage is stated. The verdicts are computed exactly as before.
                         val pricedSe9038: Double = Double.NaN, val pricedHalf1_9038: Double = Double.NaN, val pricedHalf2_9038: Double = Double.NaN,
-                        val worstMean9038: Double = Double.NaN) {
+                        val worstMean9038: Double = Double.NaN, val quarantined9043: Int = 0) {
         /** Share of the cell's reads that were priced, in percent (100 when n is 0). */
         val coveragePct9038: Double get() = if (n > 0) (n - unpriced) * 100.0 / n else 100.0
     }
@@ -83,23 +83,13 @@ object AuthorityTable8887 {
     internal fun row8887(o: JSONObject): Row8887? {
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
         val lane = o.optString("lane").trim().uppercase()
-        val raw = o.optString("reason")
-        // 8884's later reads: a read taken late is not the horizon's read (dropped); an unroutable coin stays in as unpriced
-        // (net NaN), so a cell's dead coins are never silently left out; the decision's own reason follows the prefix.
-        if (lane.isBlank() || raw.startsWith(LATE_8887)) return null
-        val unpriced = raw.startsWith(UNPRICED_8887)
-        val net = d("net")
-        if (!net.isFinite() && !unpriced) return null
-        val reason = when {
-            unpriced -> raw.removePrefix(UNPRICED_8887)
-            raw.startsWith(PRICED_8887) -> raw.removePrefix(PRICED_8887)
-            raw.startsWith(ResearchFollow8884.DEX_PREFIX_9015) -> raw.removePrefix(ResearchFollow8884.DEX_PREFIX_9015)   // V5.0.9015 — the same read, priced by DexScreener
-            raw.startsWith(ResearchFollow8884.CHAIN_PREFIX_8993) -> raw.removePrefix(ResearchFollow8884.CHAIN_PREFIX_8993)   // V5.0.8993 — the same read, priced by the chain
-            else -> raw
-        }
+        val read = ResearchEvidence9043.read9043(o)
+        // Missing outcomes keep the ORIGINAL door. A LOSTMARK/read-source wrapper must not create a fully priced
+        // survivor cell. Quarantined marks remain unavailable in that cohort, with their own diagnostic count.
+        if (lane.isBlank() || !read.cohortEligible) return null
         return Row8887(o.optLong("t", 0L), o.optLong("horizonMs", 0L), lane,
             o.optBoolean("admitted"), o.optString("stage"), o.optString("setup"), d("pred"), d("v3"), d("mcap"), d("liq"),
-            if (unpriced) Double.NaN else net, reason)
+            read.net, read.originalReason, read.quality == ResearchEvidence9043.Quality.QUARANTINED)
     }
 
     /** Pure: is [r] inside the window at [nowMs] for its horizon — decided in the last 48 h and read (decided one horizon ago)? */
@@ -137,7 +127,8 @@ object AuthorityTable8887 {
      * family margin [z]. Each verdict is read where the unpriced reads cannot flatter it: PAYS with every unpriced read
      * counted as a total loss ([TOTAL_LOSS_8887]); LOSES on the priced reads alone. Mean and median are of the priced reads.
      */
-    internal fun grade8887(horizonMs: Long, lane: String, factor: String, value: String, nets: List<Double>, z: Double): Cell8887 {
+    internal fun grade8887(horizonMs: Long, lane: String, factor: String, value: String, nets: List<Double>, z: Double,
+                          quarantined9043: Int = 0): Cell8887 {
         val n = nets.size
         val priced = nets.filter { it.isFinite() }
         val worst = nets.map { if (it.isFinite()) it else TOTAL_LOSS_8887 }
@@ -156,12 +147,14 @@ object AuthorityTable8887 {
             else -> Verdict8887.UNPROVEN
         }
         return Cell8887(horizonMs, lane, factor, value, n, n - priced.size, p[0], median, exTop3, w[1], w[2], w[3], verdict,
-            pricedSe9038 = p[1], pricedHalf1_9038 = p[2], pricedHalf2_9038 = p[3], worstMean9038 = w[0])   // V5.0.9038
+            pricedSe9038 = p[1], pricedHalf1_9038 = p[2], pricedHalf2_9038 = p[3], worstMean9038 = w[0],
+            quarantined9043 = quarantined9043)   // V5.0.9038 / 9043
     }
 
     /** Pure: every cell of one horizon's [rows] (any order), graded; and the cut points used. */
     internal fun table8887(horizonMs: Long, rows: List<Row8887>): Pair<List<Cell8887>, Map<String, DoubleArray>> {
         val byCell = LinkedHashMap<Triple<String, String, String>, ArrayList<Double>>()
+        val quarantined = HashMap<Triple<String, String, String>, Int>()
         val cutsOut = HashMap<String, DoubleArray>()
         for ((lane, laneRows) in rows.sortedBy { it.atMs }.groupBy { it.lane }) {
             val cuts = BANDED_8887.associateWith { f ->
@@ -171,11 +164,13 @@ object AuthorityTable8887 {
             for (r in laneRows) {
                 fun add(factor: String, value: String?) {
                     if (value.isNullOrBlank()) return
-                    byCell.getOrPut(Triple(lane, factor, value.take(48))) { ArrayList() }.add(r.net)
+                    val cellKey = Triple(lane, factor, value)
+                    byCell.getOrPut(cellKey) { ArrayList() }.add(r.net)
+                    if (r.quarantined9043) quarantined[cellKey] = (quarantined[cellKey] ?: 0) + 1
                 }
                 add("lane", "ALL")
                 add("admitted", if (r.admitted) "Y" else "N")
-                if (!r.admitted && r.reason.isNotBlank()) add("door", try { FdgGate8365.gateKey8392(r.reason) } catch (_: Throwable) { r.reason.take(48) })
+                if (!r.admitted && r.reason.isNotBlank()) add("door", try { FdgGate8365.gateKey8392(r.reason) } catch (_: Throwable) { r.reason })
                 add("stage", r.stage)
                 add("setup", r.setup)
                 add("v3", band8887(r.v3, cuts["v3"]))
@@ -186,7 +181,8 @@ object AuthorityTable8887 {
         }
         val k = byCell.values.count { it.size >= MIN_N_8887 }
         val z = com.lifecyclebot.perps.CryptoTrend8886.familyZ8886(k)
-        return byCell.map { (key, nets) -> grade8887(horizonMs, key.first, key.second, key.third, nets, z) } to cutsOut
+        return byCell.map { (key, nets) -> grade8887(horizonMs, key.first, key.second, key.third, nets, z,
+            quarantined[key] ?: 0) } to cutsOut
     }
 
     // ── state ──
@@ -261,7 +257,8 @@ object AuthorityTable8887 {
                         // V5.0.9038 — the three records, each from one series (the flat keys above are kept for older readers)
                         .put("observed9038", JSONObject().put("n", c.n - c.unpriced).put("mean", n(c.mean)).put("median", n(c.median))
                             .put("se", n(c.pricedSe9038)).put("half1", n(c.pricedHalf1_9038)).put("half2", n(c.pricedHalf2_9038)))
-                        .put("coverage9038", JSONObject().put("n", c.n).put("unpriced", c.unpriced).put("pricedPct", n(c.coveragePct9038)))
+                        .put("coverage9038", JSONObject().put("n", c.n).put("unpriced", c.unpriced)
+                            .put("quarantined9043", c.quarantined9043).put("pricedPct", n(c.coveragePct9038)))
                         .put("worstCase9038", JSONObject().put("mean", n(c.worstMean9038)).put("exTop3", n(c.exTop3)).put("se", n(c.se))
                             .put("half1", n(c.half1)).put("half2", n(c.half2))))
                 }

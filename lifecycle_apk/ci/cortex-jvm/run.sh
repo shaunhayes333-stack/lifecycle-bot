@@ -72,6 +72,9 @@ production=(
   "$sources/cortex/ForwardOutcomeDelivery8404.kt"
   "$sources/truth/CanonicalLaneIdentity6506.kt"
   "$sources/truth/LabelEvidence8386.kt"
+  "$sources/truth/ResearchEvidence9043.kt"
+  "$sources/truth/FrozenEdgeTarget9043.kt"
+  "$sources/truth/ForwardLabelRecipe9043.kt"
   "$sources/truth/LearningEpoch8164.kt"
   "$sources/cortex/CortexForwardEpoch8521.kt"
   "$sources/cortex/LaneGradeHorizon8406.kt"
@@ -122,6 +125,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   "$tests/Aate8826SignalBibleTest.kt" \
   "$tests/Aate8871CortexSamplingTest.kt" \
   "$tests/Aate8871FrozenPriceIdentityTest.kt" "$tests/Aate8871CortexProofIdentityTest.kt" \
+  "$tests/Aate9043ResearchEvidenceTest.kt" \
   "$tests/Aate8871PlaybookEpisodeClockTest.kt" \
   "$script_dir/ScannerSourceBrainIntegrationTest.kt" \
   "$tests/Aate8076CortexRevisionTest.kt" "$tests/Aate8372CortexLearningTest.kt" \
@@ -141,6 +145,7 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate8826SignalBibleTest \
   com.lifecyclebot.engine.Aate8871CortexSamplingTest \
   com.lifecyclebot.engine.Aate8871FrozenPriceIdentityTest \
+  com.lifecyclebot.engine.Aate9043ResearchEvidenceTest \
   com.lifecyclebot.engine.Aate8871CortexProofIdentityTest \
   com.lifecyclebot.engine.Aate8871PlaybookEpisodeClockTest \
   com.lifecyclebot.engine.Aate8076CortexRevisionTest \

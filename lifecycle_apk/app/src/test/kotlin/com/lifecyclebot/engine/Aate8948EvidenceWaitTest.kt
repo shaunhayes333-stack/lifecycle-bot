@@ -52,7 +52,7 @@ class Aate8948EvidenceWaitTest {
 
     @Test fun theWaitIsWiredWithoutAnyGateChanging() {
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains(
-            "if (mode == \"LIVE\") candidate.marketCell8723?.kind?.let { k -> try { EvidenceWait8948.note8948(ts, k, it.terminal.name, it.reason, deferCauses8700(it.trace), nowMs) } catch (_: Throwable) {} }"))
+            "EvidenceWait8948.note9043(ts, evidence9043?.kind.orEmpty(), it.terminal.name, it.reason, deferCauses8700(it.trace),"))
         assertTrue(src("engine/HandoffThroughput8190.kt").contains("return tasks + yields + tickets8297 + proof8310 + hydrated8343 + evidence8948"))
         assertTrue(src("engine/BotService.kt").contains("fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), \"EVIDENCE_WAIT_8948\", onceKey = \"\$mint|8948|\$slot\")"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 136. A proven coin's data wait is answered directly (8948)"))

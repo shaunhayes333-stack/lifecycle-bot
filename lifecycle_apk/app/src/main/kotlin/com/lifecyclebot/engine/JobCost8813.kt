@@ -89,7 +89,7 @@ object JobCost8813 {
     //    nothing waits for (measureBackground8817) first waits, before it asks for its turn, while memory pressure is HARD
     //    or CRITICAL, up to [HEADROOM_WAIT_MAX_MS_9033]; a job the decision waits for (measureYielding8866: the tree's
     //    refit) takes its turn but does not wait for headroom, and waits for the turn at most [YIELDING_TURN_WAIT_MS_9033].
-    //    No wait is unbounded and no job is dropped: past its limit a job runs as it did before. Not gated: the Cortex
+    //    V5.0.9043: no wait is unbounded; timeout defers the job instead of running it outside the exclusive turn. Not gated: the Cortex
     //    snapshot and close commit (durability), and the edge model's replay and conviction seed (they run inside the
     //    model's load lock, which every reader of the model waits on; neither ran in that report). A job started inside
     //    another on the same thread is part of that job's turn. ──
@@ -104,6 +104,26 @@ object JobCost8813 {
     private val turnWaitedMs9033 = java.util.concurrent.atomic.AtomicLong(0L)
     private val headroomWaitedMs9033 = java.util.concurrent.atomic.AtomicLong(0L)
     private val withoutTurn9033 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val deferredTurns9043 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val yielded9043 = java.util.concurrent.atomic.AtomicLong(0L)
+    private val nextYield9043 = ThreadLocal<Long>()
+    @Volatile internal var turnWaitForTest9043: Long? = null
+    @Volatile internal var seedReadyForTest9043: (() -> Boolean)? = null
+
+    /** A timed-out or interrupted batch never runs outside its memory/CPU permit. Its existing worker retries. */
+    internal class BatchDeferred9043(name: String) : IllegalStateException("BATCH_TURN_DEFERRED_9043:$name")
+
+    /** Bounded CPU slices without releasing the permit while the job still owns its parsed heap. */
+    fun cooperate9043() {
+        if ((heavyDepth9033.get() ?: 0) == 0) return
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("batch cancelled")
+        val now = System.nanoTime()
+        if (now < (nextYield9043.get() ?: 0L)) return
+        java.util.concurrent.locks.LockSupport.parkNanos(1_000_000L)
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("batch cancelled")
+        yielded9043.incrementAndGet()
+        nextYield9043.set(System.nanoTime() + 8_000_000L)
+    }
 
     /** Pure: does a job that waits for headroom keep waiting at this [pressure] after [waitedMs]? */
     fun headroomWaits9033(pressure: String, waitedMs: Long, waitsForHeadroom: Boolean): Boolean =
@@ -132,37 +152,47 @@ object JobCost8813 {
 
     @PublishedApi internal fun heavyEnter9033(name: String, waitsForHeadroom: Boolean): Boolean {
         val headroom9042 = waitsForHeadroom9042(name, waitsForHeadroom)   // V5.0.9042 — a job the decision reads does not wait for headroom
-        val maxWait = turnWaitMs9033(name, headroom9042)
-        if (maxWait <= 0L) return false
+        val maxWait = turnWaitForTest9043 ?: turnWaitMs9033(name, headroom9042)
+        if (name !in GATED_9033) return false
         val depth = heavyDepth9033.get() ?: 0
         if (depth > 0) { heavyDepth9033.set(depth + 1); return false }   // inside a job on this thread that already holds the turn
+        // Decision evidence is restored/replayed before another batch allocates its training/research working set.
+        // This is called only by the existing batch workers, never by the entry/exit evaluation path.
+        if (name !in DECISION_INPUTS_9042) {
+            val ready = seedReadyForTest9043?.invoke()
+                ?: com.lifecyclebot.engine.truth.DatasetReplay8863.await8863()
+            if (!ready) { deferredTurns9043.incrementAndGet(); throw BatchDeferred9043(name) }
+        }
         // headroom first, and without the turn: a job asleep here holds nothing another job waits for
         var waited = 0L
         while (headroomWaits9033(pressureName9033(), waited, headroom9042)) {
-            try { Thread.sleep(HEADROOM_STEP_MS_9033) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            try { Thread.sleep(HEADROOM_STEP_MS_9033) } catch (e: InterruptedException) { Thread.currentThread().interrupt(); throw e }
             waited += HEADROOM_STEP_MS_9033
         }
         if (waited > 0L) headroomWaitedMs9033.addAndGet(waited)
-        val t0 = System.currentTimeMillis()
+        val t0 = System.nanoTime()
         val got = try {
             if (heavyTurn9033.tryAcquire()) true
             else { turnWaits9033.incrementAndGet(); heavyTurn9033.tryAcquire(maxWait, java.util.concurrent.TimeUnit.MILLISECONDS) }
-        } catch (_: InterruptedException) { Thread.currentThread().interrupt(); false }
-        turnWaitedMs9033.addAndGet(System.currentTimeMillis() - t0)
-        if (got) heavyDepth9033.set(1) else withoutTurn9033.incrementAndGet()
-        return got
+        } catch (e: InterruptedException) { Thread.currentThread().interrupt(); throw e }
+        turnWaitedMs9033.addAndGet((System.nanoTime() - t0) / 1_000_000L)
+        if (!got) { deferredTurns9043.incrementAndGet(); throw BatchDeferred9043(name) }
+        heavyDepth9033.set(1)
+        nextYield9043.set(System.nanoTime() + 8_000_000L)
+        return true
     }
 
     /** Ends what [heavyEnter9033] began: releases the turn it took, or steps out of a job nested in one. */
     @PublishedApi internal fun heavyExit9033(heldTurn: Boolean) {
-        if (heldTurn) { heavyDepth9033.remove(); heavyTurn9033.release(); return }
+        if (heldTurn) { heavyDepth9033.remove(); nextYield9043.remove(); heavyTurn9033.release(); return }
         val depth = heavyDepth9033.get() ?: 0
         if (depth > 1) heavyDepth9033.set(depth - 1)
     }
 
     fun turnsLine9033(): String = "batchTurns9033[waitedForTurn=${turnWaits9033.get()} turnWaitS=${turnWaitedMs9033.get() / 1000} headroomWaitS=${headroomWaitedMs9033.get() / 1000} " +
-        "ranWithoutTurn=${withoutTurn9033.get()} rule=the dataset-seed, tree, strategy-lab, authority-table and launch-replay jobs run one at a time; a job nothing waits for " +
-        "first waits up to ${HEADROOM_WAIT_MAX_MS_9033 / 60_000} min while memory pressure is HARD or CRITICAL; no wait is unbounded]"
+        "ranWithoutTurn=${withoutTurn9033.get()} deferred9043=${deferredTurns9043.get()} yielded9043=${yielded9043.get()} " +
+        "rule=decision seed first; batch jobs hold one exclusive turn, yield CPU in bounded slices and defer on timeout; " +
+        "a research job first waits up to ${HEADROOM_WAIT_MAX_MS_9033 / 60_000} min for headroom; no wait is unbounded]"
 
     // ── V5.0.8866 §A_JOB_THE_DECISION_WAITS_FOR_YIELDS_WITHOUT_STARVING ──
     // Android puts a thread at nice >= 10 (THREAD_PRIORITY_BACKGROUND; Java priority below NORM) into the background CPU
@@ -227,5 +257,8 @@ object JobCost8813 {
             " rule=per heavy job: process MB allocated while it ran (upper bound: other threads allocate too), wall ms, its own thread CPU] " + turnsLine9033()
     }
 
-    internal fun resetForTest8813() { jobs.clear() }
+    internal fun resetForTest8813() {
+        jobs.clear(); turnWaitForTest9043 = null; seedReadyForTest9043 = null
+        deferredTurns9043.set(0L); yielded9043.set(0L)
+    }
 }

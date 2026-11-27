@@ -154,7 +154,10 @@ object PocketLedger8610 {
     fun learn8610(s: EdgeModel8537.Snap, net: Double) {
         if (!net.isFinite() || s.horizonMs <= 0L) return
         ensureLoaded()
-        io.execute { record(s.mint, s.atMs, s.horizonMs, s.raw.lane, bandsOf(s.raw), net) }
+        io.execute { DatasetReplay8863.afterSeed9043 {
+            ready = true
+            record(s.mint, s.atMs, s.horizonMs, s.raw.lane, bandsOf(s.raw), net)
+        } }
     }
 
     private fun record(mint: String, at: Long, horizon: Long, lane: String, bands: Map<String, String>, net: Double) {
@@ -335,5 +338,61 @@ object PocketLedger8610 {
             when (callOf8610(listOf(doubleArrayOf(c.n, c.sum, c.sq)))) { Call.PAYS -> pays++; Call.LOSES -> loses++; else -> {} }
         }
         return "pocket8610[ready=$ready cells=${cells.size} paying=$pays losing=$loses learned=${learned.get()} rule=mean clipped t of cells n>=40 > +$PAY_SCORE, decay0.995]"
+    }
+
+    // V5.0.9043: called only by the shared seed owner, before live-label workers leave await8863.
+    internal fun writeSeed9043(out: java.io.DataOutputStream) {
+        out.writeLong(learned.get())
+        out.writeInt(cells.size)
+        for ((key, cell) in cells) synchronized(cell) {
+            out.writeUTF(key); out.writeDouble(cell.n); out.writeDouble(cell.sum); out.writeDouble(cell.sq)
+
+        }
+        synchronized(recent) {
+            out.writeInt(laneBit9029.size)
+            for ((lane, bit) in laneBit9029) { out.writeUTF(lane); out.writeInt(bit) }
+            out.writeInt(recent.size)
+            for ((key, mask) in recent) { out.writeLong(key); out.writeLong(mask) }
+        }
+        out.writeInt(gap8823.size)
+        for ((key, values) in gap8823) synchronized(values) {
+            out.writeUTF(key); for (value in values) out.writeDouble(value)
+        }
+    }
+
+    internal fun readSeed9043(input: java.io.DataInputStream) {
+        clearSeed9043()
+        learned.set(input.readLong().also { require(it >= 0L) })
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF()
+            val cell = Cell()
+            cell.n = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.sum = DatasetSeedCheckpoint9043.finite(input)
+            cell.sq = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+
+            require(cells.putIfAbsent(key, cell) == null) { "duplicate checkpoint cell" }
+        }
+        synchronized(recent) {
+            repeat(DatasetSeedCheckpoint9043.count(input, 64)) {
+                val lane = input.readUTF(); val bit = input.readInt().also { require(it in 0..63) }
+                require(laneBit9029.put(lane, bit) == null) { "duplicate checkpoint lane" }
+            }
+            repeat(DatasetSeedCheckpoint9043.count(input, MAX_RECENT_OBSERVATIONS)) {
+                val key = input.readLong(); val mask = input.readLong()
+                require(recent.put(key, mask) == null) { "duplicate checkpoint observation" }
+            }
+        }
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF(); val values = DoubleArray(3) { DatasetSeedCheckpoint9043.finite(input) }
+            require(gap8823.putIfAbsent(key, values) == null) { "duplicate checkpoint gap" }
+        }
+    }
+
+    internal fun clearSeed9043() {
+        cells.clear(); learned.set(0L)
+
+
+        synchronized(recent) { recent.clear(); laneBit9029.clear() }; gap8823.clear()
+
     }
 }

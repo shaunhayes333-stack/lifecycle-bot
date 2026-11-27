@@ -16,7 +16,8 @@ import java.util.concurrent.atomic.AtomicLong
  * Now each 60-minute read is also written as one research row — the decision's own facts (lane, admitted, stage, setup,
  * forecast, V3 score, cap, pool, cost, the refusal it met) beside the hour's net and gross, its peak, the highest level held
  * and the deepest dip — to its own file, exported beside the edge dataset. Its own file and its own line budget: the edge
- * dataset's 60,000-line window, which every learner trains on, is not spent on it, and no learner reads it. A decision whose
+ * dataset's 60,000-line window, which every learner trains on, is not spent on it. The base, agreement and lane research
+ * pockets now read it through the shared evidence-quality contract; it is not the Edge/MIND training dataset. A decision whose
  * mark never moved (a lost mark) writes nothing here, as it books nothing; since 8983 ResearchFollow8884 reads it at the
  * hour instead and writes its row (priced, or NO_PRICE).
  */
@@ -29,6 +30,7 @@ object ResearchRows8877 {
     private const val CHECK_EVERY_8877 = 5_000L
     private val written = AtomicLong(0L)
     private val failed = AtomicLong(0L)
+    private val quarantined9043 = AtomicLong(0L)
     @Volatile private var lastAtMs = 0L
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "research8877").apply { isDaemon = true } }
 
@@ -52,17 +54,18 @@ object ResearchRows8877 {
     // read itself is now asked of the chain first where a pool is known (ForwardReturnLabeler7731.stateMark8989).
     private const val UNPRICED_PREFIX_8983 = "NO_PRICE_JUP_8884:"
     private val unpricedSeen8992 = AtomicLong(0L)
+    private val quarantinedSeen9043 = AtomicLong(0L)
 
     /** Pure: a research row's net for a pocket: its net, else NaN (not a reading — an unpriced or late read is unknown). */
     fun rowNet8983(o: org.json.JSONObject): Double {
-        val net = if (o.isNull("net")) Double.NaN else o.optDouble("net", Double.NaN)
-        if (net.isFinite()) return net
-        if (o.optString("reason").startsWith(UNPRICED_PREFIX_8983)) unpricedSeen8992.incrementAndGet()
-        return Double.NaN
+        val read = ResearchEvidence9043.read9043(o)
+        if (read.quality == ResearchEvidence9043.Quality.UNPRICED) unpricedSeen8992.incrementAndGet()
+        if (read.quality == ResearchEvidence9043.Quality.QUARANTINED) quarantinedSeen9043.incrementAndGet()
+        return read.net
     }
 
     /** One line: unpriced reads the pockets met and did not file (each mine pass re-reads the file, so this is a running tally). */
-    fun unpricedLine8992(): String = "researchUnpriced8992[notFiled=${unpricedSeen8992.get()} rule=UNKNOWN_NOT_MINUS_100]"
+    fun unpricedLine8992(): String = "researchUnpriced8992[notFiled=${unpricedSeen8992.get()} quarantinedReads9043=${quarantinedSeen9043.get()} rule=UNKNOWN_NOT_MINUS_100]"
 
     /**
      * V5.0.8990 §THE_PROVEN_POCKETS_SHIP_WITH_THE_BUILD — owner, 24 Nov 22:14: "the proven pockets. shouldn't they become from
@@ -120,13 +123,17 @@ object ResearchRows8877 {
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
                  peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = "",
-                 ageMin: Double = Double.NaN, path: String = ""): String {
+                 ageMin: Double = Double.NaN, path: String = "", priceProof9043: String = "", labelRecipe9043: String = ""): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
             "\"stage\":\"${s(stage, 32)}\",\"setup\":\"${s(setup, 40)}\",\"pred\":${n(pred)},\"v3\":${n(v3)},\"mcap\":${n(mcapUsd)}," +
             "\"liq\":${n(liqUsd)},\"cost\":${n(costPct)},\"net\":${n(net)},\"gross\":${n(gross)},\"peakPct\":${n(peakPct)}," +
             "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
+            ",\"originalReason9043\":" + org.json.JSONObject.quote(ResearchEvidence9043.originalReason9043(reason)) +
+            (if (priceProof9043.startsWith("{") && priceProof9043.endsWith("}")) ",\"priceProof9043\":$priceProof9043" else "") +
+            (if (labelRecipe9043.isNotBlank()) ",\"labelRecipe9043\":$labelRecipe9043,\"labelRecipeOrigin9043\":\"DECISION_FROZEN\""
+             else ",\"labelRecipeOrigin9043\":" + org.json.JSONObject.quote(ForwardLabelRecipe9043.LEGACY)) +
             // V5.0.9002 — the coin's age at the decision, when it was known (LanePocket8934 mines it per lane)
             (if (ageMin.isFinite() && ageMin >= 0.0) ",\"age\":${n(ageMin)}" else "") +
             // V5.0.8891 — the hour read's path diagnostics (ForwardReturnLabeler7731.diagJson8891), when the labeler gives them
@@ -186,14 +193,18 @@ object ResearchRows8877 {
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: write one decision's hour read. Never blocks the labeler. */
     fun note8877(line: String, nowMs: Long = System.currentTimeMillis()) {
+        // Keep the raw numbers for forensic inspection; the shared read contract makes invalid outcomes unavailable.
+        // Apply this on append AND in each reader so a retained historical artifact cannot re-enter a pocket at restart.
+        val safeLine = try { ResearchEvidence9043.annotate9043(line) } catch (_: Exception) { failed.incrementAndGet(); return }
+        if (safeLine.contains("\"quality9043\":\"QUARANTINED\"")) quarantined9043.incrementAndGet()
         try { AuthorityTable8887.ensureStarted8887() } catch (_: Throwable) {}   // V5.0.8887 — the hourly authority table grades these rows
-        try { BasePocket8904.learnLine8904(line) } catch (_: Throwable) {}   // V5.0.8904 — and the base pocket files its hour reads
-        try { AgreementPocket8874.learnLine8929(line) } catch (_: Throwable) {}   // V5.0.8929 — and the agreement pocket's research coin record
-        try { LanePocket8934.learnLine8934(line) } catch (_: Throwable) {}   // V5.0.8934 — and every lane's own in-band cells
+        try { BasePocket8904.learnLine8904(safeLine) } catch (_: Throwable) {}   // V5.0.8904 — and the base pocket files its hour reads
+        try { AgreementPocket8874.learnLine8929(safeLine) } catch (_: Throwable) {}   // V5.0.8929 — and the agreement pocket's research coin record
+        try { LanePocket8934.learnLine8934(safeLine) } catch (_: Throwable) {}   // V5.0.8934 — and every lane's own in-band cells
         io.execute {
             try {
                 val f = file8877() ?: return@execute
-                f.appendText(line + "\n")
+                f.appendText(safeLine + "\n")
                 lastAtMs = nowMs
                 if (written.incrementAndGet() % CHECK_EVERY_8877 == 0L) trim8877(f)
             } catch (_: Throwable) { failed.incrementAndGet() }
@@ -223,7 +234,7 @@ object ResearchRows8877 {
 
     /** The brief: rows written this run and how long ago the last one landed. */
     fun statusLine8877(): String =
-        "research8877[written=${written.get()} failed=${failed.get()} lastAgoS=${if (lastAtMs > 0L) (System.currentTimeMillis() - lastAtMs) / 1000L else -1L} " +
+        "research8877[written=${written.get()} failed=${failed.get()} quarantined9043=${quarantined9043.get()} lastAgoS=${if (lastAtMs > 0L) (System.currentTimeMillis() - lastAtMs) / 1000L else -1L} " +
             "staleHour8891{${stale8891.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }}} " +
-            "file=$FILE_8877 rule=every decision's 60-minute read with its peak, held peak and dip; its own file, no learner reads it]"
+            "file=$FILE_8877 rule=research reads retain original refusal identity and outcome provenance; unavailable/quarantined values are not priced observations]"
 }

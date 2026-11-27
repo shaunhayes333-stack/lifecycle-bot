@@ -21,10 +21,12 @@ package com.lifecyclebot.engine
  */
 class RunnerRungBook8153(private val cap: Int = 2_048) {
 
-    enum class Stage8153 { REQUESTED, TICKET_ACCEPTED, BROADCAST, CONFIRMED_PARTIAL_FILL, PROCEEDS_BOOKED }
+    enum class Stage8153 { REQUESTED, TICKET_ACCEPTED, SIGNED_PENDING, BROADCAST, CONFIRMED_PARTIAL_FILL, PROCEEDS_BOOKED }
     enum class Revert8153 { REJECTED, SUPERSEDED, EXPIRED }
 
-    data class Pending8153(val ladder: String, val tier: Int, val reason: String, val stage: Stage8153, val atMs: Long, val stageAtMs: Long)
+    data class Pending8153(val ladder: String, val tier: Int, val reason: String, val stage: Stage8153, val atMs: Long, val stageAtMs: Long,
+                          val signature: String = "", val requestedRaw: java.math.BigInteger = java.math.BigInteger.ZERO)
+    data class Remainder9043(val ladder: String, val tier: Int, val raw: java.math.BigInteger)
 
     private class Rungs8153(
         var ladder: String,
@@ -38,6 +40,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         var proceedsSol: Double = 0.0,
         var soldCostSol: Double = 0.0,
         var opportunitySol: Double = 0.0,
+        var remainder9043: Remainder9043? = null,
     )
 
     private val book = LinkedHashMap<String, Rungs8153>()
@@ -54,10 +57,20 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     private var superseded = 0L
     private var expired = 0L
     private var duplicateFills = 0L
+    private val modeEvents9043 = LinkedHashMap<String, Long>()
+    private fun event9043(key: String, event: String) {
+        val k = RunnerIdentity9043.mode(key) + ":" + event
+        modeEvents9043[k] = (modeEvents9043[k] ?: 0L) + 1L
+    }
 
     private fun rungs(key: String, ladder: String): Rungs8153 {
         book[key]?.let { return it }
-        if (book.size >= cap) { val oldest = book.keys.iterator(); oldest.next(); oldest.remove() }
+        if (book.size >= cap) {
+            // Never evict a reservation or an unfilled remainder to admit another position.
+            // Ledger recovery may temporarily exceed the soft cap; new requests cannot.
+            book.entries.firstOrNull { it.value.pending == null && it.value.remainder9043 == null }
+                ?.key?.let { retire8153(it) }
+        }
         return Rungs8153(ladder).also { book[key] = it }
     }
 
@@ -74,6 +87,21 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     @Synchronized
     fun pending8153(key: String): Pending8153? = book[key]?.pending
 
+    @Synchronized
+    fun containsKey9043(key: String): Boolean = book.containsKey(key)
+
+    @Synchronized
+    fun remainder9043(key: String, ladder: String): Remainder9043? = book[key]?.remainder9043?.takeIf { it.ladder == ladder }
+
+    /** Legacy state is assigned only when the canonical inventory proves one exact owner of that entry clock. */
+    @Synchronized
+    fun migrateLegacy9043(legacyKey: String, positionKey: String, uniqueOwner: Boolean): Boolean {
+        if (!uniqueOwner || positionKey == legacyKey || book.containsKey(positionKey)) return false
+        val row = book.remove(legacyKey) ?: return false
+        book[positionKey] = row
+        return true
+    }
+
     /**
      * A ladder asks to sell [tier] of [ladder]. Refused while another tranche of this position is pending (no duplicate
      * sell), when the tier is already confirmed, or inside the backoff after a rejection.
@@ -81,11 +109,16 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     @Synchronized
     fun request8153(key: String, ladder: String, tier: Int, reason: String, nowMs: Long): Boolean {
         if (key.isBlank() || tier <= 0) return false
+        if (!book.containsKey(key) && book.size >= cap && book.values.none { it.pending == null && it.remainder9043 == null }) return false
         val r = rungs(key, ladder)
         if (r.pending != null || tier <= confirmedOf(r, ladder) || nowMs < r.retryAtMs) return false
+        val remainder = r.remainder9043
+        if (remainder != null && (remainder.ladder != ladder || remainder.tier != tier)) return false
         r.ladder = ladder
-        r.pending = Pending8153(ladder, tier, reason, Stage8153.REQUESTED, nowMs, nowMs)
+        r.pending = Pending8153(ladder, tier, reason, Stage8153.REQUESTED, nowMs, nowMs,
+            requestedRaw = remainder?.raw ?: java.math.BigInteger.ZERO)
         requested++
+        event9043(key, "requested")
         if (ladder == LADDER_RUNNER_8153 && tier == 1) try { PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_FIRST_TAKE_REQUESTED") } catch (_: Throwable) {}
         return true
     }
@@ -99,8 +132,49 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         if (expectedRequestAtMs8397 != null && p.atMs != expectedRequestAtMs8397) return false
         if (stage.ordinal <= p.stage.ordinal || stage.ordinal >= Stage8153.CONFIRMED_PARTIAL_FILL.ordinal) return false
         r.pending = p.copy(stage = stage, stageAtMs = nowMs)
-        if (stage == Stage8153.TICKET_ACCEPTED) accepted++ else broadcast++
+        when (stage) {
+            Stage8153.TICKET_ACCEPTED -> { accepted++; event9043(key, "ticket") }
+            Stage8153.BROADCAST -> { broadcast++; event9043(key, "submitted") }
+            Stage8153.SIGNED_PENDING -> event9043(key, "signedPending")
+            else -> {}
+        }
         return true
+    }
+
+    /** Bind only the accepted request to the locally signed transaction before the network can see it. */
+    @Synchronized
+    fun signed9043(request: RunnerIdentity9043.Request, signature: String, raw: java.math.BigInteger, nowMs: Long, recovering: Boolean = false): Boolean {
+        if (signature.isBlank() || raw.signum() <= 0) return false
+        val r = if (recovering) rungs(request.positionKey, request.ladder) else book[request.positionKey] ?: return false
+        var p = r.pending
+        if (p == null && recovering && request.tier > confirmedOf(r, request.ladder)) {
+            p = Pending8153(request.ladder, request.tier, request.reason, Stage8153.TICKET_ACCEPTED, request.requestedAtMs, nowMs)
+            r.pending = p
+        }
+        p ?: return false
+        if (p.ladder != request.ladder || p.tier != request.tier || p.reason != request.reason || p.atMs != request.requestedAtMs) return false
+        if (p.signature.isNotBlank() && p.signature != signature) return false
+        if (p.stage == Stage8153.REQUESTED) return false
+        if (r.remainder9043?.let { raw > it.raw } == true) return false
+        r.pending = p.copy(signature = signature, requestedRaw = raw)
+        if (p.stage.ordinal < Stage8153.SIGNED_PENDING.ordinal) advance8153(request.positionKey, Stage8153.SIGNED_PENDING, nowMs, p.reason, p.atMs)
+        return true
+    }
+
+    /** Only the ledger's real submit boundary advances SEND; a generic mint lock never does. */
+    @Synchronized
+    fun submitted9043(request: RunnerIdentity9043.Request, signature: String, nowMs: Long): Boolean {
+        val p = book[request.positionKey]?.pending ?: return false
+        if (p.signature != signature || p.ladder != request.ladder || p.tier != request.tier) return false
+        return advance8153(request.positionKey, Stage8153.BROADCAST, nowMs, request.reason, request.requestedAtMs)
+    }
+
+    /** A timeout/cancel is not proof of failure. Only the exact signed ledger's terminal failure releases this reservation. */
+    @Synchronized
+    fun failed9043(request: RunnerIdentity9043.Request, signature: String, nowMs: Long): Boolean {
+        val p = book[request.positionKey]?.pending ?: return false
+        if (p.signature != signature || p.atMs != request.requestedAtMs || p.ladder != request.ladder || p.tier != request.tier) return false
+        return revert8153(request.positionKey, Revert8153.REJECTED, nowMs, provenFailure9043 = true) != null
     }
 
     /** The arbiter may already have accepted this offer before its queued coroutine starts. */
@@ -115,10 +189,12 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
 
     /** The pending tranche did not become a fill: it goes back, nothing is consumed. A rejection backs the next try off. */
     @Synchronized
-    fun revert8153(key: String, why: Revert8153, nowMs: Long, slowAfter: Int = 16): Pending8153? {
+    fun revert8153(key: String, why: Revert8153, nowMs: Long, slowAfter: Int = 16, provenFailure9043: Boolean = false): Pending8153? {
         val r = book[key] ?: return null
         val p = r.pending ?: return null
+        if (p.stage.ordinal >= Stage8153.SIGNED_PENDING.ordinal && !provenFailure9043) return null
         r.pending = null
+        event9043(key, why.name.lowercase())
         when (why) {
             Revert8153.REJECTED -> { rejected++; r.refusals++; r.retryAtMs = nowMs + backoffMs8153(r.refusals, slowAfter) }
             Revert8153.SUPERSEDED -> superseded++
@@ -138,7 +214,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     }
 
     /**
-     * A pending tranche's status on a new print: a sale in flight for the mint ([inFlight]) moves it to BROADCAST;
+     * A pending tranche's status on a new print: a sale in flight for the mint ([inFlight]) keeps its reservation;
      * one that never reached a sale within its stage's grace EXPIRES (retryable, not consumed). Returns true when no
      * tranche is pending any more (none, or it just expired).
      */
@@ -146,13 +222,11 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
     fun settle8153(key: String, inFlight: Boolean, nowMs: Long): Boolean {
         val r = book[key] ?: return true
         val p = r.pending ?: return true
-        if (inFlight) {
-            if (p.stage.ordinal < Stage8153.BROADCAST.ordinal) { r.pending = p.copy(stage = Stage8153.BROADCAST, stageAtMs = nowMs); broadcast++ }
-            return false
-        }
+        if (inFlight || p.stage.ordinal >= Stage8153.SIGNED_PENDING.ordinal) return false
         if (nowMs - p.stageAtMs < graceMs8153(p.stage)) return false
         r.pending = null
         expired++
+        event9043(key, "expired")
         return true
     }
 
@@ -162,17 +236,30 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
      * booked once per [signature]. Clears the pending tranche when the fill covers it. Returns true when proceeds booked.
      */
     @Synchronized
-    fun confirm8153(key: String, ladder: String, tier: Int, signature: String, proceedsSol: Double, soldCostSol: Double): Boolean {
+    fun confirm8153(key: String, ladder: String, tier: Int, signature: String, proceedsSol: Double, soldCostSol: Double,
+                    consumedRaw9043: java.math.BigInteger? = null): Boolean {
         val sig = signature.trim()
         if (key.isBlank() || sig.isEmpty() || !proceedsSol.isFinite() || proceedsSol < 0.0 ||
             !soldCostSol.isFinite() || soldCostSol <= 0.0) return false
         if (sig in seenSignatures) { duplicateFills++; return false }
-        confirmAppliedTier8198(key, ladder, tier)
         val r = rungs(key, ladder)
+        val p = r.pending
+        val exact = p != null && p.ladder == ladder && p.tier == tier && (p.signature.isBlank() || p.signature == sig)
+        if (exact && p != null && p.requestedRaw.signum() > 0 && consumedRaw9043 != null && consumedRaw9043.signum() > 0 && consumedRaw9043 < p.requestedRaw) {
+            // Book only what filled. The unfilled raw quantity remains the same logical rung,
+            // and the next attempt is capped to this remainder instead of selling the fraction again.
+            r.remainder9043 = Remainder9043(ladder, tier, p.requestedRaw - consumedRaw9043)
+            r.pending = null
+            confirmed++
+            event9043(key, "partialFill")
+        } else if (exact || p == null || p.signature.isBlank()) {
+            confirmAppliedTier8198(key, ladder, tier)
+        }
         seenSignatures.add(sig)
         r.proceedsSol += proceedsSol
         r.soldCostSol += soldCostSol
         booked++
+        event9043(key, "booked")
         // V5.0.8254 — runner funnel: a confirmed signature with proceeds; net banked only when proceeds beat the cost sold.
         if (ladder == LADDER_RUNNER_8153) try {
             if (tier == 1) PipelineHealthCollector.labelInc("RUNNER_FUNNEL_8254_FIRST_TAKE_LANDED")
@@ -196,6 +283,7 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
             else -> r.scalpConfirmed = maxOf(r.scalpConfirmed, tier)
         }
         if (p != null && p.tier <= confirmedOf(r, p.ladder)) { r.pending = null; confirmed++ }
+        if (r.remainder9043?.let { it.ladder == l && it.tier <= confirmedOf(r, l) } == true) r.remainder9043 = null
         r.refusals = 0
         r.retryAtMs = 0L
         return tier > previous
@@ -245,8 +333,8 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
 
     /**
      * One line per position: key;scalpConfirmed;runnerConfirmed;ladder;promoted;proceeds;soldCost;opportunity, plus
-     * `#closed` totals and `#sig` idempotency lines. Pending tranches are never persisted: an unconfirmed request is
-     * retryable after a restart.
+     * `#closed` totals and `#sig` idempotency lines. Requests, signed reservations and unfilled raw quantities
+     * are persisted too. A restart or timeout cannot turn an uncertain signed transaction into permission to resend.
      */
     @Synchronized
     fun encode8153(): String {
@@ -258,7 +346,15 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         for ((k, r) in book) {
             sb.append(k).append(';').append(r.scalpConfirmed).append(';').append(r.runnerConfirmed).append(';').append(r.ladder)
                 .append(';').append(if (r.promoted) 1 else 0).append(';').append(r.proceedsSol).append(';').append(r.soldCostSol)
-                .append(';').append(r.opportunitySol).append(';').append(r.scalpExitConfirmed8394).append('\n')
+                .append(';').append(r.opportunitySol).append(';').append(r.scalpExitConfirmed8394)
+                .append(';').append(r.refusals).append(';').append(r.retryAtMs).append('\n')
+            r.pending?.let { p ->
+                sb.append(listOf("#pending9043", RunnerIdentity9043.encode(k), RunnerIdentity9043.encode(p.ladder), p.tier,
+                    RunnerIdentity9043.encode(p.reason), p.stage.name, p.atMs, p.stageAtMs, p.signature, p.requestedRaw).joinToString(";")).append('\n')
+            }
+            r.remainder9043?.let { p ->
+                sb.append(listOf("#remainder9043", RunnerIdentity9043.encode(k), RunnerIdentity9043.encode(p.ladder), p.tier, p.raw).joinToString(";")).append('\n')
+            }
         }
         return sb.toString()
     }
@@ -270,6 +366,26 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         var n = 0
         for (line in text.lineSequence()) {
             val f = line.trim().split(';')
+            if (f.size >= 10 && f[0] == "#pending9043") {
+                try {
+                    val key = RunnerIdentity9043.decode(f[1]); val ladder = RunnerIdentity9043.decode(f[2])
+                    val p = Pending8153(ladder, f[3].toInt(), RunnerIdentity9043.decode(f[4]), Stage8153.valueOf(f[5]),
+                        f[6].toLong(), f[7].toLong(), f[8], java.math.BigInteger(f[9]))
+                    val r = rungs(key, ladder)
+                    if (p.tier in 1..16 && p.atMs > 0L && p.requestedRaw.signum() >= 0 && p.tier > confirmedOf(r, ladder) &&
+                        (r.pending == null || (r.pending?.atMs == p.atMs && r.pending!!.stage.ordinal < p.stage.ordinal))) r.pending = p
+                } catch (_: Throwable) { /* an unreadable row cannot manufacture a confirmed fill */ }
+                continue
+            }
+            if (f.size >= 5 && f[0] == "#remainder9043") {
+                try {
+                    val key = RunnerIdentity9043.decode(f[1]); val ladder = RunnerIdentity9043.decode(f[2])
+                    val p = Remainder9043(ladder, f[3].toInt(), java.math.BigInteger(f[4]))
+                    val r = rungs(key, ladder)
+                    if (p.tier in 1..16 && p.raw.signum() > 0 && p.tier > confirmedOf(r, ladder)) r.remainder9043 = p
+                } catch (_: Throwable) { }
+                continue
+            }
             if (f.size >= 2 && f[0] == "#sig") {
                 val sig = f[1].trim()
                 if (sig.isNotEmpty()) seenSignatures.add(sig)
@@ -291,6 +407,8 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
             r.scalpConfirmed = maxOf(r.scalpConfirmed, f[1].toIntOrNull()?.coerceIn(0, 16) ?: 0)
             r.runnerConfirmed = maxOf(r.runnerConfirmed, f[2].toIntOrNull()?.coerceIn(0, 16) ?: 0)
             r.scalpExitConfirmed8394 = maxOf(r.scalpExitConfirmed8394, f.getOrNull(8)?.toIntOrNull()?.coerceIn(0, 2) ?: 0)
+            r.refusals = maxOf(r.refusals, f.getOrNull(9)?.toIntOrNull() ?: 0)
+            r.retryAtMs = maxOf(r.retryAtMs, f.getOrNull(10)?.toLongOrNull() ?: 0L)
             if (ladder == LADDER_RUNNER_8153) r.ladder = ladder
             if (f[4] == "1") r.promoted = true
             r.proceedsSol = maxOf(r.proceedsSol, f[5].toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0)
@@ -311,7 +429,9 @@ class RunnerRungBook8153(private val cap: Int = 2_048) {
         val share = if (opp > 1e-9) "%.0f%%".format(net / opp * 100.0) else "-"
         return "grossOppSol=${"%.4f".format(opp)} netBankedSol=${"%+.4f".format(net)} banked/opp=$share " +
             "positions=${book.size}+${closedPositions}closed promoted=${book.values.count { it.promoted }} pending=${book.values.count { it.pending != null }} " +
-            "rungs[req=$requested ticket=$accepted bcast=$broadcast conf=$confirmed booked=$booked rejected=$rejected superseded=$superseded expired=$expired dupFill=$duplicateFills]"
+            "rungs[req=$requested ticket=$accepted bcast=$broadcast conf=$confirmed booked=$booked rejected=$rejected superseded=$superseded expired=$expired dupFill=$duplicateFills] " +
+            "sessionModes9043{${modeEvents9043.entries.joinToString(",") { "${it.key}=${it.value}" }}} " +
+            "pendingByMode9043{${book.entries.filter { it.value.pending != null }.groupingBy { RunnerIdentity9043.mode(it.key) }.eachCount()}} aggregatesIncludeRestored=true"
     }
 
     companion object {

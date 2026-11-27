@@ -2378,9 +2378,11 @@ class Executor(
 
     /** V5.0.8085 — every Jupiter live SELL send: bound to (mint, SELL); a sent-but-unconfirmed outcome is ADOPTED. */
     private fun sellSend8085(wallet: SolanaWallet, mint: String, tx: com.lifecyclebot.network.SwapTxResult, useJito: Boolean,
-                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig, tradeKey: String = ""): com.lifecyclebot.engine.sell.TxResult8087 {
+                             jitoTip: Long, ultraReqId: String?, c: com.lifecyclebot.data.BotConfig, tradeKey: String = "",
+                             owner9043: com.lifecyclebot.network.SignedTxLedger8085.Intent? = null): com.lifecyclebot.engine.sell.TxResult8087 {
         val route8087 = if (ultraReqId != null) "JUPITER_ULTRA" else "JUPITER"
-        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "SELL", route = route8087))
+        com.lifecyclebot.network.SignedTxLedger8085.intend(com.lifecyclebot.network.SignedTxLedger8085.Intent(mint, "SELL",
+            rawQty = owner9043?.rawQty ?: 0L, positionId = owner9043?.positionId.orEmpty(), intentId = owner9043?.intentId.orEmpty(), route = route8087))
         return try {
             com.lifecyclebot.engine.sell.TxResult8087.afterSend(wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible), mint, "SELL", route8087)
         } catch (e: SolanaWallet.SentButUnconfirmed7733) {
@@ -3603,7 +3605,7 @@ class Executor(
                 }
             }
         } catch (_: Throwable) {}
-        val trigger = TradeVerifier.triggerForSig8769(sig)
+        val trigger = TradeVerifier.triggerForSig8769(sig) ?: RunnerLive8153.rungReasonForSignature9043(sig)
         if (trigger.isNullOrBlank()) { try { PipelineHealthCollector.labelInc("RESUMED_SLICE_TRIGGER_UNKNOWN_8769") } catch (_: Throwable) {}; return }
         try { LifecycleHold8065.onConfirmedTake8076(mint, ts.position.entryTime, trigger, sig, soldRaw) } catch (_: Throwable) {}
         try { RunnerExitLive8136.noteSliceFill8136(trigger, proceedsSol, sliceCostSol) } catch (_: Throwable) {}
@@ -18921,6 +18923,9 @@ class Executor(
             emitLiveBuyFail(ts, sol, sizeRefusal7835, attemptId8198 = attemptId)
             return false
         }
+        try { requireNotNull(sealedIntent7835).let { sealed ->
+            com.lifecyclebot.engine.truth.LaunchSniper8748.bindTicket9043(ts.mint, sealed.canonicalLane, sealed.candidateVersion, sealed.attemptId)
+        } } catch (_: Throwable) {}
         val entryEvidence7863 = LiveEntryEvidence7863.capture(ts, requireNotNull(sealedIntent7835))
         val liveLearningWitness8527 = captureLearningEntry8527(ts)
         // V5.0.7257 — the authority walk lives in its own verifier-safe method.
@@ -22432,6 +22437,15 @@ class Executor(
             val sentSig7733 = broadcastSig7733 ?: (e as? SolanaWallet.SentButUnconfirmed7733)?.signature
             // Keep unknown submitted liability visible to the outer reservation receipt as well.
             broadcastSig7733 = sentSig7733
+            if (sentSig7733 == null && e is com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043) {
+                // The local signed identity was refused before its first broadcast. No provider/market failure or
+                // retry penalty is earned; the old ticket must end and a genuinely new decision must qualify again.
+                liveBuyDeferred(ts, sol, e.reason, "attemptId=$recoveredLiveAttemptId stage=FIRST_BROADCAST_REVALIDATE_9043")
+                ExecutionAttemptLease.releaseForRevalidation9043(buyLease.key, "BUY", ts.mint, ts.symbol, e.reason)
+                try { ExecutableOpenGate.releaseFailedBuy8475(recoveredLiveAttemptId, ts.mint, e.reason) } catch (_: Throwable) {}
+                buyTerminalRecorded = true
+                return false
+            }
             if (BuyRouteSafety8522.unsignedPending8522(e, sentSig7733)) {
                 val retry8522 = deferFinalSafety8522(ts, sol, e as BuyRouteSafety8522.Refused, "BUY_FINAL_SIGN",
                     buyLease.key, attemptId.ifBlank { executionContext?.attemptId.orEmpty() }
@@ -23786,10 +23800,16 @@ class Executor(
                 dustRaw = com.lifecyclebot.engine.sell.SellAmountAuthority.SELL_DUST_RAW,
             )
             if (!closedRuntimeRetirable8094(pos.entryTime, closedAt, zeroAt8094)) return false
-            synchronized(ts) {
+            val retired9043 = synchronized(ts) {
+                // The wallet proof belongs to the captured position. A same-mint replacement
+                // published while those proofs were read must never be cleared by this callback.
+                if (RunnerLive8153.positionKey9043(ts) != RunnerIdentity9043.positionKey(mint, pos.entryTime, pos.isPaperPosition, pos.positionId))
+                    return@synchronized false
                 ts.position = com.lifecyclebot.data.Position()
                 if (ts.lastExitTs < closedAt) ts.lastExitTs = closedAt
+                true
             }
+            if (!retired9043) return false
             try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
             try { BotService.recentlyClosedMs[mint] = System.currentTimeMillis() } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.clearTrigger7807(mint) } catch (_: Throwable) {}
@@ -24812,7 +24832,7 @@ class Executor(
                         spikeRefused8337(reason, "SLICE_NOT_SIZED_8502")
                         return
                     }
-                    sellUnits = manualJupiterPlan.rawAmount
+                    sellUnits = RunnerLive8153.capRequestedRaw9043(ts, reason, manualJupiterPlan.rawAmount)
                     var quote = getQuoteWithSlippageGuard(
                         ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false,
                         sellTaker = activeWallet.publicKeyB58)
@@ -24851,7 +24871,7 @@ class Executor(
                                         spikeRefused8337(reason, "LADDER_SLICE_NOT_SIZED_8502")
                                         return
                                     }
-                                    sellUnits = manualLadderPlan.rawAmount
+                                    sellUnits = RunnerLive8153.capRequestedRaw9043(ts, reason, manualLadderPlan.rawAmount)
                                     quote = getQuoteWithSlippageGuard(
                                         ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
                                         isBuy = false, sellTaker = activeWallet.publicKeyB58)
@@ -24904,7 +24924,8 @@ class Executor(
                                 "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                                 traderTag = "MEME",
                             )
-                            val sent8087 = sellSend8085(activeWallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                            val sent8087 = sellSend8085(activeWallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey,
+                                RunnerLive8153.sellIntent9043(ts, reason, sellUnits, "JUPITER"))
                     sig = sent8087.signature
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -29146,7 +29167,8 @@ class Executor(
 
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
-                    val sent8087 = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey)
+                    val sent8087 = sellSend8085(wallet, ts.mint, txResult, useJito, jitoTip, ultraReqId, c, sellTradeKey,
+                        RunnerLive8153.sellIntent9043(ts, reason, tokenUnits, "JUPITER"))
                     sig = sent8087.signature
                     closeAuthoritySig = sig
                     try {
@@ -32521,6 +32543,8 @@ class Executor(
         } catch (e: BuyRouteSafety8522.Refused) {
             submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }
             throw e
+        } catch (e: com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043) {
+            throw e
         } catch (e: RouteEconomicsRefused) {
             throw e
         } catch (e: SolanaWallet.SentButUnconfirmed7733) {
@@ -32884,6 +32908,8 @@ class Executor(
             throw e
         } catch (e: BuyRouteSafety8522.Refused) {
             submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, e) }
+            throw e
+        } catch (e: com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043) {
             throw e
         } catch (pumpEx: Exception) {
             submittedSig8397?.let { throw SolanaWallet.SentButUnconfirmed7733(it, pumpEx) }

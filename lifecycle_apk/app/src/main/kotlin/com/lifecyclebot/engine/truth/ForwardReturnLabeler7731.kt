@@ -445,10 +445,13 @@ object ForwardReturnLabeler7731 {
         /** V5.0.8094 — the price at the decision itself, never re-based (the fill-time move check reads it). */
         val decisionPx8094: Double get() = decisionBasis8386.mark.usd
         var entryStyle8077: String = "" // frozen decision style; old pending labels retain legacy semantics
+        @Volatile var labelRecipe9043: ForwardLabelRecipe9043? = null
+        @Volatile var invalidRecipe9043 = false
         @Volatile var done15 = false
         @Volatile var done60 = false
         @Volatile var done240 = false
         @Volatile var peakPct = 0.0
+        @Volatile var peakMark9043: LabelMark8386? = null
         /** V5.0.7769 — market cap at the decision, the second witness for a big move. */
         var entryMcap: Double
             get() = basis8386.capUsd
@@ -1015,6 +1018,8 @@ object ForwardReturnLabeler7731 {
             .put("chase", o.chase8094).put("honest", o.honest8366)
             .put("giveback5", o.giveback5_7955.toString())
             .put("heldPeak", o.heldPeak8071).put("heldPeakHonest", o.heldPeak8366)
+            .put("peakMark9043", o.peakMark9043?.json())
+            .put("labelRecipe9043", o.labelRecipe9043?.json9043()).put("invalidRecipe9043", o.invalidRecipe9043)
             .put("windowEnd", o.windowEnd8379).put("windowRelease8418", o.windowReleasedAtMs8418)
             .put("windowReleaseGross8418", o.windowReleaseGross8418.toString())
             .put("recent", rows(o.recent8071.toList())).put("recentHonest", rows(o.recent8366.toList()))
@@ -1050,6 +1055,11 @@ object ForwardReturnLabeler7731 {
         o.chase8094 = e.optDouble("chase", 0.0); o.honest8366 = e.optBoolean("honest")
         o.giveback5_7955 = e.optString("giveback5").toDoubleOrNull() ?: Double.NaN
         o.heldPeak8071 = e.optDouble("heldPeak", 0.0); o.heldPeak8366 = e.optDouble("heldPeakHonest", 0.0)
+        o.peakMark9043 = e.optJSONObject("peakMark9043")?.let { try { LabelMark8386.decode(it) } catch (_: Exception) { null } }
+        o.labelRecipe9043 = ForwardLabelRecipe9043.decode9043(e.optJSONObject("labelRecipe9043"))
+        o.invalidRecipe9043 = e.optBoolean("invalidRecipe9043") ||
+            (e.has("labelRecipe9043") && !e.isNull("labelRecipe9043") && o.labelRecipe9043 == null) ||
+            (o.labelRecipe9043?.decidedAtMs?.let { it != o.atMs } == true)
         o.windowEnd8379 = e.optLong("windowEnd")
         o.bookedLongNet8080 = e.optString("longNet").toDoubleOrNull() ?: Double.NaN
         o.bookedLongGross8080 = e.optString("longGross").toDoubleOrNull() ?: Double.NaN
@@ -1464,6 +1474,10 @@ object ForwardReturnLabeler7731 {
                 it.entryStyle8077 = try {
                     com.lifecyclebot.engine.AgenticStyleRouter.decide(ts, com.lifecyclebot.engine.ModeRouter.classify(ts), l).style.name
                 } catch (_: Throwable) { "" }
+                val recipe9043 = try { freezeLabelRecipe9043(it) } catch (_: Throwable) { null }
+                it.labelRecipe9043 = recipe9043?.takeIf { r -> r.valid9043() }
+                it.invalidRecipe9043 = it.labelRecipe9043 == null
+                if (it.invalidRecipe9043) try { PipelineHealthCollector.labelInc("FORWARD_LABEL_RECIPE_UNAVAILABLE_9043") } catch (_: Throwable) {}
                 it.trajectoryBand8851 = try { com.lifecyclebot.engine.cortex.LanePlaybook7907.timingBandOf8094(ts) }
                     catch (_: Throwable) { "" }
                 it.entryMcap = if (ts.lastMcap.isFinite() && ts.lastMcap > 0.0) ts.lastMcap else 0.0
@@ -1477,7 +1491,8 @@ object ForwardReturnLabeler7731 {
                 it.stage = try { com.lifecyclebot.engine.TokenMetricStageRouter.snapshot(ts).stage.name } catch (_: Throwable) { "" }
                 it.feats7972 = try { SpecialistMiner7972.features7972(ts, l, nowMs) } catch (_: Throwable) { emptyList() }
                 it.expertAtDecision = try { com.lifecyclebot.engine.ExpertTraderKnowledge7813.freezeForLabel(ts, l, score8051, nowMs) } catch (_: Throwable) { null }
-                it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs)  // V5.0.8537
+                it.edge8537 = EdgeModel8537.snapshot(ts, l, cost.coerceIn(0.0, 60.0), admitted, nowMs,
+                    labelRecipe9043 = it.labelRecipe9043?.json9043()?.toString().orEmpty())
                 it.trajectoryVenueEpoch8851 = it.edge8537?.modelEpoch
                 it.pred8855 = it.edge8537?.pred ?: Double.NaN   // V5.0.8855 — kept after the label consumes the snapshot
                 it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN   // V5.0.8877 — for the hour's research row
@@ -1648,6 +1663,30 @@ object ForwardReturnLabeler7731 {
      * (SpikeCapture7943) now sell into those prints live, so the label books what
      * they bank on the observed peak plus the remainder at the horizon.
      */
+    private fun freezeLabelRecipe9043(o: Obs): ForwardLabelRecipe9043 {
+        val runner = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
+        fun play(family: Boolean?): ForwardLabelRecipe9043.Play {
+            val longHold = (family ?: com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077))?.let {
+                it && com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)
+            }
+            val stop = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold) } catch (_: Throwable) { Double.NaN }
+            val tiers = try {
+                if (longHold ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071()
+                else if (runner) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS
+            } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+            return ForwardLabelRecipe9043.Play(stop, tiers.toList())
+        }
+        val edgeStop = (try { FieldManual7715.stopPctQuiet8830(o.lane, o.costPct) } catch (_: Throwable) { 10.0 }).coerceIn(3.0, 40.0)
+        return ForwardLabelRecipe9043(o.atMs, play(null), play(false), play(true), runner,
+            MemePaperTrader8544.memeLane8544(o.lane), HonestExit8366.sellLatencyMs8366(),
+            (try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L }).coerceAtLeast(0L),
+            com.lifecyclebot.engine.LaunchWindow8379.FLOOR_PCT_8379, edgeStop, com.lifecyclebot.engine.RunnerDoctrine8584.KEEP_8584)
+    }
+
+    private fun labelSellLatency9043(o: Obs): Long = o.labelRecipe9043?.sellLatencyMs ?: HonestExit8366.sellLatencyMs8366()
+    private fun labelEntryLatency9043(o: Obs): Long = o.labelRecipe9043?.entryLatencyMs ?:
+        (try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })
+
     private fun captured7945(o: Obs, net: Double, gross: Double, longFamily8080: Boolean? = null): Pair<Double, Double> {
         // V5.0.7955 review — labels are credited on the FIXED ladder: crediting on the learned
         // ladder (fit to these same labels) inflated the grades that drive authority and size.
@@ -1658,7 +1697,8 @@ object ForwardReturnLabeler7731 {
         val longHold8077 = (longFamily8080 ?: com.lifecyclebot.engine.TradeExitContract8077.longHoldStyle(o.entryStyle8077))?.let {
             it && com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)
         }
-        val stop8029 = try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold8077) } catch (_: Throwable) { Double.NaN }
+        val frozen9043 = o.labelRecipe9043?.play9043(longFamily8080)
+        val stop8029 = frozen9043?.stopPct ?: try { com.lifecyclebot.engine.cortex.StopAuthority7887.laneStopMag8029(o.lane, longHold8077) } catch (_: Throwable) { Double.NaN }
         // V5.0.8071 — a REAL move is credited, a one-print spike is not. The ladder sells into the level the price HELD
         // for 20 seconds (heldPeak8071) — a level a live sell can land at — on the lane's own ladder (lifecycle lanes:
         // half at 2x, 30% at 5x and 10x; scalp lanes: the spike tiers). The 8064 note below is why the raw peak is not.
@@ -1670,8 +1710,8 @@ object ForwardReturnLabeler7731 {
         // V5.0.8527 — runner lanes keep their own observed held-level ladder (2x / 5x / 11x), not scalp tiers.
         // A held peak plus a later mark does NOT establish a chronological exit or a fill at either the old half-peak
         // threshold or the current GreenFloor. The remaining quantity is valued only at the observed mark.
-        val runner8106 = try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
-        val tiers8071 = try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
+        val runner8106 = o.labelRecipe9043?.runner ?: try { com.lifecyclebot.engine.TradeExitContract8077.runnerFromEntryLane8104(o.lane, false) } catch (_: Throwable) { false }
+        val tiers8071 = frozen9043?.tiers ?: try { if (longHold8077 ?: com.lifecyclebot.engine.LifecycleHold8065.lifecycleLane8065(o.lane)) com.lifecyclebot.engine.LifecycleHold8065.ladder8071() else if (runner8106) com.lifecyclebot.engine.RunnerGrab7967.TIERS_7967 else com.lifecyclebot.engine.SpikeCapture7943.TIERS } catch (_: Throwable) { com.lifecyclebot.engine.SpikeCapture7943.TIERS }
         // V5.0.8366 §HONEST_LABELS — the ladder credits a level held for the measured sell latency (not a free 20 s window),
         // and a stop fills at the first observed mark at or below it, after the exit slippage (HonestExit8366).
         val held8366 = if (o.honest8366) o.heldPeak8366 else o.heldPeak8071
@@ -1707,7 +1747,7 @@ object ForwardReturnLabeler7731 {
     /** The lane play on [o]'s path with a stop of [stopMag]: an honest observation fills at its first mark past the stop. */
     private fun playGross8366(o: Obs, stopMag: Double, gross: Double, ladder: (Double, Double) -> Double): Double {
         if (!o.honest8366) return com.lifecyclebot.engine.LaneParticipation8029.playGross8029(stopMag, o.peakPct, o.dipBeforePeak7962, o.minPct7962, gross, ladder)
-        val fill = synchronized(o.recent8071) { HonestExit8366.stopFill8366(o.lows8366, stopMag, HonestExit8366.sellLatencyMs8366()) }
+        val fill = synchronized(o.recent8071) { HonestExit8366.stopFill8366(o.lows8366, stopMag, labelSellLatency9043(o)) }
         // Lows past the record cap: the deepest stops fall back to the lowest mark seen (never better than the path).
         val fill2 = if (fill.isFinite() || !(stopMag > 0.0) || o.minPct7962 > -stopMag) fill else o.minPct7962
         if (fill2.isFinite() && fill2 < -stopMag) honestStops8366.incrementAndGet()
@@ -1749,8 +1789,8 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun playWindow8379(o: Obs, laneStopMag: Double, gross: Double, ladder: (Double, Double) -> Double): Double {
-        val floor = com.lifecyclebot.engine.LaunchWindow8379.FLOOR_PCT_8379
-        val lat = HonestExit8366.sellLatencyMs8366()
+        val floor = o.labelRecipe9043?.windowFloorPct ?: com.lifecyclebot.engine.LaunchWindow8379.FLOOR_PCT_8379
+        val lat = labelSellLatency9043(o)
         // V5.0.8418 §WINDOW_LABELS_HONOUR_LIVE_RELEASES — live releases the window hold the moment the token's metrics collapse
         // (liquidity under half its entry depth, or sellers owning a fresh tape); from then the lane stop applies. 64422194d
         // graded the whole window on the -35 % floor, so window labels read better than live could bank.
@@ -1789,7 +1829,7 @@ object ForwardReturnLabeler7731 {
 
     /** Caller holds o.recent8071. */
     private fun notePathHeld8366(o: Obs, nowMs: Long, gross: Double) {
-        if (o.honest8366) o.heldPeak8366 = HonestExit8366.heldPeakStep8366(o.recent8366, nowMs, gross, o.heldPeak8366, HonestExit8366.sellLatencyMs8366())
+        if (o.honest8366) o.heldPeak8366 = HonestExit8366.heldPeakStep8366(o.recent8366, nowMs, gross, o.heldPeak8366, labelSellLatency9043(o))
     }
 
     /** Caller holds o.recent8071: a re-based entry restarts the recorded path. */
@@ -2091,7 +2131,7 @@ object ForwardReturnLabeler7731 {
         // peak, on the doctrine line. The edge model learns that outcome (stop first, the order worst for the coin:
         // BasePocket8904.doctrineNet8910 over this observation's own low and held peak), so EDGE_MODEL_NEGATIVE refuses what loses
         // as traded, not what loses held. Every other book keeps the held net. Crypto and other lanes learn the held net, as before.
-        val edgeNet8915 = edgeTarget8915(o.lane, gross, o.minPct7962, o.heldPeak8071, o.costPct, net)
+        val edgeNet8915 = edgeTarget8915(o.lane, gross, o.minPct7962, o.heldPeak8071, o.costPct, net, o.labelRecipe9043)
         o.edge8537?.let { o.edge8537 = null; EdgeModel8537.learn(it, edgeNet8915, witness) }  // V5.0.8650 — preserve same-basis runner proof
         try { TradeShapeLearner7883.onLabel60(o.mint, o.lane, net, gross, o.atMs) } catch (_: Throwable) {}
         try { FallingHourCohort8418.onLabel60(o.mint, o.lane, net, gross) } catch (_: Throwable) {}
@@ -2328,14 +2368,17 @@ object ForwardReturnLabeler7731 {
         // V5.0.8342 — a mark still flat at the hour (no price other than the entry ever seen) is a LOST mark here too, never a
         // -cost label: 8337 FIX 2 closed the 60 slot; this slot booked it (and its lane / stage late tallies) unchanged.
         if (flatMarkNow8342(o, gross0)) { flatMarks8322.incrementAndGet(); markLost(o); lostHour8983(o); return true }
-        // V5.0.8877 (plan W8) — the hour read is also one research row: its own file, exported, read by no learner
+        // The hour research row is also consumed by the base/agreement/lane pockets through the shared quality reader.
         // V5.0.8923 — a decision on a pool no buyer could take (under ResearchFollow8884.MIN_POOL_USD_8923) is no research row:
         // its "price" is not the coin's (20-22 Nov: decision caps of $3-$80 reading +73,000 % later).
         if (ResearchFollow8884.tradeable8923(o.liqUsd8539)) try {
             ResearchRows8877.note8877(ResearchRows8877.line8877(o.atMs, H240_MS_7731, o.mint, o.lane, o.admitted, o.stage, rowSetup9013(o.lane, o.setup7955, o.deskSetup9013),
                 o.pred8855, o.v38877, o.entryMcap, o.liqUsd8539, o.costPct, net, gross, o.peakPct, o.heldPeak8071, o.minPct7962, o.reason7967,
                 diag8891(o, System.currentTimeMillis()), o.flow8924, o.age9002,
-                ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955)))
+                ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955),
+                priceProof9043 = ResearchEvidence9043.priceProof9043(o.basis8386.mark, o.lastAcceptedMark8395,
+                    o.peakMark9043, try { o.lastAcceptedMark8395?.let { LabelEvidence8386.migrationHook8911?.invoke(o.basis8386.mark, it) } == true } catch (_: Throwable) { false }),
+                labelRecipe9043 = o.labelRecipe9043?.json9043()?.toString().orEmpty()))
             // V5.0.8891 — measurement: an hour booked on a last accepted mark older than this labeler's own price age bar
             if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)
                 ResearchRows8877.noteStale8891(o.lastSkip8891.ifBlank { "NONE_REFUSED" })
@@ -2585,7 +2628,7 @@ object ForwardReturnLabeler7731 {
     private fun markFor(mint: String, priceFor: (String) -> Double?, nowMs: Long): Double? =
         typedMark8386(mint, priceFor, nowMs)?.usd
 
-    private fun eligible8386(o: Obs): Boolean = LabelEvidence8386.eligible(o.basis8386.mark, o.lastMark8386)
+    private fun eligible8386(o: Obs): Boolean = !o.invalidRecipe9043 && LabelEvidence8386.eligible(o.basis8386.mark, o.lastMark8386)
 
     private val edgeTargetsExit8915 = AtomicLong(0)
     private val unwitnessedKept8915 = AtomicLong(0)
@@ -2596,9 +2639,11 @@ object ForwardReturnLabeler7731 {
      * (BasePocket8904.doctrineNet8910 on the label's [gross], its low [minPct], held peak [heldPeakPct] and round trip [costPct]),
      * capped as the held net is; otherwise the held [net]. Counted when the exits changed it.
      */
-    internal fun edgeTarget8915(lane: String, gross: Double, minPct: Double, heldPeakPct: Double, costPct: Double, net: Double): Double {
-        if (!MemePaperTrader8544.memeLane8544(lane) || !net.isFinite()) return net
-        val y = BasePocket8904.doctrineNet8910(lane, gross, minPct, heldPeakPct, costPct, net).coerceAtMost(NET_CEILING_PCT_7738)
+    internal fun edgeTarget8915(lane: String, gross: Double, minPct: Double, heldPeakPct: Double, costPct: Double, net: Double,
+                                recipe9043: ForwardLabelRecipe9043? = null): Double {
+        if (!(recipe9043?.meme ?: MemePaperTrader8544.memeLane8544(lane)) || !net.isFinite()) return net
+        val y = (recipe9043?.edgeNet9043(gross, minPct, heldPeakPct, costPct, net)
+            ?: BasePocket8904.doctrineNet8910(lane, gross, minPct, heldPeakPct, costPct, net)).coerceAtMost(NET_CEILING_PCT_7738)
         edgeTargetsTotal8915.incrementAndGet()
         if (kotlin.math.abs(y - net) > 1e-9) edgeTargetsExit8915.incrementAndGet()
         return if (y.isFinite()) y else net
@@ -2714,7 +2759,7 @@ object ForwardReturnLabeler7731 {
         val age = nowMs - o.atMs
         val first = firstMarkDue8187(o.rebased8076, o.lastPxAtMs, age)
         val end = labelWindowEnd8418(o, age, first)
-        val fillAt = o.atMs + rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })
+        val fillAt = o.atMs + rebaseDelayMs8094(labelEntryLatency9043(o))
         val requiredAt = if (first && nowMs >= fillAt) fillAt else {
             val ck = if (o.done60 && o.ck7997 in CK_MS_7997.indices) CK_MS_7997[o.ck7997] else -1L
             val horizons = longArrayOf(if (o.done15) -1L else H15_MS_7731, if (o.done60) -1L else H60_MS_7731,
@@ -3416,7 +3461,7 @@ object ForwardReturnLabeler7731 {
         val gross = (recovered.usd / o.entryPrice - 1.0) * 100.0
         if (recovered.observedAtMs > o.lastPxAtMs) {
             if (gross < o.minPct7962) { notePathLow8366(o, recovered.observedAtMs, gross); o.minPct7962 = gross }
-            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = recovered.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = recovered.observedAtMs; o.dipBeforePeak7962 = o.minPct7962; o.peakMark9043 = recovered }
             synchronized(o.recent8071) {
                 o.heldPeak8071 = heldPeakStep8071(o.recent8071, recovered.observedAtMs, gross, o.heldPeak8071)
                 notePathHeld8366(o, recovered.observedAtMs, gross)
@@ -3745,7 +3790,7 @@ object ForwardReturnLabeler7731 {
             // that pumps between the decision and the fill was graded from a price live never gets, so setups graded
             // positive lost live (-17..-40% stop-outs within minutes).
             if (!o.rebased8076 && age >= REBASE_MIN_MS_8076) {
-              if (mark8386.observedAtMs - o.atMs >= rebaseDelayMs8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) {
+              if (mark8386.observedAtMs - o.atMs >= rebaseDelayMs8094(labelEntryLatency9043(o))) {
                 o.rebased8076 = true
                 // V5.0.8153 — the FIRST mark ever seen (lastPxAtMs survives a restart), past the window: the entry stays unbuyable.
                 if (com.lifecyclebot.engine.cortex.LearningEntryTruth8153.lateFirstPrice8153(mark8386.observedAtMs - o.atMs, REBASE_MAX_MS_8076)) {
@@ -3762,8 +3807,8 @@ object ForwardReturnLabeler7731 {
                     rebaseGapSum8076 += (px / o.entryPrice - 1.0) * 100.0
                     o.basis8386 = o.basis8386.rebase(mark8386)
                     // V5.0.8094 — the rebased entry already holds the decision-to-fill move: the chase is not charged twice.
-                    if (rebaseClearsChase8094(try { EntryChase7961.laneLatencyMs8094(o.lane) } catch (_: Throwable) { 0L })) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
-                    o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN
+                    if (rebaseClearsChase8094(labelEntryLatency9043(o))) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
+                    o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN; o.peakMark9043 = null
                     synchronized(o.recent8071) { o.recent8071.clear(); resetPath8366(o) }
                 }
               }
@@ -3804,7 +3849,7 @@ object ForwardReturnLabeler7731 {
             // V5.0.8018 — a confirmed run (+100% over the decision price inside the hour) can earn a second entry.
             if (gross >= com.lifecyclebot.engine.RunnerPlay8018.RUN_CONFIRM_PCT_8018) try { com.lifecyclebot.engine.RunnerPlay8018.onRun8018(o.mint, gross, nowMs - o.atMs, nowMs) } catch (_: Throwable) {}
             if (gross >= RunnerCapture8017.RUNNER_PEAK_PCT_8017 && gross > o.peakPct) try { RunnerCapture8017.onRunnerPeak8017(o.mint, o.symbol, o.lane, o.entryPrice, gross, if (o.admitted) "" else o.reason7967.take(40), nowMs, mark8386.observedAtMs) } catch (_: Throwable) {}
-            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = mark8386.observedAtMs; o.dipBeforePeak7962 = o.minPct7962 }
+            if (gross > o.peakPct) { o.peakPct = gross; o.peakAtMs7955 = mark8386.observedAtMs; o.dipBeforePeak7962 = o.minPct7962; o.peakMark9043 = mark8386 }
             // V5.0.8071 — the level the price held long enough to sell into.
             synchronized(o.recent8071) { o.heldPeak8071 = heldPeakStep8071(o.recent8071, mark8386.observedAtMs, gross, o.heldPeak8071); notePathHeld8366(o, mark8386.observedAtMs, gross) }
             val priorPx7944 = o.lastPx to o.lastPxAtMs

@@ -100,7 +100,10 @@ object LaunchSniper8748 {
     /** V5.0.8754 — a fire carries its rule's graded record (launch or base family), not one family's result type. */
     data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val ruleId: String, val n: Int,
                     val exTop3: Double, val exTop3Se: Double, val tenX: Double, val armed: Boolean, val triggerEventMs: Long = atMs,
-                    val gradedDelayMs8968: Long = 0L)
+                    val gradedDelayMs8968: Long = 0L, val sourceEventId9043: String = "",
+                    val receivedElapsedMs9043: Long? = null) {
+        val opportunityId9043: String get() = "$mint|$ruleId|$triggerEventMs|${sourceEventId9043.ifBlank { atMs.toString() }}"
+    }
 
     /**
      * V5.0.8749 §THE_LATENCY_THE_BOT_ACTUALLY_HAS — the owner's own launch export (968 launch paths, 582 seen from birth):
@@ -136,14 +139,25 @@ object LaunchSniper8748 {
         return maxOf(10_000L, need)
     }
 
-    /** SignedTxLedger8085 (via LaunchCohort8173): a BUY of [mint] confirmed on chain at [nowMs]. */
-    fun noteBuyConfirmed8749(mint: String, nowMs: Long) {
-        val f = fires[mint]?.takeIf { it.armed } ?: return
-        val ms = nowMs - f.triggerEventMs
-        if (ms !in 0L..600_000L) return
-        synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
-        clocks9025[mint]?.let { c -> if (c.landMs < 0L) c.landMs = (nowMs - c.t0).coerceAtLeast(0L) }   // V5.0.9025
+    /** Chain truth joins the exact sealed attempt. Mint/time proximity cannot prove which fire a buy captured. */
+    fun noteBuyConfirmed8749(mint: String, nowMs: Long, attemptId: String = "", signature: String = "",
+                             elapsedMs: Long = System.nanoTime() / 1_000_000L) {
+        synchronized(lineageLock9043) {
+        val c = tickets9043[attemptId]?.let { clocks9025[it.opportunity] }
+        if (attemptId.isBlank() || signature.isBlank() || c == null || c.mint != mint) {
+            unmatchedLanding9043.incrementAndGet(); return
+        }
+        synchronized(c) {
+            if (c.landMs >= 0L) return
+            val ms = c.elapsed(nowMs, elapsedMs)
+            if (ms < 0L) { unmatchedLanding9043.incrementAndGet(); return }
+            c.landMs = ms; c.signature = signature; landedCount9043.incrementAndGet()
+            if (ms <= c.windowMs) landedInWindow9043.incrementAndGet()
+            synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
+            trace9043("LAUNCH_FILL_LINKED_9043", "opportunityId=${c.id} mint=$mint attemptId=$attemptId signature=$signature elapsedMs=$ms")
+        }
         try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_BUY_LANDED_8749") } catch (_: Throwable) {}
+        }
     }
 
     private val st = ConcurrentHashMap<String, St>()
@@ -165,6 +179,7 @@ object LaunchSniper8748 {
      * and the buyer / seller [wallet] when the feed names one). Cheap; never throws.
      */
     fun onPrint8748(mint: String, eventMs: Long, priceSol: Double, isBuy: Boolean, recvMs: Long, sig: String, sol: Double = 0.0, wallet: String = "") {
+        val receivedElapsedMs9043 = System.nanoTime() / 1_000_000L
         try {
             if (!com.lifecyclebot.network.PumpCurveKeys7269.isPumpMint8658(mint) || !(priceSol > 0.0) || !priceSol.isFinite()) return
             val lagS = (recvMs - eventMs).coerceAtLeast(0L) / 1_000L
@@ -210,7 +225,8 @@ object LaunchSniper8748 {
                     if (triggers8748(result.rule, cap, s.buys.size, s.totalBuys)) {
                         s.fired = true
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
-                            armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs))
+                            armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs,
+                            sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043))
                     }
                 }
                 // the base family: every print shapes its peak and window; only a live one can fire (as in the replay)
@@ -220,12 +236,13 @@ object LaunchSniper8748 {
                     val bs = s.base
                     if (bs != null && !bs.fired && bs.onPrint(eventMs - s.bornMs, priceSol, isBuy, live, solUsd) != null)
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, baseRule.rule.id, baseRule.n, baseRule.exTop3, baseRule.exTop3Se,
-                            baseRule.tenX, armed = baseProven != null, triggerEventMs = eventMs, gradedDelayMs8968 = baseRule.rule.delayMs))
+                            baseRule.tenX, armed = baseProven != null, triggerEventMs = eventMs, gradedDelayMs8968 = baseRule.rule.delayMs,
+                            sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043))
                 }
             }
             fires.forEach { onFire(it) }
             if (watch) watch8825(mint, cap, recvMs)
-            if (signal != null) signalPrint8828(mint, s.bornMs, eventMs, priceSol, isBuy, sol, wallet, live, recvMs, cap, signal, signalProven != null)
+            if (signal != null) signalPrint8828(mint, s.bornMs, eventMs, priceSol, isBuy, sol, wallet, live, recvMs, cap, signal, signalProven != null, sig, receivedElapsedMs9043)
         } catch (_: Throwable) {}
     }
 
@@ -239,7 +256,8 @@ object LaunchSniper8748 {
 
     /** Feeds one print to [mint]'s signal tape; the graded signal turning on is a fire (armed when [armed]). */
     private fun signalPrint8828(mint: String, bornMs: Long, eventMs: Long, priceSol: Double, isBuy: Boolean, sol: Double, wallet: String,
-                                live: Boolean, recvMs: Long, cap: Double, rec: SignalReplay8828.Rec, armed: Boolean) {
+                                live: Boolean, recvMs: Long, cap: Double, rec: SignalReplay8828.Rec, armed: Boolean, sourceEventId: String,
+                                receivedElapsedMs: Long) {
         var st = sigTapes[mint]
         if (st == null) {
             if (sigTapes.size >= MAX_SIGNAL_TAPES_8828) sigTapes.entries.removeIf { recvMs - it.value.bornMs > HOUR || recvMs - it.value.lastMs > 10 * 60_000L }
@@ -253,7 +271,7 @@ object LaunchSniper8748 {
         onFire(Fire(mint, recvMs, eventMs - st.bornMs, cap, "SIGNAL8828:${rec.key}", rec.n, rec.exTop3, rec.exTop3Se, rec.tenX,
             armed = armed, triggerEventMs = eventMs,
             // V5.0.9025 — a first-seconds signal is evidence for the delay it was graded at plus one bar, not for 120 s
-            gradedDelayMs8968 = SignalReplay8828.windowMs9025(rec.id)))
+            gradedDelayMs8968 = SignalReplay8828.windowMs9025(rec.id), sourceEventId9043 = sourceEventId, receivedElapsedMs9043 = receivedElapsedMs))
     }
 
     /** V5.0.8825 — a crosser meeting the attention trigger: on the watchlist to be decided on and labelled (no evidence). */
@@ -309,8 +327,16 @@ object LaunchSniper8748 {
      * (PocketLedger8610.gapCostPct8823) is not charged on top of it a second time. Pure read; counts nothing.
      */
     // Network delay spends the replay trigger's window; receipt must never restart the clock.
-    internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = f.armed && nowMs >= f.atMs &&
-        nowMs - minOf(f.triggerEventMs, f.atMs) in 0L..window8968(f.gradedDelayMs8968)
+    internal fun fireElapsed9043(f: Fire, nowMs: Long, elapsedMs: Long = System.nanoTime() / 1_000_000L): Long =
+        f.receivedElapsedMs9043?.let { f.atMs - minOf(f.triggerEventMs, f.atMs) + elapsedMs - it }
+            ?: (nowMs - minOf(f.triggerEventMs, f.atMs))
+
+    internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = f.armed &&
+        (f.receivedElapsedMs9043 != null || nowMs >= f.atMs) && fireElapsed9043(f, nowMs) in 0L..window8968(f.gradedDelayMs8968)
+
+    internal fun deadlineElapsed9043(f: Fire): Long? = f.receivedElapsedMs9043?.let {
+        it + window8968(f.gradedDelayMs8968) - (f.atMs - minOf(f.triggerEventMs, f.atMs))
+    }
 
     /**
      * V5.0.8968 §A_RULE_IS_TRADED_AT_THE_DELAY_IT_WAS_PROVEN_AT — live, 22-23 Nov (owner's export, 32 closes): every buy of a
@@ -332,8 +358,8 @@ object LaunchSniper8748 {
         mint.isNotBlank() && fires[mint]?.let { liveFire8959(it, nowMs) } == true
 
     /** CandidateAdmission8136: the armed fire on [mint] as market-cell evidence, or null. */
-    fun evidence8748(mint: String, nowMs: Long): CandidateAdmission8136.Evidence8136? {
-        val f = fires[mint]?.takeIf { liveFire8959(it, nowMs) } ?: return null
+    fun evidence8748(mint: String, nowMs: Long, capturedFire9043: Fire? = fires[mint]): CandidateAdmission8136.Evidence8136? {
+        val f = capturedFire9043?.takeIf { it.mint == mint && liveFire8959(it, nowMs) } ?: return null
         evidenceServed.incrementAndGet()
         return CandidateAdmission8136.Evidence8136(KIND_8748, f.ruleId, f.n, f.exTop3, f.exTop3Se,
             runnerRate = f.tenX, netOfCost = true)
@@ -354,78 +380,198 @@ object LaunchSniper8748 {
      *  - the clock ([clockLine9025]): every armed fire's seconds from its trigger to its first admission verdict, its
      *    gate verdict and its landed buy, and how each fire ended, so a capture states where the seconds go.
      */
-    fun fireRecord9025(mint: String, nowMs: Long): Double? =
-        fires[mint]?.takeIf { liveFire8959(it, nowMs) }?.exTop3?.takeIf { it.isFinite() }
+    fun fireRecord9025(mint: String, nowMs: Long): Double? = fireRecord9043(fires[mint], nowMs)
+
+    internal fun fireRecord9043(fire: Fire?, nowMs: Long): Double? =
+        fire?.takeIf { liveFire8959(it, nowMs) }?.exTop3?.takeIf { it.isFinite() }
 
     private const val MAX_CLOCKS_9025 = 300
-    private class Clock9025(val mint: String, val t0: Long, val ageMs: Long, val capUsd: Double, val windowMs: Long) {
-        @Volatile var firstAdm = ""; @Volatile var firstAdmMs = -1L; @Volatile var lastAdm = ""
-        @Volatile var admitMs = -1L
-        @Volatile var fdg = ""; @Volatile var fdgMs = -1L; @Volatile var allowMs = -1L
-        @Volatile var landMs = -1L
-
-        /** How this fire ended: landed, allowed and not landed, the gate's refusal, the admission's, or never judged. */
+    private data class Verdict9043(val ms: Long, val value: String, val lane: String, val version: Long)
+    private class Clock9025(val id: String, val mint: String, val t0: Long, val receivedMs: Long,
+                            val receivedElapsedMs: Long, val ageMs: Long, val capUsd: Double, val windowMs: Long,
+                            val legacyClock: Boolean = false) {
+        var firstAdm: Verdict9043? = null; var lastAdm: Verdict9043? = null
+        var admitMs = -1L
+        var firstGate: Verdict9043? = null; var lastGate: Verdict9043? = null; var allowMs = -1L
+        var landMs = -1L; var signature = ""
+        fun elapsed(nowMs: Long, elapsedMs: Long): Long = if (legacyClock) nowMs - t0
+            else receivedMs - t0 + elapsedMs - receivedElapsedMs
         fun ending(): String = when {
             landMs >= 0L -> if (landMs <= windowMs) "LANDED_IN_WINDOW" else "LANDED_LATE"
             allowMs >= 0L -> "GATE_ALLOWED_NOT_LANDED"
-            fdg.isNotBlank() -> "GATE:$fdg"
+            lastGate != null -> "GATE:${lastGate!!.value}"
             admitMs >= 0L -> "ADMITTED_NO_GATE_VERDICT"
-            lastAdm.isNotBlank() -> "ADM:$lastAdm"
+            lastAdm != null -> "ADM:${lastAdm!!.value}"
             else -> "NEVER_JUDGED"
         }
-        fun row(): String = "${mint.take(6)} age${ageMs / 1000}s \$${"%.0f".format(capUsd)} win${windowMs / 1000}s" +
-            (if (firstAdmMs >= 0L) " adm+${firstAdmMs / 1000}s:${firstAdm.take(34)}" else " adm-") +
+        fun row(): String = "${mint.take(6)} id=${id.hashCode().toUInt().toString(16)} age${ageMs / 1000}s \$${"%.0f".format(capUsd)} win${windowMs / 1000}s" +
+            (firstAdm?.let { " adm+${it.ms / 1000}s:${it.value.take(44)}@${it.lane}/${it.version}" } ?: " adm-") +
             (if (admitMs >= 0L) " admit+${admitMs / 1000}s" else "") +
-            (if (fdgMs >= 0L) " gate+${fdgMs / 1000}s:${if (allowMs >= 0L) "ALLOW" else fdg.take(34)}" else "") +
-            (if (landMs >= 0L) " land+${landMs / 1000}s" else "")
+            (firstGate?.let { " gate+${it.ms / 1000}s:${it.value.take(44)}@${it.lane}/${it.version}" } ?: "") +
+            (lastGate?.takeIf { it != firstGate }?.let { " lastGate+${it.ms / 1000}s:${it.value.take(44)}@${it.lane}/${it.version}" } ?: "") +
+            (if (allowMs >= 0L) " allow+${allowMs / 1000}s" else "") +
+            (if (landMs >= 0L) " land+${landMs / 1000}s sig=${signature.take(12)}" else "")
     }
+    private data class DecisionKey9043(val mint: String, val lane: String, val version: Long)
+    private class DecisionLink9043(val opportunity: String) {
+        var admitted = false; var gateAllowed = false; var ambiguous = false; var fireDependent = false
+    }
+    private data class TicketBinding9043(val opportunity: String, val fireDependent: Boolean,
+        val deadlineElapsedMs: Long, val deadlineWallMs: Long, val legacyClock: Boolean, val refusal: String? = null)
     private val clocks9025 = ConcurrentHashMap<String, Clock9025>()
+    private val decisions9043 = HashMap<DecisionKey9043, DecisionLink9043>()
+    private val tickets9043 = ConcurrentHashMap<String, TicketBinding9043>()
+    private val lineageLock9043 = Any()
+    private val openedCount9043 = AtomicLong(); private val retiredCount9043 = AtomicLong()
+    private val admittedInWindow9043 = AtomicLong(); private val allowedInWindow9043 = AtomicLong()
+    private val landedCount9043 = AtomicLong(); private val landedInWindow9043 = AtomicLong()
+    private val unmatchedAdmission9043 = AtomicLong(); private val unmatchedGate9043 = AtomicLong()
+    private val unmatchedTicket9043 = AtomicLong(); private val unmatchedLanding9043 = AtomicLong()
+    private val archivedEndings9043 = HashMap<String, Long>()
 
-    /** Pure: the short name a verdict is counted under (the admission's prefix and any figures after ':' dropped). */
+    private fun trace9043(event: String, detail: String) {
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle(event, detail) } catch (_: Throwable) {}
+    }
+
     internal fun clockWhy9025(reason: String?): String =
         (reason ?: "").removePrefix("CANDIDATE_ADMISSION_8136_").substringBefore(':').trim().take(44).ifBlank { "UNNAMED" }
 
-    private fun openClock9025(f: Fire) {
-        if (clocks9025.size >= MAX_CLOCKS_9025) clocks9025.entries.sortedBy { it.value.t0 }.take(MAX_CLOCKS_9025 / 5).forEach { clocks9025.remove(it.key) }
-        clocks9025[f.mint] = Clock9025(f.mint, minOf(f.triggerEventMs, f.atMs), f.ageMs, f.capUsd, window8968(f.gradedDelayMs8968))
+    /** Snapshot the fire identity while the candidate is built; later callbacks never resolve it by mint alone. */
+    fun capturedFire9043(mint: String, nowMs: Long): Fire? = fires[mint]
+        ?.takeIf { it.armed && fireElapsed9043(it, nowMs) in 0L..600_000L }
+
+    internal fun opportunity9043(fire: Fire): Pair<String, Long> =
+        fire.opportunityId9043 to minOf(fire.triggerEventMs, fire.atMs) + window8968(fire.gradedDelayMs8968)
+
+    private fun openClock9025(f: Fire) = openClock9043(Clock9025(f.opportunityId9043, f.mint,
+        minOf(f.triggerEventMs, f.atMs), f.atMs, f.receivedElapsedMs9043 ?: System.nanoTime() / 1_000_000L,
+        f.ageMs, f.capUsd, window8968(f.gradedDelayMs8968)))
+
+    private fun openClock9043(clock: Clock9025) {
+        synchronized(lineageLock9043) {
+            if (clocks9025.containsKey(clock.id)) return
+            if (clocks9025.size >= MAX_CLOCKS_9025) {
+                // Retiring diagnostics never removes the fire from cumulative denominators; unresolved outcomes are explicit.
+                val old = clocks9025.values.minByOrNull { it.receivedElapsedMs }!!
+                synchronized(old) {
+                    val ending = if (old.landMs >= 0L) old.ending() else "RETIRED_UNRESOLVED:${old.ending()}"
+                    archivedEndings9043[ending] = (archivedEndings9043[ending] ?: 0L) + 1L
+                }
+                clocks9025.remove(old.id); retiredCount9043.incrementAndGet()
+                decisions9043.entries.removeIf { it.value.opportunity == old.id }
+                // Ticket deadlines survive diagnostic row retirement. Losing a clock cannot authorize a late send.
+            }
+            clocks9025[clock.id] = clock; openedCount9043.incrementAndGet()
+            trace9043("LAUNCH_OPPORTUNITY_OPEN_9043", "opportunityId=${clock.id} mint=${clock.mint} sourceMs=${clock.t0} receivedMs=${clock.receivedMs} receivedElapsedMs=${clock.receivedElapsedMs} windowMs=${clock.windowMs}")
+        }
     }
 
-    /** CandidateAdmission8136 (LIVE): an admission terminal for [mint]; counted when the coin carries an armed fire's clock. */
-    fun noteAdmission9025(mint: String, terminal: String, reason: String?, nowMs: Long = System.currentTimeMillis()) {
-        val c = clocks9025[mint] ?: return
-        val ms = nowMs - c.t0
-        if (ms !in 0L..600_000L) return
-        val v = "$terminal:${clockWhy9025(reason)}"
-        if (c.firstAdmMs < 0L) { c.firstAdmMs = ms; c.firstAdm = v }
-        c.lastAdm = v
-        if (terminal == "ADMIT" && c.admitMs < 0L) c.admitMs = ms
+    /** CandidateAdmission (LIVE): identity was captured during construction, before another fire can replace the mint's latest. */
+    fun noteAdmission9025(mint: String, terminal: String, reason: String?, nowMs: Long = System.currentTimeMillis(),
+                          lane: String = "LEGACY", candidateVersion: Long = 0L, opportunityId: String = "",
+                          elapsedMs: Long = System.nanoTime() / 1_000_000L, fireDependent: Boolean = false) {
+        synchronized(lineageLock9043) {
+            val c = clocks9025[opportunityId] ?: clocks9025.values.singleOrNull { it.mint == mint && it.legacyClock && lane == "LEGACY" }
+            if (c == null || c.mint != mint) { if (opportunityId.isNotBlank()) unmatchedAdmission9043.incrementAndGet(); return }
+            val ms = c.elapsed(nowMs, elapsedMs)
+            if (ms < 0L) { unmatchedAdmission9043.incrementAndGet(); return }
+            val key = DecisionKey9043(mint, lane.trim().uppercase(), candidateVersion)
+            val link = decisions9043.getOrPut(key) { DecisionLink9043(c.id) }
+            if (link.opportunity != c.id) { link.ambiguous = true; unmatchedAdmission9043.incrementAndGet() }
+            link.admitted = terminal == "ADMIT"; link.gateAllowed = false
+            // Same version is not a new authorization identity: a later independent claim cannot rewrite its origin.
+            link.fireDependent = link.fireDependent || fireDependent
+            synchronized(c) {
+                val v = Verdict9043(ms, "$terminal:${clockWhy9025(reason)}", key.lane, candidateVersion)
+                if (c.firstAdm == null) c.firstAdm = v
+                c.lastAdm = v
+                if (terminal == "ADMIT" && c.admitMs < 0L) {
+                    c.admitMs = ms; if (ms <= c.windowMs) admittedInWindow9043.incrementAndGet()
+                }
+            }
+        }
     }
 
-    /** SpecialistOwnership7951.onFdgVerdict7951: the final gate's verdict on [mint]. */
-    fun noteGate9025(mint: String, allow: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis()) {
-        val c = clocks9025[mint] ?: return
-        val ms = nowMs - c.t0
-        if (ms !in 0L..600_000L) return
-        if (c.fdgMs < 0L) c.fdgMs = ms
-        if (allow) { if (c.allowMs < 0L) c.allowMs = ms } else if (c.allowMs < 0L) c.fdg = clockWhy9025(reason)
+    /** SpecialistOwnership: exact lane/version join, never whichever fire most recently happened on the same mint. */
+    fun noteGate9025(mint: String, allow: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(),
+                     lane: String = "LEGACY", candidateVersion: Long = 0L,
+                     elapsedMs: Long = System.nanoTime() / 1_000_000L) {
+        synchronized(lineageLock9043) {
+            val key = DecisionKey9043(mint, lane.trim().uppercase(), candidateVersion)
+            val link = decisions9043[key]
+            val c = link?.takeUnless { it.ambiguous }?.let { clocks9025[it.opportunity] }
+            if (link == null || c == null) { unmatchedGate9043.incrementAndGet(); return }
+            val ms = c.elapsed(nowMs, elapsedMs)
+            if (ms < 0L) { unmatchedGate9043.incrementAndGet(); return }
+            link.gateAllowed = allow && link.admitted
+            synchronized(c) {
+                val v = Verdict9043(ms, if (allow) "ALLOW" else clockWhy9025(reason), key.lane, candidateVersion)
+                if (c.firstGate == null) c.firstGate = v
+                c.lastGate = v
+                if (allow && c.allowMs < 0L) { c.allowMs = ms; if (ms <= c.windowMs) allowedInWindow9043.incrementAndGet() }
+            }
+        }
     }
 
-    /** The armed fires of this session by how they ended, and the last eight with their seconds. */
-    fun clockLine9025(nowMs: Long = System.currentTimeMillis()): String {
+    /** Executor: bind a validated LIVE sealed ticket once; absent or ambiguous lineage remains explicitly unmatched. */
+    fun bindTicket9043(mint: String, lane: String, candidateVersion: Long, attemptId: String): Boolean = synchronized(lineageLock9043) {
+        val link = decisions9043[DecisionKey9043(mint, lane.trim().uppercase(), candidateVersion)]
+        if (attemptId.isBlank() || candidateVersion <= 0L || link == null || link.ambiguous || !link.admitted || !link.gateAllowed) {
+            if (attemptId.isNotBlank() && link?.fireDependent == true) tickets9043.putIfAbsent(attemptId,
+                TicketBinding9043(link?.opportunity.orEmpty(), true, 0L, 0L, false, "LAUNCH_LINEAGE_UNMATCHED_9043"))
+            unmatchedTicket9043.incrementAndGet(); return@synchronized false
+        }
+        val c = clocks9025[link.opportunity] ?: return@synchronized false
+        val binding = TicketBinding9043(c.id, link.fireDependent, c.receivedElapsedMs + c.windowMs - (c.receivedMs - c.t0),
+            c.t0 + c.windowMs, c.legacyClock)
+        val previous = tickets9043.putIfAbsent(attemptId, binding)
+        if (previous == null) trace9043("LAUNCH_TICKET_BOUND_9043", "opportunityId=${c.id} mint=$mint lane=$lane candidateVersion=$candidateVersion attemptId=$attemptId fireDependent=${binding.fireDependent} deadlineElapsedMs=${binding.deadlineElapsedMs}")
+        (previous == null || previous == binding).also { if (!it) unmatchedTicket9043.incrementAndGet() }
+    }
+
+    /** SignedTxLedger: last fence immediately before this signature's FIRST broadcast. Never renew on re-quote/rebind. */
+    class DispatchRefused9043(val reason: String) : IllegalStateException(reason)
+
+    fun dispatchRefusal9043(attemptId: String, nowMs: Long = System.currentTimeMillis(),
+                            elapsedMs: Long = System.nanoTime() / 1_000_000L): String? {
+        val b = tickets9043[attemptId] ?: return null // ordinary entry without a launch dependency
+        b.refusal?.let { return it }
+        if (!b.fireDependent) return null
+        return if ((if (b.legacyClock) nowMs > b.deadlineWallMs else elapsedMs > b.deadlineElapsedMs))
+            "LAUNCH_OPPORTUNITY_EXPIRED_9043" else null
+    }
+
+    /** Cumulative fire denominators include retired/late/unjudged opportunities; detailed rows and latency samples are bounded. */
+    fun clockLine9025(nowMs: Long = System.currentTimeMillis(), elapsedMs: Long = System.nanoTime() / 1_000_000L): String = synchronized(lineageLock9043) {
         val all = clocks9025.values.sortedBy { it.t0 }
-        val done = all.filter { it.landMs >= 0L || nowMs - it.t0 > EVIDENCE_TTL_MS }
-        val ends = done.groupingBy { it.ending() }.eachCount().entries.sortedByDescending { it.value }.take(10).joinToString(",") { "${it.key}=${it.value}" }
+        val ends = HashMap(archivedEndings9043)
+        all.forEach { c -> synchronized(c) {
+            if (c.landMs >= 0L || c.elapsed(nowMs, elapsedMs) > c.windowMs) ends[c.ending()] = (ends[c.ending()] ?: 0L) + 1L
+        } }
+        val endings = ends.entries.sortedByDescending { it.value }.take(10).joinToString(",") { "${it.key}=${it.value}" }
         fun p50(xs: List<Long>) = if (xs.isEmpty()) "-" else "${xs.sorted()[xs.size / 2] / 1000}s"
-        return "fireClock9025[fires=${all.size} admittedInWindow=${all.count { it.admitMs in 0L..it.windowMs }} gateAllowInWindow=${all.count { it.allowMs in 0L..it.windowMs }} " +
-            "landed=${all.count { it.landMs >= 0L }} landedInWindow=${all.count { it.landMs in 0L..it.windowMs }} " +
-            "firstVerdict{p50=${p50(all.mapNotNull { c -> c.firstAdmMs.takeIf { it >= 0L } })}} admit{p50=${p50(all.mapNotNull { c -> c.admitMs.takeIf { it >= 0L } })}} " +
-            "gate{p50=${p50(all.mapNotNull { c -> c.fdgMs.takeIf { it >= 0L } })}} ended{${ends.ifBlank { "-" }}} " +
-            "last{${all.takeLast(8).joinToString(" | ") { it.row() }.ifBlank { "-" }}} " +
-            "rule=seconds from the fire's trigger print; window = the delay the rule was proven at]"
+        "fireClock9025[fires=${openedCount9043.get()} admittedInWindow=${admittedInWindow9043.get()} gateAllowInWindow=${allowedInWindow9043.get()} " +
+            "landed=${landedCount9043.get()} landedInWindow=${landedInWindow9043.get()} " +
+            "retained=${all.size} retired=${retiredCount9043.get()} unmatched9043{admission=${unmatchedAdmission9043.get()},gate=${unmatchedGate9043.get()},ticket=${unmatchedTicket9043.get()},landing=${unmatchedLanding9043.get()}} " +
+            "retainedFirstVerdict{p50=${p50(all.mapNotNull { it.firstAdm?.ms })}} retainedAdmit{p50=${p50(all.mapNotNull { it.admitMs.takeIf { v -> v >= 0L } })}} " +
+            "retainedGate{p50=${p50(all.mapNotNull { it.firstGate?.ms })}} ended{${endings.ifBlank { "-" }}} " +
+            "last{${all.takeLast(8).joinToString(" | ") { synchronized(it) { it.row() } }.ifBlank { "-" }}} " +
+            "rule=source-event age plus monotonic elapsed time; exact lane/version/attempt/signature joins; window = the delay the rule was proven at]"
     }
 
-    internal fun resetClocksForTest9025() { clocks9025.clear() }
-    internal fun openClockForTest9025(mint: String, t0: Long, windowMs: Long) { clocks9025[mint] = Clock9025(mint, t0, 0L, 5_000.0, windowMs) }
+    internal fun resetClocksForTest9025() = synchronized(lineageLock9043) {
+        clocks9025.clear(); decisions9043.clear(); tickets9043.clear(); archivedEndings9043.clear()
+        listOf(openedCount9043, retiredCount9043, admittedInWindow9043, allowedInWindow9043, landedCount9043, landedInWindow9043,
+            unmatchedAdmission9043, unmatchedGate9043, unmatchedTicket9043, unmatchedLanding9043).forEach { it.set(0L) }
+        synchronized(landed) { landed.clear() }
+    }
+    internal fun openClockForTest9025(mint: String, t0: Long, windowMs: Long) {
+        resetClocksForTest9025()
+        openClock9043(Clock9025("legacy:$mint:$t0", mint, t0, t0, t0, 0L, 5_000.0, windowMs, true))
+    }
+    internal fun openOpportunityForTest9043(id: String, mint: String, t0: Long, receivedMs: Long, elapsedMs: Long, windowMs: Long) {
+        openClock9043(Clock9025(id, mint, t0, receivedMs, elapsedMs, 0L, 5_000.0, windowMs))
+    }
 
     fun statusLine8748(): String {
         val p = LaunchReplay8744.proven8748(); val sh = LaunchReplay8744.shadow8748()

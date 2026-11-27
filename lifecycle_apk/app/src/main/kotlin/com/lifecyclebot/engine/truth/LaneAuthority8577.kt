@@ -495,7 +495,10 @@ object LaneAuthority8577 {
 
     /** The decision a LIVE candidate carrying an armed fire's record ([fireNetPct], net of cost; null = no live fire) leaves the admission with. */
     internal fun fireDecision9025(c: CandidateAdmission8136.Candidate8136, d: CandidateAdmission8136.Decision8136,
-                                  fireNetPct: Double? = try { LaunchSniper8748.fireRecord9025(c.mint, System.currentTimeMillis()) } catch (_: Throwable) { null },
+                                  fireNetPct: Double? = try {
+                                      if (c.launchSnapshotCaptured9043) LaunchSniper8748.fireRecord9043(c.launchFire9043, System.currentTimeMillis())
+                                      else LaunchSniper8748.fireRecord9025(c.mint, System.currentTimeMillis())
+                                  } catch (_: Throwable) { null },
     ): CandidateAdmission8136.Decision8136 {
         if (!c.live || fireNetPct == null || !fireNetPct.isFinite() || fireNetPct <= 0.0) return d
         if (d.trace.any { it.startsWith(PICK_TRACE_9022) }) return d   // already carried as the model's pick
@@ -550,14 +553,27 @@ object LaneAuthority8577 {
         // Keep it in the record so its counterfactual remains measurable.
         val paperLosing = try { MemePaperTrader8544.laneProvenLosing8608(c.lane) } catch (_: Throwable) { false }
         val resolved = withPaperPrior(d, paperLosing)
-        // V5.0.8582 — a LIVE meme entry at the high is refused whatever admitted it (lane opinion, edge, generic prior).
+        // V5.0.9043 — this argument carries ALL entry-state refusals, not only the current-high guard.
+        // 9022/9025 already adjudicated their learned priors. Reapplying LIVE_STAGE_LOSES here reversed the
+        // model/fire's ADMIT after its counter had recorded success. Preserve the actual high, safety and data guards.
         if (highRefusal8582 != null) {
+            if (entryStateAdvisory9043(highRefusal8582, d)) {
+                try { PipelineHealthCollector.labelInc("ENTRY_STATE_PRIOR_ANSWERED_9043_${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}
+                return resolved.copy(trace = resolved.trace + "entryStateAdvisory9043=$highRefusal8582",
+                    laneQualified8577 = qualified)
+            }
             try { PipelineHealthCollector.labelInc("${highRefusal8582}_${c.lane.uppercase()}") } catch (_: Throwable) {}
             return d.copy(terminal = CandidateAdmission8136.Terminal8136.REFUSE, reason = highRefusal8582, specific = true,
                 trace = d.trace + "entryState=$highRefusal8582", laneQualified8577 = qualified)
         }
         return if (qualified) resolved.copy(laneQualified8577 = true) else resolved
     }
+
+    /** The composed admission keeps precisely the exemptions already earned by its model/fire, never a new bypass. */
+    internal fun entryStateAdvisory9043(reason: String, admission: CandidateAdmission8136.Decision8136): Boolean =
+        admission.admitted &&
+            ((admission.trace.any { it.startsWith(PICK_TRACE_9022) } && pickAdvisory9022(reason)) ||
+                (admission.trace.any { it.startsWith(FIRE_TRACE_9025) } && fireAdvisory9025(reason)))
 
     /** LiveEdgeGate7877.liveRefusal (LIVE): is the gate's refusal [reason] advisory for this lane-qualified candidate? */
     // V5.0.8604 — advisory for every ADMITTED LIVE candidate (the paper-equivalent admission), not only a specialist-qualified

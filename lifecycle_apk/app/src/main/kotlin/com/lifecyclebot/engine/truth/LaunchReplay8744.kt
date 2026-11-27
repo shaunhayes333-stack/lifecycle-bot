@@ -318,8 +318,10 @@ object LaunchReplay8744 {
         val values = HashMap<Rule, ArrayList<Double>>()
         val triggers = rules.map { Triple(it.capUsd, it.minBuys, it.totalBuys) }.distinct()
         for (x in launches) {
+            com.lifecyclebot.engine.JobCost8813.cooperate9043()
             val trig = triggers.associateWith { (c, b, tot) -> trigger8748(x, c, b, solUsd, tot) }
             for (r in rules) {
+                com.lifecyclebot.engine.JobCost8813.cooperate9043()
                 val i = trig[Triple(r.capUsd, r.minBuys, r.totalBuys)] ?: -1
                 if (i >= 0) run8748(x, i, r, costPct)?.let { values.getOrPut(r) { ArrayList() }.add(it) }
             }
@@ -501,6 +503,7 @@ object LaunchReplay8744 {
                     var spikes = 0L; var liveN = 0
                     val walletNames = ArrayList<String>()
                     LaunchHour8628.forEachLaunch8756(nowMs, MAX_LAUNCHES, LIVE_LAG_MS_8748, walletNames) { r ->
+                        com.lifecyclebot.engine.JobCost8813.cooperate9043()
                         val x = clean8748(r.t, r.p, r.buy, r.live, r.sol, r.wallet, r.bornMs); spikes += x.spikes
                         if (x.live.any { it }) liveN++
                         set.add(x); mints8888.add(r.mint)

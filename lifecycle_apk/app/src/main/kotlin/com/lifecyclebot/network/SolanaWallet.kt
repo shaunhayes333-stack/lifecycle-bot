@@ -676,7 +676,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         resolveOnce8085(e)
                         if (e.state == SignedTxLedger8085.State.CONFIRMED && before != e.state)
                             onFinalityRecovered8085(e, recovered)
-                        if (e.unresolved && e.signedB64.isNotBlank() && blockhashValid8085(e.blockhash) == true)
+                        if (SignedTxLedger8085.mayRebroadcast9043(e) && e.signedB64.isNotBlank() && blockhashValid8085(e.blockhash) == true)
                             echoSend8009(sig, e.signedB64, viaSender = false)
                     } catch (_: Exception) {
                         // A failed read is UNKNOWN, not expiry. Preserve identity and try again.
@@ -816,7 +816,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // V5.0.8009 — while the signature is not yet seen, the signed bytes are re-broadcast every
         // 2 s (both routes) until ~25 s: Sender/RPC were sent once with maxRetries 0, so a dropped
         // transaction used to wait the full 30 s "not found" window before anything happened.
-        val echo = inFlight8009[signature] ?: SignedTxLedger8085.get(signature)?.signedB64?.takeIf { it.isNotBlank() }?.let { it to false }
+        val echo = inFlight8009[signature] ?: SignedTxLedger8085.get(signature)?.takeIf { SignedTxLedger8085.mayRebroadcast9043(it) }
+            ?.signedB64?.takeIf { it.isNotBlank() }?.let { it to false }
         var lastEcho = start
         var lastExpiryCheck8085 = 0L
         try {
@@ -1001,6 +1002,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 throw e
             } catch (e: TxExpiredProven8085) {
                 throw e
+            } catch (e: com.lifecyclebot.engine.truth.LaunchSniper8748.DispatchRefused9043) {
+                throw e // local pre-broadcast expiry is not an Ultra outage and cannot enter its retry/fallback ladder
             } catch (e: Exception) {
                 lastException = e
                 // V5.0.8085 — /execute that reached Jupiter may have submitted these bytes; only a request-validation

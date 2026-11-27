@@ -33,6 +33,8 @@ object ManagedBands8719 {
 
     private class Cell { var n = 0.0; var sum = 0.0; var sq = 0.0 }
     private val cells = ConcurrentHashMap<String, Cell>()
+    private val seen9043 = LinkedHashSet<String>()
+    private const val MAX_SEEN_9043 = 32_768
     @Volatile private var ready = false
     @Volatile private var loading = false
     private val learned = AtomicLong(0L)
@@ -41,13 +43,7 @@ object ManagedBands8719 {
 
     /** Pure: what a position with a [stopPct] stop and a [costPct] round trip banks of a label's [netPct]. */
     fun managed8719(netPct: Double, stopPct: Double, costPct: Double): Double {
-        val stop = if (stopPct.isFinite() && stopPct > 0.0) stopPct else 100.0
-        val cost = if (costPct.isFinite() && costPct > 0.0) costPct else 0.0
-        val distance = (stop + cost).coerceAtMost(100.0)
-        // V5.0.8724 — owner's audit: "a simulated stop fill is not automatically a real stop fill". A label that fell through
-        // twice the stop's distance was a pulled pool or a gap the stop never filled: it counts as it printed.
-        if (netPct <= -2.0 * distance) return netPct.coerceAtLeast(-100.0)
-        return PocketLedger8610.managed8610(netPct).coerceAtLeast(-distance)
+        return FrozenEdgeTarget9043.compute(netPct, stopPct, costPct)
     }
 
     private fun liqKey(lane: String, liqUsd: Double): String = "LIQ|${lane.trim().uppercase()}|${com.lifecyclebot.engine.LearnedLiquidityFloor8539.band(liqUsd)}"
@@ -63,7 +59,11 @@ object ManagedBands8719 {
 
     private fun stopOf(lane: String): Double = try { FieldManual7715.laneStopPct8392(lane) } catch (_: Throwable) { Double.NaN }
 
-    private fun add(lane: String, liqUsd: Double, mcapUsd: Double, net: Double, costPct: Double, stopPct: Double) {
+    private fun add(lane: String, liqUsd: Double, mcapUsd: Double, net: Double, costPct: Double, stopPct: Double, decisionKey9043: String? = null) {
+        if (!decisionKey9043.isNullOrBlank()) synchronized(seen9043) {
+            if (!seen9043.add(decisionKey9043)) return
+            if (seen9043.size > MAX_SEEN_9043) seen9043.iterator().run { next(); remove() }
+        }
         val y = managed8719(net, stopPct, costPct)
         val keys = ArrayList<String>(2)
         if (liqUsd.isFinite() && liqUsd > 0.0) keys += liqKey(lane, liqUsd)
@@ -77,11 +77,15 @@ object ManagedBands8719 {
     }
 
     /** EdgeModel8537.learn: file one labelled decision of [lane]. */
-    fun learn8719(lane: String, liqUsd: Double, mcapUsd: Double, net: Double, costPct: Double) {
+    fun learn8719(lane: String, liqUsd: Double, mcapUsd: Double, net: Double, costPct: Double, stopPct9043: Double? = null,
+                  decisionKey9043: String? = null) {
         if (!net.isFinite() || lane.isBlank()) return
         ensureLoaded()
         val l = lane.trim().uppercase()
-        io.execute { try { add(l, liqUsd, mcapUsd, net, costPct, stopOf(l)) } catch (_: Throwable) {} }
+        val frozenStop = stopPct9043?.takeIf { it.isFinite() && it > 0.0 }
+        io.execute { try { DatasetReplay8863.afterSeed9043 {
+            ready = true; add(l, liqUsd, mcapUsd, net, costPct, frozenStop ?: stopOf(l), decisionKey9043)
+        } } catch (_: Throwable) {} }
     }
 
     private fun provenKey(key: String): Boolean {
@@ -139,9 +143,12 @@ object ManagedBands8719 {
     /** DatasetReplay8863: one accepted row of the device's own labelled decisions, as PocketLedger8610 takes it. */
     internal fun seedRow8863(o: JSONObject) {
         fun d(k: String) = if (o.isNull(k)) Double.NaN else o.optDouble(k, Double.NaN)
-        val net = d("net"); if (!net.isFinite()) return
+        val receipt = FrozenEdgeTarget9043.read9043(o)
+        val net = receipt?.inputNet ?: d("net"); if (!net.isFinite()) return
         val lane = o.optString("lane").trim().uppercase(); if (lane.isBlank()) return
-        add(lane, d("liq"), d("mcap"), net, d("cost"), seedStops8863.getOrPut(lane) { stopOf(lane) })
+        val mint = o.optString("mint"); val at = o.optLong("t"); val horizon = o.optLong("horizonMs")
+        val key = if (mint.isNotBlank() && at > 0L && horizon > 0L) "$mint|$at|$lane|$horizon" else null
+        add(lane, d("liq"), d("mcap"), net, receipt?.costPct ?: d("cost"), receipt?.stopPct ?: seedStops8863.getOrPut(lane) { stopOf(lane) }, key)
     }
 
     /** DatasetReplay8863: the replay is over. */
@@ -154,7 +161,44 @@ object ManagedBands8719 {
         return "managedBands8719[ready=$ready cells=${cells.size} learned=${learned.get()} proven{$proven} floorsOpened{$used} rule=lane x band label, loss capped at stop+cost, n>=${MIN_N.toInt()} mean-se>0]"
     }
 
-    internal fun resetForTest8719() { cells.clear(); opened.clear(); learned.set(0L); ready = true }
+    internal fun resetForTest8719() { clearSeed9043(); opened.clear(); ready = true }
     internal fun addForTest8719(lane: String, liqUsd: Double, mcapUsd: Double, net: Double, costPct: Double, stopPct: Double) =
         add(lane.trim().uppercase(), liqUsd, mcapUsd, net, costPct, stopPct)
+
+    // V5.0.9043: called only by the shared seed owner, before live-label workers leave await8863.
+    internal fun writeSeed9043(out: java.io.DataOutputStream) {
+        out.writeLong(learned.get())
+        out.writeInt(cells.size)
+        for ((key, cell) in cells) synchronized(cell) {
+            out.writeUTF(key); out.writeDouble(cell.n); out.writeDouble(cell.sum); out.writeDouble(cell.sq)
+
+        }
+        synchronized(seen9043) { out.writeInt(seen9043.size); for (key in seen9043) out.writeUTF(key) }
+    }
+
+    internal fun readSeed9043(input: java.io.DataInputStream) {
+        clearSeed9043()
+        learned.set(input.readLong().also { require(it >= 0L) })
+        repeat(DatasetSeedCheckpoint9043.count(input)) {
+            val key = input.readUTF()
+            val cell = Cell()
+            cell.n = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+            cell.sum = DatasetSeedCheckpoint9043.finite(input)
+            cell.sq = DatasetSeedCheckpoint9043.finite(input).also { require(it >= 0.0) }
+
+            require(cells.putIfAbsent(key, cell) == null) { "duplicate checkpoint cell" }
+        }
+        synchronized(seen9043) {
+            repeat(DatasetSeedCheckpoint9043.count(input, MAX_SEEN_9043)) { require(seen9043.add(input.readUTF())) }
+        }
+    }
+
+    internal fun clearSeed9043() {
+        cells.clear(); learned.set(0L)
+
+
+
+        seedStops8863.clear()
+        synchronized(seen9043) { seen9043.clear() }
+    }
 }

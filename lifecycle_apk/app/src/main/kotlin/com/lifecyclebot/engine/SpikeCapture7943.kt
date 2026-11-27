@@ -40,12 +40,13 @@ object SpikeCapture7943 {
      */
     fun rearm(ts: TokenState, tier: Int, reason: String = "SPIKE_CAPTURE_7943_T$tier", expectedRequestAtMs8397: Long? = null,
               expectedLadder8397: String? = null): Boolean {
-        val key = "${ts.mint}|${ts.position.entryTime}"
+        val key = RunnerLive8153.positionKey9043(ts)
         if (!ts.position.isOpen) return false
         if (expectedRequestAtMs8397 != null) {
             if (!RunnerLive8153.revertMatching8397(ts, reason, expectedRequestAtMs8397, System.currentTimeMillis(), MAX_REARMS_7944, expectedLadder8397)) return false
         } else {
-            try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, System.currentTimeMillis(), MAX_REARMS_7944) } catch (_: Throwable) {}
+            val reverted = try { RunnerLive8153.revert8153(ts, RunnerRungBook8153.Revert8153.REJECTED, System.currentTimeMillis(), MAX_REARMS_7944) } catch (_: Throwable) { false }
+            if (!reverted) return false
         }
         rearms.merge(key, 1, Int::plus)
         RunnerFunnel8331.blocked8331("SELL_NOT_APPLIED", "$key|T$tier|${rearms[key] ?: 0}")  // V5.0.8331 — every refused dispatch counts
@@ -255,7 +256,7 @@ object SpikeCapture7943 {
         // V5.0.7967 — a grabbed runner sells on the owner's ladder (half at 2x, then 5x, 11x).
         val runnerTiers8153 = try { RunnerGrab7967.tiersFor7967(ts) } catch (_: Throwable) { null }
         val tiers = runnerTiers8153 ?: plan7955?.tiers?.takeIf { it.isNotEmpty() } ?: TIERS
-        val reached = tierReached(gross, tiers)
+        var reached = tierReached(gross, tiers)
         if (reached == 0) return 0
         // V5.0.8941 — a launch rider on the doctrine ladder: the rungs below 10x wait, and its first sale is the 10x rung's own
         val rider8941 = runnerTiers8153 === RunnerGrab7967.TIERS_7967 && RunnerDoctrine8584.launchRider8941(ts, now7955)
@@ -269,11 +270,12 @@ object SpikeCapture7943 {
         val inFlight8153 = com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint) ||
             com.lifecyclebot.engine.sell.CloseLease.sellInFlight7948(ts.mint)
         if (!RunnerLive8153.settlePending8153(ts, inFlight8153, now7955)) return 0
+        RunnerLive8153.remainingTier9043(ts, ladder8153)?.let { reached = minOf(reached, it) }
         val done = RunnerLive8153.confirmedTier8153(ts, ladder8153)
         if (reached <= done) return 0
         // V5.0.8331 — the runner funnel: a runner rung the authoritative mark reached (once per position and tier).
-        val funnelKey8331 = "${ts.mint}|${pos.entryTime}"
-        val runnerRung8331 = runnerTiers8153 != null
+        val funnelKey8331 = RunnerLive8153.positionKey9043(ts)
+        val runnerRung8331 = !pos.isPaperPosition && runnerTiers8153 != null
         if (runnerRung8331) RunnerFunnel8331.stage8331(RunnerFunnel8331.Stage8331.RUNG_TRIGGERED, "$funnelKey8331|T$reached")
         // V5.0.8144 — another chosen exit (a structure break, an in-flight tranche) holds this position's arbitration
         // ticket: the rung waits for the next print — not consumed, no re-arm spent.

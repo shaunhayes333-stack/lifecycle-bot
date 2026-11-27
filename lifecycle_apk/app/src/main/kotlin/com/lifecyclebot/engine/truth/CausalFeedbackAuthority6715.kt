@@ -75,6 +75,8 @@ object CausalFeedbackAuthority6715 {
         val scoreBand: String,
         val scopes: Map<String, ScopeStamp>,
         val stampedAtMs: Long,
+        /** Feedback state captured at decision time for a later elected owner; never populated from execution-time state. */
+        val handoffScopes9043: Map<String, ScopeStamp> = emptyMap(),
     )
     private data class Reservation(
         val attemptId: String,
@@ -87,6 +89,8 @@ object CausalFeedbackAuthority6715 {
     )
 
     private val lock = Any()
+    @Volatile internal var clockForTest9043: (() -> Long)? = null
+    private fun nowMs9043(): Long = clockForTest9043?.invoke() ?: System.currentTimeMillis()
     private val scopes = HashMap<String, ScopeState>()
     private val ticketStamps = HashMap<String, TicketStamp>()
     private val reservations = HashMap<String, Reservation>()
@@ -125,6 +129,13 @@ object CausalFeedbackAuthority6715 {
     private fun keys(mode: String, lane: String, band: String): List<String> = listOf(laneKey(mode, lane), bandKey(mode, lane, band))
     private fun state(key: String): ScopeState = scopes.getOrPut(key) { ScopeState() }
 
+    private fun snapshot9043(scopeKeys: Collection<String>): Map<String, ScopeStamp> =
+        scopeKeys.associateWith { k -> state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) } }
+
+    /** Captures causal dependencies only. Native owner/FDG policy compatibility remains the caller's responsibility. */
+    private fun handoffSnapshot9043(mode: String, band: String): Map<String, ScopeStamp> =
+        snapshot9043(MEME_LANES.flatMap { keys(mode, it, band) })
+
     private fun cap(clean: Int, max: Int): Int = (1 + sqrt(clean.coerceAtLeast(0).toDouble()).toInt()).coerceIn(1, max)
 
     /** Stamp the policy state at actual decision/intent creation. Idempotent. */
@@ -137,18 +148,21 @@ object CausalFeedbackAuthority6715 {
             val ks = keys(mode, lane, band)
             val snap = ks.associateWith { k -> state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) } }
             ticketStamps[attemptId] = TicketStamp(
-                attemptId, normMode(mode), mint, normLane(lane), band, snap, System.currentTimeMillis(),
+                attemptId, normMode(mode), mint, normLane(lane), band, snap, nowMs9043(), handoffSnapshot9043(mode, band),
             )
             emit("CAUSAL_TICKET_STAMPED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=${normMode(mode)} lane=${normLane(lane)} band=$band")
             return true
         }
     }
 
-    /** V5.0.9040 — no close has landed in any of [laneKeys] since [stampedAtMs] (caller holds the lock). */
-    private fun laneHandoffClean9040(laneKeys: List<String>, stampedAtMs: Long): Boolean =
-        laneKeys.all { k -> handoffClean9040(state(k).lastTerminalAtMs9040, stampedAtMs) }
+    /** V5.0.9043 — both the decision's original scopes and the receiving scopes must still match their captured epochs. */
+    private fun laneHandoffClean9043(stamp: TicketStamp, laneKeys: List<String>): Boolean =
+        stamp.scopes.all { (k, v) -> state(k).let { it.terminalEpoch == v.terminalEpoch && it.learningRevision == v.learningRevision } } &&
+            laneKeys.all { k -> stamp.handoffScopes9043[k]?.let { v ->
+                state(k).let { it.terminalEpoch == v.terminalEpoch && it.learningRevision == v.learningRevision }
+            } == true }
 
-    /** Pure (V5.0.9040): a scope whose last terminal is at or before the decision's stamp holds nothing the decision missed. */
+    /** Legacy timestamp diagnostic retained for compatibility. It is NOT an execution-authority check. */
     internal fun handoffClean9040(lastTerminalAtMs: Long, stampedAtMs: Long): Boolean = lastTerminalAtMs <= stampedAtMs
 
     /** V5.0.8304 — does [attemptId] carry a decision stamp (read-only). */
@@ -190,7 +204,7 @@ object CausalFeedbackAuthority6715 {
             // normal ticket-open of ~5s) so we never yank a live reservation.
             // This is what unfroze the 1524 UNRESOLVED_FEEDBACK_CAP_6715
             // blocks in the 5.0.6719 dump.
-            sweepStaleReservationsLocked(System.currentTimeMillis())
+            sweepStaleReservationsLocked(nowMs9043())
             var stamp = ticketStamps[attemptId]
             // V5.0.6719 §CAUSAL_STATE_ACCOUNTING — the stamp's scoreBand is the
             // decision-time band. `entryScore` legitimately drifts between the
@@ -209,7 +223,7 @@ object CausalFeedbackAuthority6715 {
                     return Admission(false, "MISSING_FEEDBACK_STAMP_REVALIDATE_6715", forceRevalidate = true)
                 }
                 val snap = ks.associateWith { k -> state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) } }
-                stamp = TicketStamp(attemptId, nm, mint, nl, band, snap, System.currentTimeMillis())
+                stamp = TicketStamp(attemptId, nm, mint, nl, band, snap, nowMs9043(), handoffSnapshot9043(nm, band))
                 ticketStamps[attemptId] = stamp
                 emit("CAUSAL_TICKET_BOOTSTRAP_STAMPED_6715", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} mode=$nm lane=$nl band=$band")
             }
@@ -221,15 +235,14 @@ object CausalFeedbackAuthority6715 {
                 emit("CAUSAL_EXEC_STALE_EPOCH_6715", "attemptId=${attemptId.take(28)} reason=IDENTITY_DRIFT_MINT")
                 return Admission(false, "FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715", forceRevalidate = true)
             }
-            // V5.0.9040 §THE_OWNER_TAKES_THE_DECISION_IT_WAS_HANDED — a decision stamped on one meme lane and executed by the
-            // lane the owner election chose was blocked as identity drift and sent back to revalidate, after its FDG allow:
-            // the 9039 report's FEEDBACK_IDENTITY_DRIFT_REVALIDATE_6715 (6), on the way from approval to the buy. The rule this
-            // stamp keeps is that the decision knew every close in the scope it executes in. When no close has landed in the
-            // executing lane's scopes since the decision was stamped, the decision knew all of them: it is re-stamped on that
-            // lane and goes on. A close that landed there after the stamp still blocks, as does any change of mint or mode.
-            if (stamp.mode == nm && stamp.mint == mint && stamp.lane != nl && laneHandoffClean9040(keys(nm, nl, stamp.scoreBand), stamp.stampedAtMs)) {
+            // V5.0.9043 — owner election may choose another meme lane, but the decision must have captured that
+            // lane's feedback dependencies before the handoff. Compare both original and receiving epochs/revisions;
+            // equal wall timestamps do not prove ordering, and current destination epochs are not historical evidence.
+            if (stamp.mode == nm && stamp.mint == mint && stamp.lane != nl && laneHandoffClean9043(stamp, keys(nm, nl, stamp.scoreBand))) {
                 val handed = stamp
-                stamp = handed.copy(lane = nl, scopes = keys(nm, nl, handed.scoreBand).associateWith { k -> state(k).let { ScopeStamp(it.terminalEpoch, it.learningRevision) } })
+                // Use the snapshot the decision actually captured. Copying CURRENT epochs here erased same-ms terminals
+                // and intervening learner revisions in 9040, making the stale checks below compare a state to itself.
+                stamp = handed.copy(lane = nl, scopes = keys(nm, nl, handed.scoreBand).associateWith { k -> handed.handoffScopes9043.getValue(k) })
                 ticketStamps[attemptId] = stamp
                 try { PipelineHealthCollector.labelInc("CAUSAL_LANE_HANDOFF_RESTAMPED_9040") } catch (_: Throwable) {}
                 emit("CAUSAL_LANE_HANDOFF_RESTAMPED_9040", "attemptId=${attemptId.take(28)} mint=${mint.take(10)} ${handed.lane}->$nl")
@@ -268,7 +281,7 @@ object CausalFeedbackAuthority6715 {
                 //      committed under the old revision), AND
                 //   3. stamp is within LEARNER_REVISION_GRACE_MS.
                 val hasReservation = reservations[attemptId] != null
-                val stampAgeMs = System.currentTimeMillis() - stamp.stampedAtMs
+                val stampAgeMs = nowMs9043() - stamp.stampedAtMs
                 val withinGrace = stampAgeMs in 0..LEARNER_REVISION_GRACE_MS
                 // V5.0.7083 §THE_CONTRACT_IS_UNSATISFIABLE_AT_THIS_CLOSE_RATE.
                 //
@@ -324,7 +337,7 @@ object CausalFeedbackAuthority6715 {
                     }
                     ticketStamps[attemptId] = stamp.copy(
                         scopes = refreshedSnap7083,
-                        stampedAtMs = System.currentTimeMillis(),
+                        stampedAtMs = nowMs9043(),
                     )
                     emit(
                         "CAUSAL_STAMP_REFRESHED_ON_LEARNED_TERMINAL_7083",
@@ -339,7 +352,7 @@ object CausalFeedbackAuthority6715 {
                     }
                     ticketStamps[attemptId] = stamp.copy(
                         scopes = refreshedSnap,
-                        stampedAtMs = System.currentTimeMillis(),
+                        stampedAtMs = nowMs9043(),
                     )
                     emit(
                         "CAUSAL_STAMP_REFRESHED_ON_REVISION_RACE_6732",
@@ -431,7 +444,7 @@ object CausalFeedbackAuthority6715 {
                     )
                 }
             }
-            val r = Reservation(attemptId, nm, mint, nl, band, ks, System.currentTimeMillis())
+            val r = Reservation(attemptId, nm, mint, nl, band, ks, nowMs9043())
             // V5.0.6720 §CAUSAL_RESERVATION_LIFECYCLE — supersede any prior
             // live reservations for the same (mode, mint, lane) triple. When
             // a fresher attempt gets admitted, the older ones are dead by
@@ -497,7 +510,7 @@ object CausalFeedbackAuthority6715 {
             // V5.0.7807 — no live reservation: recover the scope from the
             // still-valid same-mode/same-mint/same-lane decision evidence
             // before ever falling back to the UNKNOWN band.
-            val recovered7807 = if (r == null) recoverLineageLocked7807(nm, mint, nl, System.currentTimeMillis()) else null
+            val recovered7807 = if (r == null) recoverLineageLocked7807(nm, mint, nl, nowMs9043()) else null
             val ks = r?.scopeKeys ?: recovered7807?.scopeKeys ?: keys(nm, nl, "UNKNOWN")
             if (r != null) {
                 r.scopeKeys.forEach { state(it).reservedAttempts.remove(r.attemptId) }
@@ -509,7 +522,7 @@ object CausalFeedbackAuthority6715 {
                     "CAUSAL_LINEAGE_RECOVERED_FROM_TICKET_7807",
                     "positionId=${positionId.take(24)} mint=${mint.take(10)} mode=$nm lane=$nl " +
                         "attemptId=${recovered7807.attemptId.take(28)} band=${recovered7807.scoreBand} " +
-                        "ageMs=${System.currentTimeMillis() - recovered7807.reservedAtMs}",
+                        "ageMs=${nowMs9043() - recovered7807.reservedAtMs}",
                 )
             } else {
                 emit("CAUSAL_OPEN_WITHOUT_RESERVATION_6715", "positionId=${positionId.take(24)} mint=${mint.take(10)} mode=$nm lane=$nl")
@@ -541,7 +554,7 @@ object CausalFeedbackAuthority6715 {
 
     /** Must be invoked inside `synchronized(lock)`. */
     private fun retainDroppedLineageLocked7807(r: Reservation) {
-        val now = System.currentTimeMillis()
+        val now = nowMs9043()
         droppedLineage7807.entries.removeIf { now - it.value.reservedAtMs > lineageRecoveryTtlMs7868(it.value.mode) }
         droppedLineage7807.remove(r.attemptId)
         droppedLineage7807[r.attemptId] = r
@@ -586,7 +599,7 @@ object CausalFeedbackAuthority6715 {
                 s.openPositions.remove(env.positionId)
                 invalidated.addAll(s.reservedAttempts)
                 s.terminalEpoch += 1L
-                s.lastTerminalAtMs9040 = System.currentTimeMillis()   // V5.0.9040
+                s.lastTerminalAtMs9040 = nowMs9043()   // V5.0.9040
             }
             invalidated.forEach { aid ->
                 // V5.0.7807 — the pending decision is invalidated for ADMISSION,
@@ -868,6 +881,7 @@ object CausalFeedbackAuthority6715 {
         scopes.clear(); ticketStamps.clear(); reservations.clear(); positionScopes.clear()
         earlyLearnAcks.clear(); terminalSeen.clear(); learnedSeen.clear()
         droppedLineage7807.clear()
+        clockForTest9043 = null
     }
 
     private fun emit(label: String, detail: String) {

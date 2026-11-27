@@ -65,6 +65,32 @@ object EdgeModel8537 {
      */
     fun managedTarget8722(lane: String, netPct: Double, costPct: Double): Double =
         ManagedBands8719.managed8719(netPct, try { FieldManual7715.laneStopPct8392(lane.trim().uppercase()) } catch (_: Throwable) { Double.NaN }, costPct)
+
+    /** Exact recorded targets replay unchanged; legacy rows remain readable but explicitly approximate. */
+    fun trainingTarget9043(row: org.json.JSONObject): Double {
+        if (FrozenEdgeTarget9043.hasReceipt9043(row))
+            return FrozenEdgeTarget9043.read9043(row)?.value ?: Double.NaN
+        return managedTarget8722(row.optString("lane"), row.optDouble("net", Double.NaN), row.optDouble("cost", Double.NaN))
+    }
+    fun frozenStop9043(row: org.json.JSONObject): Double? = FrozenEdgeTarget9043.frozenStop9043(row)
+    fun targetClassification9043(row: org.json.JSONObject): String = FrozenEdgeTarget9043.classification9043(row)
+    private val decisionTargets9043 = AtomicLong(0L)
+    private val legacyTargets9043 = AtomicLong(0L)
+    private val invalidTargets9043 = AtomicLong(0L)
+
+    private fun targetReceipt9043(s: Snap, net: Double): FrozenEdgeTarget9043.Receipt? {
+        if (s.targetRecipe9043.isNotBlank() && s.targetRecipe9043 != FrozenEdgeTarget9043.RECIPE) return null
+        if (s.targetRecipe9043 == FrozenEdgeTarget9043.RECIPE && (!s.targetStopPct9043.isFinite() || s.targetStopPct9043 <= 0.0)) return null
+        if (s.labelRecipe9043.isNotBlank()) {
+            val recipe = try { ForwardLabelRecipe9043.decode9043(org.json.JSONObject(s.labelRecipe9043)) } catch (_: Exception) { null }
+            if (recipe == null || recipe.decidedAtMs != s.atMs) return null
+        }
+        val frozen = s.targetRecipe9043 == FrozenEdgeTarget9043.RECIPE && s.targetStopPct9043.isFinite() && s.targetStopPct9043 > 0.0
+        val stop = if (frozen) s.targetStopPct9043 else
+            try { FieldManual7715.laneStopPct8392(s.raw.lane.trim().uppercase()) } catch (_: Throwable) { Double.NaN }
+        return FrozenEdgeTarget9043.receipt9043(net, stop, s.raw.costPct,
+            if (frozen) FrozenEdgeTarget9043.DECISION_FROZEN else FrozenEdgeTarget9043.LEGACY_LABEL_TIME_STOP)
+    }
     /** The learned log return as the net % it means. */
     fun netOf8567(target: Double): Double = if (target.isFinite()) 100.0 * (kotlin.math.exp(target / 100.0) - 1.0) else target
     private const val SOLVE_EVERY = 50
@@ -443,7 +469,9 @@ object EdgeModel8537 {
 
     /** A decision's frozen features and the prediction made at that moment. */
     class Snap(val raw: Raw, val x: DoubleArray, val pred: Double, val modelKey: String, val atMs: Long, val mint: String,
-               val admitted: Boolean, val horizonMs: Long = 0L, val modelEpoch: Int = MODEL_EPOCH_8642)
+               val admitted: Boolean, val horizonMs: Long = 0L, val modelEpoch: Int = MODEL_EPOCH_8642,
+               val targetStopPct9043: Double = Double.NaN, val targetRecipe9043: String = "",
+               val targetStopBasis9043: String = "LEGACY_NOT_CAPTURED", val labelRecipe9043: String = "")
 
     // V5.0.8571 — the frozen decision snapshot travels with the labeler's pending checkpoint. It was memory-only, so every
     // observation restored after a restart (2,414 in the 8562 session) could never train the model: an hour-graded meme
@@ -464,6 +492,9 @@ object EdgeModel8537 {
         if (r.ext.size == LearnerColumns8798.SIZE) raw.put("ext8798", LearnerColumns8798.toJson(r.ext))
         return org.json.JSONObject().put("raw", raw).put("pred", d8571(s.pred)).put("horizonMs", s.horizonMs)
             .put("modelEpoch", s.modelEpoch)
+            .put("targetStopPct9043", d8571(s.targetStopPct9043)).put("targetRecipe9043", s.targetRecipe9043)
+            .put("targetStopBasis9043", s.targetStopBasis9043)
+            .put("labelRecipe9043", s.labelRecipe9043)
             .put("key", s.modelKey).put("at", s.atMs).put("mint", s.mint).put("admitted", s.admitted)
             .also { o -> try { Mind8746.frozenFor8767(s.mint, r.lane, s.atMs)?.let { o.put("mind8767", org.json.JSONArray(it.map { v -> d8571(v) })) } } catch (_: Throwable) {} }
     }
@@ -483,7 +514,9 @@ object EdgeModel8537 {
                 try { Mind8746.restoreFrozen8767(j.optString("mint"), raw.lane, j.optLong("at"), DoubleArray(a.length()) { a.optDouble(it, Double.NaN) }) } catch (_: Throwable) {}
             }
             Snap(raw, vectorOf(raw), d8571(j, "pred"), j.optString("key"), j.optLong("at"), j.optString("mint"),
-                j.optBoolean("admitted"), j.optLong("horizonMs"), j.optInt("modelEpoch", 0))
+                j.optBoolean("admitted"), j.optLong("horizonMs"), j.optInt("modelEpoch", 0),
+                d8571(j, "targetStopPct9043"), j.optString("targetRecipe9043"), j.optString("targetStopBasis9043", "LEGACY_NOT_CAPTURED"),
+                j.optString("labelRecipe9043"))
         } catch (_: Throwable) { null }
     }
 
@@ -580,12 +613,17 @@ object EdgeModel8537 {
     fun flagsOf(vararg on: Boolean): Int { var m = 0; for ((i, b) in on.withIndex()) if (b && i < FLAGS.size) m = m or (1 shl i); return m }
 
     /** ForwardReturnLabeler7731.observe: freeze this decision's features and the model's prediction now. */
-    fun snapshot(ts: TokenState, laneRaw: String, costPct: Double, admitted: Boolean, nowMs: Long = System.currentTimeMillis()): Snap? = try {
+    fun snapshot(ts: TokenState, laneRaw: String, costPct: Double, admitted: Boolean, nowMs: Long = System.currentTimeMillis(),
+                 labelRecipe9043: String = ""): Snap? = try {
         ensureLoaded()
         val raw = rawOf(ts, laneRaw, costPct, nowMs)
         val x = vectorOf(raw)
         val (p, key) = predict8737(raw, x, ts.mint, ts, freezeAtMs = nowMs)
-        Snap(raw, x, p, key, nowMs, ts.mint, admitted, PocketLedger8610.targetHorizon(raw.lane))
+        val stop = try { FieldManual7715.laneStopPct8392(raw.lane) } catch (_: Throwable) { Double.NaN }
+        Snap(raw, x, p, key, nowMs, ts.mint, admitted, PocketLedger8610.targetHorizon(raw.lane),
+            targetStopPct9043 = FrozenEdgeTarget9043.effectiveStop9043(stop), targetRecipe9043 = FrozenEdgeTarget9043.RECIPE,
+            targetStopBasis9043 = if (stop.isFinite() && stop > 0.0) "LANE_POLICY" else "DEFAULT_STOP_UNAVAILABLE",
+            labelRecipe9043 = labelRecipe9043)
     } catch (_: Throwable) { null }
 
     /**
@@ -656,7 +694,14 @@ object EdgeModel8537 {
             try { PipelineHealthCollector.labelInc("EDGE_LABEL_IMPLAUSIBLE_8617") } catch (_: Throwable) {}
             return
         }
-        val y = managedTarget8722(s.raw.lane, netPct, s.raw.costPct)
+        val target9043 = targetReceipt9043(s, netPct)
+        if (target9043 == null) {
+            invalidTargets9043.incrementAndGet()
+            try { PipelineHealthCollector.labelInc("EDGE_INVALID_TARGET_RECEIPT_9043") } catch (_: Throwable) {}
+            return
+        }
+        val y = target9043.value
+        if (target9043.origin == FrozenEdgeTarget9043.DECISION_FROZEN) decisionTargets9043.incrementAndGet() else legacyTargets9043.incrementAndGet()
         // V5.0.8875 — the analyst's answer frozen with this decision, read before the mind consumes the frozen voters
         val llmP8875 = try { LlmBands8875.frozenP8875(Mind8746.frozenFor8767(s.mint, s.raw.lane, s.atMs)) } catch (_: Throwable) { Double.NaN }
         try { Mind8746.learn8746(s.mint, s.raw.lane, s.atMs, y) } catch (_: Throwable) {}   // V5.0.8746 — the mind learns the same label
@@ -671,10 +716,12 @@ object EdgeModel8537 {
             ownModel8722(s.raw.lane)?.learn(x, y)
         }
         val k = learned.incrementAndGet()
-        appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875)   // retain independently provable multi-X outcomes
+        appendDataset(s, netPct, witnessed = chainWitness, llmP8875 = llmP8875, target9043 = target9043)   // retain independently provable multi-X outcomes
         try { SignalTruth8825.note8825(s.mint, s.raw.ageMin, netPct, s.admitted) { k -> if (k == "pred") s.pred else signal8825(s.raw, k) } } catch (_: Throwable) {}   // V5.0.8825 / 8827
         try { PocketLedger8610.learn8610(s, netPct) } catch (_: Throwable) {}   // V5.0.8610 — the learned pocket ledger
-        try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct) } catch (_: Throwable) {}   // V5.0.8719 — the floors' record
+        try { ManagedBands8719.learn8719(s.raw.lane, s.raw.liq, s.raw.mcap, netPct, s.raw.costPct,
+            stopPct9043 = target9043.stopPct,
+            decisionKey9043 = s.mint + "|" + s.atMs + "|" + s.raw.lane.trim().uppercase() + "|" + s.horizonMs) } catch (_: Throwable) {}
         try { PayingCell8723.learn8723(s.mint, s.raw.lane, s.raw.ageMin, s.raw.liq, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8723
         try { AgreementPocket8874.learn8874(s.mint, s.raw.lane, s.raw.mcap, s.raw.v3, s.pred, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8874
         try { LlmBands8875.learn8875(s.mint, s.raw.lane, llmP8875, netPct, s.atMs) } catch (_: Throwable) {}   // V5.0.8875
@@ -820,6 +867,7 @@ object EdgeModel8537 {
         val horizon = row.optLong("horizonMs", 0L)
         if (lane.isBlank() || horizon <= 0L || horizon != PocketLedger8610.targetHorizon(lane)) return false
         val net = row.optDouble("net", Double.NaN)
+        if (FrozenEdgeTarget9043.hasReceipt9043(row) && FrozenEdgeTarget9043.read9043(row) == null) return false
         if (noNewPrice8803(net, row.optDouble("cost", Double.NaN), row.optBoolean("witness", false))) return false   // V5.0.8803
         return plausible8617(row.optDouble("mcap", Double.NaN), net, row.optBoolean("witness", false))
     }
@@ -943,7 +991,8 @@ object EdgeModel8537 {
                     o.optString("phase"), d("v3"), d("cost"), d("holderVel"), d("txVel"), d("curve"), d("turnover"), o.optInt("flags"),
                     d("newBuyers15s8666"), o.optBoolean("sustainedDemand"), o.optBoolean("marketReclaim"))
                 val x = vectorOf(r)
-                val y = managedTarget8722(r.lane, d("net"), r.costPct)
+                val y = trainingTarget9043(o)
+                if (!y.isFinite()) return@row8844
                 if (onceAcrossLanes8776(o.optString("mint"), o.optLong("t", 0L))) global.learn(x, y, solveNow = false)   // V5.0.8776
                 try { SignalTruth8825.note8825(o.optString("mint"), r.ageMin, d("net"), if (o.has("admitted")) o.optBoolean("admitted") else null) { k -> d(k) } } catch (_: Throwable) {}   // V5.0.8825 / 8827
                 try { AgeProof9001.note9001(r.lane, r.ageMin, d("net"), o.optBoolean("admitted"), o.optBoolean("fill", true)) } catch (_: Throwable) {}   // V5.0.9001
@@ -1031,7 +1080,8 @@ object EdgeModel8537 {
         val net = o.optDouble("net", Double.NaN)
         val lane = o.optString("lane").trim().uppercase()
         if (model.isEmpty() || lane.isEmpty() || !pred.isFinite() || !net.isFinite()) return null
-        return Triple(recordKey(lane, model), pred, managedTarget8722(lane, net, o.optDouble("cost", Double.NaN)))
+        val target = trainingTarget9043(o)
+        return if (target.isFinite()) Triple(recordKey(lane, model), pred, target) else null
     }
 
     /**
@@ -1114,7 +1164,7 @@ object EdgeModel8537 {
 
     /** Pure: one dataset row (JSON) — the raw observation, the frozen prediction and the outcome. */
     fun datasetLine(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, labelObservedAtMs: Long? = null,
-                    llmP8875: Double = Double.NaN): String {
+                    llmP8875: Double = Double.NaN, target9043: FrozenEdgeTarget9043.Receipt? = targetReceipt9043(s, net)): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         val r = s.raw
         // The device may still be delivering decisions frozen on a PRE-fix APK. An 8661
@@ -1126,6 +1176,10 @@ object EdgeModel8537 {
             "\"top\":${n(r.top)},\"holderVel\":${n(r.holderVel)},\"txVel\":${n(r.txVel)},\"curve\":${n(r.curve)},\"turnover\":${n(r.turnover)},\"newBuyers15s8666\":${n(r.newBuyers15s8666)},\"sustainedDemand\":${r.sustainedDemand},\"marketReclaim\":${r.marketReclaim}," +
             "\"flags\":${r.flags},\"phase\":\"${r.phase}\",\"v3\":${n(r.v3)},\"cost\":${n(r.costPct)},\"admitted\":${s.admitted}," +
             "\"pred\":${n(s.pred)},\"llmP\":${n(llmP8875)},\"model\":\"${s.modelKey}\",\"modelEpoch\":${s.modelEpoch},\"venueScopeEpoch\":$venueScope8661,\"net\":${n(net)},\"fill\":$filled,\"witness\":$witnessed,\"labelObservedAtMs\":${labelObservedAtMs ?: "null"}" +
+            (target9043?.fields9043() ?: ",\"targetRecipe9043\":\"INVALID\",\"targetOrigin9043\":\"INVALID_RECEIPT\"") +
+            ",\"targetStopBasis9043\":" + org.json.JSONObject.quote(s.targetStopBasis9043) +
+            (if (s.labelRecipe9043.isNotBlank()) ",\"labelRecipe9043\":" + s.labelRecipe9043 + ",\"labelRecipeOrigin9043\":\"DECISION_FROZEN\""
+             else ",\"labelRecipeOrigin9043\":" + org.json.JSONObject.quote(ForwardLabelRecipe9043.LEGACY)) +
             LearnerColumns8798.toRow(r.ext) + "}"
     }
 
@@ -1146,8 +1200,9 @@ object EdgeModel8537 {
     // without `learned` advancing, so physical writes must trigger the periodic bounded trim as well.
     private val datasetAppends8844 = AtomicLong(0)
 
-    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, llmP8875: Double = Double.NaN) {
-        val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis(), llmP8875) } catch (_: Throwable) { return }
+    private fun appendDataset(s: Snap, net: Double, filled: Boolean = true, witnessed: Boolean = false, llmP8875: Double = Double.NaN,
+                              target9043: FrozenEdgeTarget9043.Receipt? = targetReceipt9043(s, net)) {
+        val line = try { datasetLine(s, net, filled, witnessed, System.currentTimeMillis(), llmP8875, target9043) } catch (_: Throwable) { return }
         try { NetworkTier8873.note8873(s.mint, s.raw.ageMin, s.raw.mcap, LearnerColumns8798.valueOf8873(s.raw.ext, "venue"), net, filled) } catch (_: Throwable) {}   // V5.0.8873
         try { AgeProof9001.note9001(s.raw.lane, s.raw.ageMin, net, s.admitted, filled) } catch (_: Throwable) {}   // V5.0.9001
         io.execute {
@@ -1196,7 +1251,7 @@ object EdgeModel8537 {
             val auth = o != null && authority(o.selN, o.selMean, o.selSe, o.allMean)
             "$l[by=$key8767 n${r?.count ?: 0} oosPicks=n${o?.selN ?: 0}/${pct(o?.selMean)}±${pct(o?.selSe)} all=${pct(o?.allMean)} avoid=${pct(o?.negMean)} refuse8715=n${o?.refN ?: 0}/${pct(o?.refMean)}±${pct(o?.refSe)}vsKept=n${o?.keepN ?: 0}/${pct(o?.keepMean)}±${pct(o?.keepSe)} conv8868=${convictionLine8868(o)} ${if (auth) "AUTHORITY" else if (o != null && refusalAuthority8715(o.refN, o.refMean, o.refSe, o.keepN, o.keepMean, o.keepSe)) "REFUSES" else "learning"}]"
         }
-        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} noNewPrice8803=${noNewPriceCount8803.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 convSeed8868=$convictionSeed8868 minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
+        "edge8537[trained=${global.count} learned=${learned.get()} cold=${skippedCold.get()} implausible8617=${implausible8617.get()} noNewPrice8803=${noNewPriceCount8803.get()} oldPredIgnored8642=${oldPredictionsIgnored8642.get()} replay8642=$replayStatus8642 convSeed8868=$convictionSeed8868 target9043=decision:${decisionTargets9043.get()}/legacyLabelTime:${legacyTargets9043.get()}/invalid:${invalidTargets9043.get()} legacyReplay=LEGACY_RECOMPUTED minEdge=+${MIN_EDGE_PCT}% authBar=n$AUTH_MIN_N,mean-se>0,>lane] ${rows.ifBlank { "no labels yet" }}"
     }
 
     private fun pct(v: Double?) = if (v != null && v.isFinite()) "%+.1f%%".format(v) else "-"
