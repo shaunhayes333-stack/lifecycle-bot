@@ -34,6 +34,36 @@ class Aate9051BarrierLearningTest {
         assertEquals(f.model.predict(doubleArrayOf(3.0,Double.NaN)),other.model.predict(doubleArrayOf(3.0,Double.NaN)),0.0)
         assertTrue(other.metrics.brier>f.metrics.brier)
     }
+    @Test fun laterDecisionWindowsLearnDespiteCensoredFirstObservation() {
+        val c=RunnerBarrierLearning9051
+        val rows=(0 until 600).flatMap { i ->
+            val t=100000L+i*3*c.HOUR
+            listOf(-1,0,1).mapIndexed { j,y ->
+                val d=t+j*15000L
+                RunnerBarrierLearning9051.Sample("asset"+i,d,d+c.HOUR,doubleArrayOf(if(y==1)3.0 else -3.0),IntArray(c.HEADS){y})
+            }
+        }
+        val split=c.split(rows)
+        assertEquals(1080,split.train.size);assertEquals(360,split.valid.size);assertEquals(360,split.test.size)
+        assertTrue(split.train.all{it.available<split.valid.minOf{r->r.decision}})
+        assertTrue(split.valid.all{it.available<split.test.minOf{r->r.decision}})
+        val fit=c.fit(split,0)!!
+        assertEquals(120,fit.metrics.assets);assertEquals(240,fit.metrics.n);assertEquals(120,fit.metrics.positives)
+        assertEquals(360,fit.trainN);assertEquals(120,fit.validN)
+        assertTrue(fit.model.predict(doubleArrayOf(3.0))>fit.model.predict(doubleArrayOf(-3.0)))
+        assertTrue(fit.metrics.averagePrecision>.99);assertTrue(fit.metrics.brier<fit.metrics.constantBrier)
+        assertNull(c.fit(split.copy(test=split.test+split.train.first()),0))
+    }
+    @Test fun repeatedWindowsDoNotCreateIndependentEvidence() {
+        val c=RunnerBarrierLearning9051
+        val rows=(0 until 200).map { i -> val t=100000L+i*60000L
+            RunnerBarrierLearning9051.Sample("spam",t,t+c.HOUR,doubleArrayOf(i.toDouble()),IntArray(c.HEADS){i%2}) }
+        val selected=c.windows9055(rows,0)
+        assertEquals(8,selected.size);assertEquals(1.0,selected.sumOf{it.weight},1e-12)
+        assertEquals(rows.first().decision,selected.first().sample.decision)
+        assertEquals(rows.last().decision,selected.last().sample.decision)
+        assertNull(c.fit(RunnerBarrierLearning9051.Split(rows,rows.map{it.copy(asset="v")},rows.map{it.copy(asset="t")}),0))
+    }
     @Test fun legacyLabSplitEmbargoesLabelsAndKeepsAssetsDisjoint() {
         val h=3_600_000L
         val rows=(0 until 20).map { i -> val t=10L+i*2*h

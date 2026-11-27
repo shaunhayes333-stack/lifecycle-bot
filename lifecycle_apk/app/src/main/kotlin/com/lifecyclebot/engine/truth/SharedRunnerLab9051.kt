@@ -164,11 +164,11 @@ internal object SharedRunnerLab9051 {
         while(next.size>16)next.remove(next.minByOrNull{it.value.published}!!.key)
         models=next.toMap()
         status="lane="+lane+" retained="+rs.size+" split="+split.train.size+"/"+split.valid.size+"/"+split.test.size+
-            " heads="+heads.size+"/"+RunnerBarrierLearning9051.HEADS+" [MARK_PROXY_SHADOW] "+
+            " distinct="+rs.map{it.asset}.toSet().size+" heads="+heads.size+"/"+RunnerBarrierLearning9051.HEADS+" [MARK_PROXY_SHADOW] assetBalanced9055=true "+
             heads.entries.joinToString(" "){(h,fit)->
                 val m=fit.metrics
                 (RunnerBarrierLearning9051.horizons[h/6]/60000).toString()+"m+"+RunnerBarrierLearning9051.targets[h%6]+
-                    ":n"+m.n+"/pos"+m.positives+"/AP"+round(m.averagePrecision)+"/base"+round(m.baseRate)+
+                    ":windows"+m.n+"/assets"+m.assets+"/posWindows"+m.positives+"/AP"+round(m.averagePrecision)+"/base"+round(m.baseRate)+
                     "/Brier"+round(m.brier)+"/const"+round(m.constantBrier)
             }
     }

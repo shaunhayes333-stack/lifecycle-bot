@@ -45,19 +45,43 @@ internal object RunnerBarrierLearning9051 {
                       val features: DoubleArray, val labels: IntArray)
     data class Split(val train: List<Sample>, val valid: List<Sample>, val test: List<Sample>)
 
-    /** Earliest retained decision per asset, before inspecting labels; strict actual label availability. */
+    /** Assign whole assets by their earliest retained decision, before inspecting outcomes.
+     * Keep subsequent decisions within that asset's assigned time partition; embargo
+     * labels at their actual availability and never move a repeat asset into holdout. */
     fun split(input: List<Sample>): Split {
-        val seen = HashSet<String>()
-        val all = input.filter { it.asset.isNotBlank() && it.decision > 0 && it.decision <= Long.MAX_VALUE-HOUR &&
+        val groups = input.filter { it.asset.isNotBlank() && it.decision > 0 && it.decision <= Long.MAX_VALUE-HOUR &&
             it.available >= it.decision && it.labels.size == HEADS && it.labels.all { y -> y in -1..1 } }
-            .sortedWith(compareBy<Sample> { it.decision }.thenBy { it.asset }).filter { seen.add(it.asset) }
-        if (all.size < 3) return Split(emptyList(), emptyList(), emptyList())
-        val a = all.size * 6 / 10
-        val b = all.size * 8 / 10
-        val v = all[a].decision; val t = all[b].decision
+            .sortedWith(compareBy<Sample> { it.decision }.thenBy { it.asset }.thenBy { it.available })
+            .groupBy { it.asset }.values.toList()
+        if (groups.size < 3) return Split(emptyList(), emptyList(), emptyList())
+        val a = groups.size * 6 / 10
+        val b = groups.size * 8 / 10
+        val v = groups[a].first().decision; val t = groups[b].first().decision
         fun mature(r: Sample, cut: Long) = r.available < cut && r.decision + HOUR < cut
-        return Split(all.subList(0,a).filter { mature(it,v) }, all.subList(a,b).filter { mature(it,t) && it.decision >= v },
-            all.subList(b,all.size).filter { it.decision >= t })
+        return Split(groups.subList(0,a).flatten().filter { mature(it,v) },
+            groups.subList(a,b).flatten().filter { mature(it,t) && it.decision >= v },
+            groups.subList(b,groups.size).flatten().filter { it.decision >= t })
+    }
+
+    /** Choose at most eight separated decision windows per asset and head, solely
+     * by time among observed labels. Censored rows are never converted into losses.
+     * Asset weights sum to one, so repeated evaluations cannot inflate support. */
+    private const val MAX_WINDOWS_9055 = 8
+    private const val WINDOW_MS_9055 = 15_000L
+    internal data class Weighted9055(val sample: Sample, val weight: Double)
+    internal fun windows9055(rows: List<Sample>, head: Int): List<Weighted9055> {
+        if (head !in 0 until HEADS) return emptyList()
+        return rows.filter { it.labels.size == HEADS && it.labels[head] in 0..1 }
+            .groupBy { it.asset }.values.flatMap { group ->
+                val spaced = ArrayList<Sample>()
+                for (r in group.sortedWith(compareBy<Sample> { it.decision }.thenBy { it.available })) {
+                    if (spaced.isEmpty() || r.decision - spaced.last().decision >= WINDOW_MS_9055) spaced.add(r)
+                }
+                val chosen = if (spaced.size <= MAX_WINDOWS_9055) spaced else
+                    (0 until MAX_WINDOWS_9055).map { i -> spaced[(i.toLong()*(spaced.size-1)/(MAX_WINDOWS_9055-1)).toInt()] }
+                val weight = 1.0/chosen.size
+                chosen.map { Weighted9055(it,weight) }
+            }
     }
 
     private fun sigmoid(x: Double): Double = 1.0 / (1.0 + exp(-x.coerceIn(-30.0,30.0)))
@@ -78,51 +102,56 @@ internal object RunnerBarrierLearning9051 {
         fun predict(x: DoubleArray): Double = sigmoid(logit(x)+shift)
     }
     data class Metrics(val n: Int, val positives: Int, val brier: Double, val constantBrier: Double,
-                       val averagePrecision: Double, val baseRate: Double)
+                       val averagePrecision: Double, val baseRate: Double, val assets: Int)
     data class Fit(val model: Model, val metrics: Metrics, val trainN: Int, val validN: Int)
+    private data class Scored9055(val probability: Double, val label: Int, val weight: Double)
 
-    /** Fixed hyperparameters. Fit on train, intercept calibration on validation, test untouched. */
+    /** Fixed hyperparameters. Asset-balanced train, validation and untouched holdout. */
     fun fit(split: Split, head: Int, yield: () -> Unit = {}): Fit? {
         if (head !in 0 until HEADS) return null
-        fun known(rs: List<Sample>) = rs.filter { it.labels[head] >= 0 }
-        val tr=known(split.train); val va=known(split.valid); val te=known(split.test)
-        fun enough(r: List<Sample>, n: Int, classes: Int): Boolean =
-            r.size>=n && r.count { it.labels[head]==1 }>=classes && r.count { it.labels[head]==0 }>=classes
+        val tr=windows9055(split.train,head); val va=windows9055(split.valid,head); val te=windows9055(split.test,head)
+        fun assets(rs: List<Weighted9055>) = rs.map { it.sample.asset }.toSet()
+        val ta=assets(tr); val vaa=assets(va); val ea=assets(te)
+        if (ta.any { it in vaa || it in ea } || vaa.any { it in ea }) return null
+        fun enough(r: List<Weighted9055>, n: Int, classes: Int): Boolean =
+            assets(r).size>=n && assets(r.filter { it.sample.labels[head]==1 }).size>=classes &&
+                assets(r.filter { it.sample.labels[head]==0 }).size>=classes
         if (!enough(tr,180,20) || !enough(va,60,10) || !enough(te,60,10)) return null
-        val width=tr.first().features.size
-        if (width !in 1..64 || (tr+va+te).any { it.features.size != width }) return null
+        val width=tr.first().sample.features.size
+        if (width !in 1..64 || (tr+va+te).any { it.sample.features.size != width }) return null
         val mean=DoubleArray(width); val sd=DoubleArray(width)
         for (k in 0 until width) {
-            var n=0; var s=0.0; var ss=0.0
-            for(r in tr) { val z=squash(r.features[k]); if(z.isFinite()){ n++;s+=z;ss+=z*z } }
+            var n=0.0; var s=0.0; var ss=0.0
+            for(r in tr) { val z=squash(r.sample.features[k]); if(z.isFinite()){ n+=r.weight;s+=r.weight*z;ss+=r.weight*z*z } }
             if(n>0) { mean[k]=s/n; sd[k]=sqrt((ss/n-mean[k]*mean[k]).coerceAtLeast(0.0)).coerceAtLeast(0.25) }
             else sd[k]=1.0
         }
         val w=DoubleArray(1+2*width)
-        val prior=tr.count{it.labels[head]==1}.toDouble()/tr.size
+        val prior=tr.sumOf{it.weight*it.sample.labels[head]}/ta.size
         w[0]=kotlin.math.ln(prior/(1.0-prior))
         val m=Model(mean,sd,w,0.0)
-        val vectors=tr.map { m.vector(it.features) }
+        val vectors=tr.map { m.vector(it.sample.features) }
         repeat(24) {
             yield()
             val grad=DoubleArray(w.size)
             for(j in tr.indices) { val x=vectors[j]; var z=0.0; for(k in w.indices)z+=w[k]*x[k]
-                val e=sigmoid(z)-tr[j].labels[head]; for(k in w.indices)grad[k]+=e*x[k] }
-            for(k in w.indices) w[k]-=0.2*(grad[k]/tr.size+(if(k==0)0.0 else 0.03*w[k]))
+                val e=tr[j].weight*(sigmoid(z)-tr[j].sample.labels[head]); for(k in w.indices)grad[k]+=e*x[k] }
+            for(k in w.indices) w[k]-=0.2*(grad[k]/ta.size+(if(k==0)0.0 else 0.03*w[k]))
         }
-        val logits=va.map{m.logit(it.features)}
+        val logits=va.map{m.logit(it.sample.features)}
         var shift=0.0
         repeat(8) { var g=0.1*shift; var h=0.1
-            for(i in va.indices){val p=sigmoid(logits[i]+shift);g+=p-va[i].labels[head];h+=p*(1-p)}
+            for(i in va.indices){val p=sigmoid(logits[i]+shift);g+=va[i].weight*(p-va[i].sample.labels[head]);h+=va[i].weight*p*(1-p)}
             shift=(shift-g/h).coerceIn(-4.0,4.0)
         }
         val fitted=Model(mean,sd,w.copyOf(),shift)
-        val scores=te.map { fitted.predict(it.features) to it.labels[head] }.sortedByDescending { it.first }
-        val pos=scores.count{it.second==1}; var ap=0.0; var tp=0; var k=0
-        while(k<scores.size){var end=k;var group=0;while(end<scores.size && scores[end].first==scores[k].first){group+=scores[end].second;end++}
-            tp+=group;ap+=group.toDouble()/pos*tp/end;k=end}
-        val brier=scores.sumOf{val e=it.first-it.second;e*e}/scores.size
-        val base=scores.sumOf{val e=prior-it.second;e*e}/scores.size
-        return Fit(fitted,Metrics(scores.size,pos,brier,base,ap,pos.toDouble()/scores.size),tr.size,va.size)
+        val scores=te.map { Scored9055(fitted.predict(it.sample.features),it.sample.labels[head],it.weight) }.sortedByDescending { it.probability }
+        val pos=scores.count{it.label==1}; val positiveWeight=scores.sumOf { it.weight*it.label }
+        var ap=0.0; var tp=0.0; var total=0.0; var k=0
+        while(k<scores.size){var end=k;var group=0.0;while(end<scores.size && scores[end].probability==scores[k].probability){group+=scores[end].weight*scores[end].label;total+=scores[end].weight;end++}
+            tp+=group;ap+=group/positiveWeight*tp/total;k=end}
+        val brier=scores.sumOf{val e=it.probability-it.label;it.weight*e*e}/ea.size
+        val base=scores.sumOf{val e=prior-it.label;it.weight*e*e}/ea.size
+        return Fit(fitted,Metrics(scores.size,pos,brier,base,ap,positiveWeight/ea.size,ea.size),ta.size,vaa.size)
     }
 }

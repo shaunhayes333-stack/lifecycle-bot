@@ -10482,7 +10482,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String, onceKey: String = mint) {"))
         // superseded by V5.0.8779 — each fast-lane pass reads the current config with the runtime mode; was: processTokenCycle(mint, cfg, wallet, t0).
         // superseded by V5.0.8869 — through the cycle's trace wrapper, same arguments
-        assertTrue(bot.contains("processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)"))
+        assertTrue(bot.contains("processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())"))
+        assertTrue(bot.contains("FastLane8962.acquire9054(origin, fastLaneSemaphore7277, firstDeadline, ::valid9054)"))
         assertTrue(bot.contains("private val fastLaneSemaphore7277 = java.util.concurrent.Semaphore(6)"))  // V5.0.7279: admits six
         assertTrue(bot.contains("fastLaneEvaluate7277(mint, liveCfg, \"PUMP_PORTAL_WS\")"))
         assertTrue(bot.contains("fastLaneEvaluate7277(mint, c, \"COPY_SIGNAL\")"))
@@ -10548,7 +10549,10 @@ class GoldenTapeRegressionTest {
         assertTrue(health.contains("fun noteLastError(host: String, errorMessage: String?) {"))
 
         // Fast lane: second pass only when the first did not open the position.
-        assertTrue(bot.contains("if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {"))
+        assertTrue(bot.contains("if (!alreadyOpen7278 &&"))
+        assertTrue(bot.contains("FastLane8962.acquire9054(origin, fastLaneSemaphore7277, deadline9054, ::valid9054)"))
+        assertTrue(bot.contains("if (valid9054()) processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())"))
+        assertTrue(bot.contains("FastLane8962.release9054(origin, fastLaneSemaphore7277)"))
 
         assertTrue(phc.contains("\"PUMP_TRADE_MARK_APPLIED_7278\","))
         assertTrue(phc.contains("\"ENTRY_SIZE_CAPPED_TO_CURVE_EXIT_7278\","))
@@ -15898,6 +15902,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertFalse(crypto.contains("hasPositionSymbol(sig.marketSymbol)"))
         assertTrue(crypto.contains("if (holdsAsset8958(cryptoAssetKey(sig,"))
-        assertTrue(bot.contains("LaunchSniper8748.acquireFast8958(origin, fastLaneSemaphore7277)"))
+        assertTrue(bot.contains("FastLane8962.acquire9054(origin, fastLaneSemaphore7277, firstDeadline, ::valid9054)"))
+        assertTrue(bot.contains("FastLane8962.release9054(origin, fastLaneSemaphore7277)"))
     }
 }
