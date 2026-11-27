@@ -4975,3 +4975,14 @@ ticketExec8304: SHITCOIN 28 tickets, 1 buy (BUY_LEASE_BACKOFF_ENDS_TICKET_8545 t
 |---|---|---|---|---|
 | Data ending | `engine/ExecutionAttemptLease.kt` `terminalFail` (`dataEnding9041`) | the ending's reason | the attempt closed with no backoff and no failure counted; `dataEndingsNoBackoff9041` | a buy that ended on a named DEFERRED_DATA outcome (a proof or a route not arrived; nothing quoted, built or sent) no longer sets the mint's backoff; a failure the mint already carries keeps its own backoff and count; real failures (route, chase, economics, impact) back off as before. The ticket still ends and its claim is still released |
 
+## §227 — V5.0.9042: the seed first
+
+The dataset seed (`DatasetReplay8863`, job `datasetSeed`) fills `PocketLedger8610`, `PayingCell8723`, `ManagedBands8719`,
+`AgreementPocket8874` and `LlmBands8875`; until it has run they return no evidence, and the young coins the bot admits are
+admitted on that evidence. Under 9033 it waited up to 10 min for memory headroom and up to 20 min for its batch turn after
+every start.
+
+| What | Where | Reads | Writes | Authority |
+|---|---|---|---|---|
+| Decision inputs | `engine/JobCost8813.kt` `DECISION_INPUTS_9042`, `waitsForHeadroom9042` (in `heavyEnter9033`) | the job name | nothing | scheduling only: the dataset seed takes its turn like the tree's refit (no headroom wait, at most 3 min for the turn) |
+

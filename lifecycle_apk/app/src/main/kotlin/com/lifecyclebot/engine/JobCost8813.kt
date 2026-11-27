@@ -118,14 +118,27 @@ object JobCost8813 {
     private fun pressureName9033(): String = pressureForTest9033 ?: try { MemoryGuard7977.pressure8144().name } catch (_: Throwable) { "NORMAL" }
 
     /** Takes the batch turn for [name] (waiting as the rule above says). True when this call holds the turn and must release it. */
+    /**
+     * V5.0.9042 — jobs whose output the live decision reads, so they wait like the tree's refit (no headroom wait, the turn
+     * for at most [YIELDING_TURN_WAIT_MS_9033]). The dataset seed fills the pocket ledger, the paying cells, the managed
+     * bands, the agreement pocket and the analyst's bands: until it has run those return no evidence, and the young coins
+     * the bot admits are admitted on that evidence. Under 9033 it could wait 10 min for headroom and 20 min for its turn
+     * after every start, so for up to half an hour of each run that evidence was empty.
+     */
+    internal val DECISION_INPUTS_9042 = setOf("datasetSeed")
+
+    /** Pure (V5.0.9042): does [name] wait for headroom? A job the decision reads never does. */
+    fun waitsForHeadroom9042(name: String, waitsForHeadroom: Boolean): Boolean = waitsForHeadroom && name !in DECISION_INPUTS_9042
+
     @PublishedApi internal fun heavyEnter9033(name: String, waitsForHeadroom: Boolean): Boolean {
-        val maxWait = turnWaitMs9033(name, waitsForHeadroom)
+        val headroom9042 = waitsForHeadroom9042(name, waitsForHeadroom)   // V5.0.9042 — a job the decision reads does not wait for headroom
+        val maxWait = turnWaitMs9033(name, headroom9042)
         if (maxWait <= 0L) return false
         val depth = heavyDepth9033.get() ?: 0
         if (depth > 0) { heavyDepth9033.set(depth + 1); return false }   // inside a job on this thread that already holds the turn
         // headroom first, and without the turn: a job asleep here holds nothing another job waits for
         var waited = 0L
-        while (headroomWaits9033(pressureName9033(), waited, waitsForHeadroom)) {
+        while (headroomWaits9033(pressureName9033(), waited, headroom9042)) {
             try { Thread.sleep(HEADROOM_STEP_MS_9033) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
             waited += HEADROOM_STEP_MS_9033
         }

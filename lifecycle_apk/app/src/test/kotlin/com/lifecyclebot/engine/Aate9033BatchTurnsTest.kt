@@ -43,7 +43,7 @@ class Aate9033BatchTurnsTest {
         assertTrue(jc.contains("val turn9033 = heavyEnter9033(name, waitsForHeadroom = false)"))
         assertEquals(2, Regex("finally \\{ heavyExit9033\\(turn9033\\) \\}").findAll(jc).count())
         assertTrue("headroom is waited for before the turn is taken, not while holding it",
-            jc.indexOf("while (headroomWaits9033(pressureName9033(), waited, waitsForHeadroom))") < jc.indexOf("if (heavyTurn9033.tryAcquire()) true"))
+            jc.indexOf("while (headroomWaits9033(pressureName9033(), waited, headroom9042))") < jc.indexOf("if (heavyTurn9033.tryAcquire()) true"))
     }
 
     @Test fun twoBatchJobsDoNotRunAtOnceAndANestedJobIsPartOfItsOwnersTurn() {
@@ -84,7 +84,8 @@ class Aate9033BatchTurnsTest {
         JobCost8813.pressureForTest9033 = "CRITICAL"
         try {
             val ran = CountDownLatch(1)
-            val a = Thread { JobCost8813.measureBackground8817("datasetSeed") { ran.countDown() } }
+            // superseded by V5.0.9042 — the dataset seed is a decision input and no longer waits for headroom; the lab does
+            val a = Thread { JobCost8813.measureBackground8817("strategyLab") { ran.countDown() } }
             a.start()
             Thread.sleep(300L)
             assertEquals("a background batch job does not start into a full heap", 1L, ran.count)
