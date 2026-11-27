@@ -48,18 +48,20 @@ class Aate8962FastLaneTest {
         assertFalse("STAGE" in ChainConfirm8950.RERUN_USES_8957)
         assertEquals(setOf("DECISION", "LANE", "EVIDENCE", "EXEC"), ChainConfirm8950.RERUN_USES_8957)
         val c = src("engine/truth/ChainConfirm8950.kt")
-        assertTrue("only a decision use arms the answer re-run", c.contains("if (input == Input8950.PRICE_DEPTH && use.uppercase() in RERUN_USES_8957 && due)"))
-        assertTrue("only a decision use reads past the 60 s pool gap", c.contains("decisionPing8959 = use.uppercase() in RERUN_USES_8957"))
+        assertTrue("only a decision use arms the answer re-run", c.contains("if(ping)armDepth8959(mint,now,req.generation)"))
+        assertTrue("only a decision use reads past the 60 s pool gap", c.contains("decisionPing8959=ping"))
         assertTrue("the stage's own history answer still re-runs the coin", src("engine/BotService.kt").contains("\"STAGE_READ_8950\", onceKey = "))
     }
 
     @Test fun theFastLaneReleasesItsChainAnswerSlotOnEveryPath() {
         val b = src("engine/BotService.kt")
         val body = b.substringAfter("private fun fastLaneEvaluate7277(").substringBefore("private fun sealedEntryScore7688")
-        assertTrue(body.contains("if (!com.lifecyclebot.engine.truth.FastLane8962.enter8962(origin)) { fastLaneOnce7277.remove(onceKey); return@launch }"))
-        assertEquals("one enter", 1, Regex("FastLane8962\\.enter8962\\(origin\\)").findAll(body).count())
-        assertEquals("leave on the acquire failure, the no-slot return and the finally", 3, Regex("FastLane8962\\.leave8962\\(origin\\)").findAll(body).count())
-        assertTrue(body.indexOf("FastLane8962.enter8962(origin)") < body.indexOf("acquireFast8958(origin, fastLaneSemaphore7277)"))
+        assertTrue(body.contains("FastLane8962.acquire9054(origin, fastLaneSemaphore7277, firstDeadline, ::valid9054)"))
+        assertTrue(body.contains("FastLane8962.acquire9054(origin, fastLaneSemaphore7277, deadline9054, ::valid9054)"))
+        assertEquals("both actual passes release the complete lease", 2, Regex("FastLane8962\\.release9054\\(origin").findAll(body).count())
+        assertTrue("release before hydration pause", body.indexOf("FastLane8962.release9054") < body.indexOf("delay(1_500L)"))
+        assertTrue(body.contains("BotRuntimeController.isLiveGeneration(generation9054)"))
+        assertTrue(body.contains("fire.opportunityId9043 == onceKey"))
         assertTrue(src("engine/DiagnosisBrief8438.kt").contains("FastLane8962.statusLine8962()"))
     }
 }

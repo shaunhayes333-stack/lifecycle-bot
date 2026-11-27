@@ -39,8 +39,8 @@ class Aate8942LaunchPrintsTest {
         assertTrue(src("engine/truth/TradeTape8100.kt").contains("LaunchPrints8942.onPrint8942(mint, eventMs)"))
         val bot = src("engine/BotService.kt")
         assertTrue(bot.contains("fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), \"LAUNCH_PRINTS_8942_\$n\", onceKey = \"\$mint|8942|\$n\")"))
-        assertTrue(bot.contains("if (!fastLaneOnce7277.add(onceKey)) return"))
-        assertTrue(bot.contains("delay(60_000L); fastLaneOnce7277.remove(onceKey)"))
+        assertTrue(bot.contains("if (!valid9054() || !fastLaneOnce7277.add(key9054)) return"))
+        assertTrue(bot.contains("delay(60_000L); fastLaneOnce7277.remove(key9054)"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 130. The launch is read at its twentieth print (8942)"))
     }
 }

@@ -11037,15 +11037,26 @@ class BotService : Service() {
         }
         // V5.0.8949 — an armed fire of the launch replay's proven rule runs the coin's full pipeline at once (a coin off the
         // watchlist through the protected intake first); every gate stands
-        com.lifecyclebot.engine.truth.LaunchSniper8748.onArmed8949 = { mint ->
-            if (status.running) {
-                if (status.tokens.containsKey(mint))
-                    fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "LAUNCH_RULE_8949", onceKey = "$mint|8949")
-                else {
-                    val (sym8949, name8949) = com.lifecyclebot.engine.market.LaunchTape7921.symbolName8945(mint)
-                    scope.launch(Dispatchers.IO) { promoteHotLaunchNow7921(mint, sym8949, name8949, streamGeneration, source8945 = "LAUNCH_RULE_8949", onceKey8945 = "$mint|8949") }
+        fun dispatchArmed9054(mint: String, source: String, fireKey: String) {
+            if (!status.running || !BotRuntimeController.isLiveGeneration(streamGeneration)) return
+            if (status.tokens.containsKey(mint))
+                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), source, onceKey = fireKey)
+            else {
+                val (sym8949, name8949) = com.lifecyclebot.engine.market.LaunchTape7921.symbolName8945(mint)
+                scope.launch(Dispatchers.IO) {
+                    if (BotRuntimeController.isLiveGeneration(streamGeneration))
+                        promoteHotLaunchNow7921(mint, sym8949, name8949, streamGeneration, source8945 = source, onceKey8945 = fireKey)
                 }
             }
+        }
+        com.lifecyclebot.engine.truth.LaunchSniper8748.onArmed8949 = { mint ->
+            val now9054 = System.currentTimeMillis()
+            val f9054 = com.lifecyclebot.engine.truth.LaunchSniper8748.capturedFire9043(mint, now9054)
+            if (f9054 != null && com.lifecyclebot.engine.truth.LaunchSniper8748.liveFire8959(f9054, now9054))
+                dispatchArmed9054(mint, "LAUNCH_RULE_8949", f9054.opportunityId9043)
+        }
+        com.lifecyclebot.engine.truth.BaseBreakout8995.onArmed9054 = { mint, fireKey ->
+            dispatchArmed9054(mint, "BASE_BREAKOUT_8995", fireKey)
         }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
@@ -26130,60 +26141,69 @@ if (hotExitHandledSweep) {
     // V5.0.8942 — [onceKey]: a print milestone keys its own fast lane (the create's 60 s key no longer swallows it)
     private fun fastLaneEvaluate7277(mint: String, cfg: BotConfig, origin: String, onceKey: String = mint) {
         if (mint.isBlank() || !status.running) return
-        if (!fastLaneOnce7277.add(onceKey)) return
-        scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
-            // V5.0.8962 — chain-answer re-runs hold at most two of the six slots; the signals keep the rest
-            if (!com.lifecyclebot.engine.truth.FastLane8962.enter8962(origin)) { fastLaneOnce7277.remove(onceKey); return@launch }
-            val acquired8958 = try {
-                com.lifecyclebot.engine.truth.LaunchSniper8748.acquireFast8958(origin, fastLaneSemaphore7277) {
-                    status.running && status.tokens.containsKey(mint) &&
-                        com.lifecyclebot.engine.truth.LaunchSniper8748.armedWindow8824(mint, System.currentTimeMillis())
-                }
-            } catch (e: Throwable) { com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin); fastLaneOnce7277.remove(onceKey); throw e }
-            com.lifecyclebot.engine.truth.FastLane8962.note8962(origin, acquired8958)
-            if (!acquired8958) {
-                com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin)
-                try { PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277") } catch (_: Throwable) {}
-                fastLaneOnce7277.remove(onceKey)
-                return@launch
+        val generation9054 = BotRuntimeController.currentGeneration()
+        val deadline9054 = System.nanoTime() + 5_000_000_000L
+        val key9054 = "$generation9054|$origin|$onceKey"
+        fun valid9054(): Boolean {
+            if (!status.running || !BotRuntimeController.isLiveGeneration(generation9054) ||
+                !status.tokens.containsKey(mint) || deadline9054 - System.nanoTime() <= 0L) return false
+            val now = System.currentTimeMillis()
+            if (origin == "LAUNCH_RULE_8949") {
+                val fire = com.lifecyclebot.engine.truth.LaunchSniper8748.capturedFire9043(mint, now) ?: return false
+                return fire.opportunityId9043 == onceKey && com.lifecyclebot.engine.truth.LaunchSniper8748.liveFire8959(fire, now)
             }
+            if (origin == "BASE_BREAKOUT_8995")
+                return com.lifecyclebot.engine.truth.BaseBreakout8995.activeFireId9054(mint, now) == onceKey
+            return true
+        }
+        if (!valid9054() || !fastLaneOnce7277.add(key9054)) return
+        scope.launch(Dispatchers.IO + CoroutineName("fast-lane-7277")) {
             val t0 = System.currentTimeMillis()
-            // V5.0.7925 — the permit is not held through the 1.5 s pause between
-            // passes (it caused FAST_LANE_SATURATED); the second pass re-acquires.
-            var held7925 = true
+            var ran9054 = false
             try {
-                PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
-                PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
-                processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, t0)
-                fastLaneSemaphore7277.release()
-                held7925 = false
-                // Market evidence has already landed. This pass is not a hydration probe.
+                val firstDeadline = minOf(deadline9054, System.nanoTime() + 3_000_000_000L)
+                val first = com.lifecyclebot.engine.truth.FastLane8962.acquire9054(origin, fastLaneSemaphore7277, firstDeadline, ::valid9054)
+                com.lifecyclebot.engine.truth.FastLane8962.note8962(origin, first)
+                if (!first) {
+                    PipelineHealthCollector.labelInc("FAST_LANE_SATURATED_7277")
+                    return@launch
+                }
+                try {
+                    if (!valid9054()) return@launch
+                    ran9054 = true
+                    PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277")
+                    PipelineHealthCollector.labelInc("FAST_LANE_EVALUATED_7277_$origin")
+                    processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
+                } finally {
+                    com.lifecyclebot.engine.truth.FastLane8962.release9054(origin, fastLaneSemaphore7277)
+                }
+                // A real market answer already supplied its data. Other sources may need one follow-up.
                 if (origin == "CHAIN_ANSWER_8957" && onceKey.contains("|market8959|")) return@launch
                 delay(1_500L)
-                // V5.0.7278 — the second pass is for a token the first pass could
-                // only hydrate; when the first pass already opened it, a second
-                // cycle just trips the same-mint dedupe (68 on 5.0.7277).
+                if (!valid9054()) return@launch
                 val alreadyOpen7278 = try {
                     com.lifecyclebot.engine.truth.CanonicalPositionAuthority6441.firstOpenForMint(
                         mint, if (RuntimeModeAuthority.isLive()) "live" else "paper",
                     ) != null
                 } catch (_: Throwable) { false }
-                if (status.running && !alreadyOpen7278 && fastLaneSemaphore7277.tryAcquire()) {
-                    held7925 = true
-                    processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
+                if (!alreadyOpen7278 &&
+                    com.lifecyclebot.engine.truth.FastLane8962.acquire9054(origin, fastLaneSemaphore7277, deadline9054, ::valid9054)) {
+                    try {
+                        if (valid9054()) processTokenCycleTraced8869(mint, cycleCfg8779(cfg), wallet, System.currentTimeMillis())
+                    } finally {
+                        com.lifecyclebot.engine.truth.FastLane8962.release9054(origin, fastLaneSemaphore7277)
+                    }
                 }
-                val ms = System.currentTimeMillis() - t0
                 ForensicLogger.lifecycle(
                     "FAST_LANE_EVALUATED_7277",
-                    "mint=${mint.take(10)} origin=$origin totalMs=$ms action=full_cycle_on_event_no_gate_bypassed",
+                    "mint=${mint.take(10)} origin=$origin totalMs=${System.currentTimeMillis()-t0} action=full_cycle_on_event_no_gate_bypassed",
                 )
             } catch (t: Throwable) {
                 if (t is kotlinx.coroutines.CancellationException) throw t
                 ErrorLogger.debug("BotService", "fast lane ${mint.take(8)}: ${t.message?.take(100)}")
             } finally {
-                com.lifecyclebot.engine.truth.FastLane8962.leave8962(origin)
-                if (held7925) fastLaneSemaphore7277.release()
-                scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(onceKey) }
+                if (ran9054) scope.launch(Dispatchers.IO) { delay(60_000L); fastLaneOnce7277.remove(key9054) }
+                else fastLaneOnce7277.remove(key9054)
             }
         }
     }

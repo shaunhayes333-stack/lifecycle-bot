@@ -24,6 +24,7 @@ object FastLane8962 {
     private const val MAX_ORIGINS_8962 = 48
 
     private val chainAnswerSlots = Semaphore(CHAIN_ANSWER_SLOTS_8962)
+    private val retry9054 = FastLaneRetry9054(chainAnswerSlots)
     private val ran = ConcurrentHashMap<String, AtomicLong>()
     private val refused = ConcurrentHashMap<String, AtomicLong>()
     private val yielded = AtomicLong(0L)
@@ -47,6 +48,12 @@ object FastLane8962 {
         if (origin == CHAIN_ANSWER_ORIGIN_8962) chainAnswerSlots.release()
     }
 
+    /** Acquire both permits together; waiting owns neither. */
+    internal suspend fun acquire9054(origin: String, permits: Semaphore, deadlineNs: Long, valid: () -> Boolean): Boolean =
+        retry9054.acquire(origin, permits, deadlineNs, valid)
+
+    internal fun release9054(origin: String, permits: Semaphore) = retry9054.release(origin, permits)
+
     fun note8962(origin: String, gotSlot: Boolean) {
         val book = if (gotSlot) ran else refused
         book.computeIfAbsent(key8962(origin, book.keys)) { AtomicLong(0L) }.incrementAndGet()
@@ -57,7 +64,7 @@ object FastLane8962 {
     fun statusLine8962(): String {
         fun show(m: Map<String, AtomicLong>) = m.entries.sortedByDescending { it.value.get() }.take(12)
             .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" }
-        return "fastLane8962[ran{${show(ran)}} noSlot{${show(refused)}} chainAnswerYielded=${yielded.get()} " +
+        return "fastLane8962[ran{${show(ran)}} noSlot{${show(refused)}} chainAnswerYielded=${yielded.get()} ${retry9054.line()} " +
             "rule=six event slots; chain-answer re-runs hold at most $CHAIN_ANSWER_SLOTS_8962, an UNKNOWN-stage read is not a decision ping]"
     }
 

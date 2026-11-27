@@ -61,6 +61,11 @@ object BaseBreakout8995 {
     private val coins = ConcurrentHashMap<String, Coin>()
     private val books = HashMap<String, ArrayDeque<DoubleArray>>()   // "COHORT|id" -> (closedMs, net %)
     private val armed = ConcurrentHashMap<String, Fire8995>()
+    @Volatile internal var onArmed9054: ((String, String) -> Unit)? = null
+
+    /** Base continuation has its own fire identity; it is not a launch replay fire. */
+    internal fun activeFireId9054(mint: String, nowMs: Long): String? =
+        armed[mint]?.takeIf { nowMs - it.atMs in 0L..EVIDENCE_TTL_MS_8995 }?.let { "${it.key}|${it.atMs}" }
     private val prints = AtomicLong(0L); private val fires = AtomicLong(0L); private val armedFires = AtomicLong(0L)
     private val closes = AtomicLong(0L); private val noEntry = AtomicLong(0L); private val full = AtomicLong(0L); private val served = AtomicLong(0L)
     @Volatile private var loaded = false
@@ -195,8 +200,8 @@ object BaseBreakout8995 {
             val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             com.lifecyclebot.engine.GlobalTradeRegistry.addToWatchlist(mint, mint.take(6), KIND_8995, initialMcap = priceSol * 1.0e9 * solUsd)
         } catch (_: Throwable) {}
-        // the coin's full pipeline now, as an armed launch fire runs it (BotService's hook; every gate stands)
-        try { LaunchSniper8748.onArmed8949?.invoke(mint) } catch (_: Throwable) {}
+        // The same evaluation pipeline, but preserve the base signal's own identity.
+        try { onArmed9054?.invoke(mint, "$key|$nowMs") } catch (_: Throwable) {}
     }
 
     /** Idle coins leave; a position whose coin stopped printing is closed at its last print, one never entered is dropped. */
