@@ -1,4 +1,9 @@
-# AATE 5.0.9043 — entry timing, evidence, and execution continuity
+# AATE 5.0.9044 — entry timing, evidence, and execution continuity
+
+The 9043-named code and tests identify this repair generation. Release candidate 5.0.9044
+also makes direct proof wake-up keys monotonic, so a frozen or backward wall clock cannot
+reuse an earlier BotService wake identity. The version advances to preserve upgrade ordering
+while validation of the preceding candidate finishes independently.
 
 ## Scope and starting point
 

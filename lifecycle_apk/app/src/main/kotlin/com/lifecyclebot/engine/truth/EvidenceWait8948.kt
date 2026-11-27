@@ -137,7 +137,8 @@ object EvidenceWait8948 {
         if (sendDirect) {
             directs.incrementAndGet()
             try { com.lifecyclebot.engine.SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
-            try { direct8948?.invoke(mint, nowMs / DIRECT_GAP_MS_8948) } catch (_: Throwable) {}
+            // BotService uses this slot in its onceKey. A wall-clock rollback must not replay an old wake identity.
+            try { direct8948?.invoke(mint, (if (legacyClock) nowMs else elapsedMs) / DIRECT_GAP_MS_8948) } catch (_: Throwable) {}
         }
     }
 

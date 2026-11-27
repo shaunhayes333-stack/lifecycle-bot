@@ -72,6 +72,17 @@ class Aate9043EvidenceWaitTest {
         assertEquals(listOf(ts.mint to wall + 121_000L), EvidenceWait8948.targets8948(wall + 2_000L, elapsed + 2_000L))
     }
 
+    @Test fun frozenWallClockCannotReuseTheDirectRequestsOnceKey() {
+        val ts = TokenState(mint = "wake-key-9043", symbol = "WAKE")
+        val slots = mutableListOf<Long>()
+        EvidenceWait8948.direct8948 = { _, slot -> slots += slot }
+        wait(ts, "EXPRESS", "stable-opportunity")
+        wait(ts, "EXPRESS", "stable-opportunity", delta = 21_000L, wallDelta = 0L)
+        assertEquals(2, slots.size)
+        assertNotEquals("a due proof request must not be deduplicated as the earlier wake", slots[0], slots[1])
+        assertEquals((elapsed + 21_000L) / EvidenceWait8948.DIRECT_GAP_MS_8948, slots[1])
+    }
+
     @Test fun retiredDetailsCannotReopenOldWaitAndRealLaterTradeGetsANewEpisode() {
         val ts = TokenState(mint = "retired-wait-9043", symbol = "OLD")
         val old = EvidenceWait8948.evidenceOpportunity9043("LANE_POCKET", "cell", "IGNITION_5M", 0L)
