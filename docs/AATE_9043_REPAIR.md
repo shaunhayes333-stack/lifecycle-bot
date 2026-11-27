@@ -1,11 +1,13 @@
-# AATE 5.0.9045 — entry timing, evidence, and execution continuity
+# AATE 5.0.9046 — entry timing, evidence, and execution continuity
 
 The 9043-named code and tests identify the first repair generation. Version 5.0.9044
 also made direct proof wake-up keys monotonic, so a frozen or backward wall clock cannot
 reuse an earlier BotService wake identity. Its complete automated release passed, but review
 of the runtime artifact exposed persistence contention on the canonical-close delivery thread.
-Version 5.0.9045 addresses that measured path and advances both version aliases to preserve
-upgrade order from the already-published 9044 candidate.
+The 9045 repair addresses that measured path. Release 5.0.9046 also corrects isolation of the
+SQLite integration fixture: detached book/scoreboard state is restored exactly, including an
+originally empty book, after its worker is idle. Both version aliases advance to preserve
+upgrade order if the intermediate 9045 validation publishes first.
 
 ## Scope and starting point
 

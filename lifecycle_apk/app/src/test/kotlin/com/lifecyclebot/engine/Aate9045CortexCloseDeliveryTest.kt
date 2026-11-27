@@ -128,9 +128,9 @@ class Aate9045CortexCloseDeliveryTest {
         val worker = read<ScheduledExecutorService>(Cortex7885, "persistPool8094")
         val persistLock = read<Any>(Cortex7885, "persistLock8325")
         private val oldDatabase = read<SQLiteDatabase?>(LearningPersistence, "db")
-        private val savedBook = synchronized(Cortex7885) { book.encode() }
+        private val savedBook = synchronized(Cortex7885) { book.detached8386() }
         private val board = read<CortexScoreboard7885>(Cortex7885, "board")
-        private val savedBoard = synchronized(Cortex7885) { board.encode().toString() }
+        private val savedBoard = synchronized(Cortex7885) { board.detached8386() }
         private val stateNames = listOf("loaded", "snapshotGeneration8386", "lastFullEncodeEndNanos9045",
             "snapshotEncodeMs8386", "snapshotDbMs8386", "lastPeriodicSnapshotMs8429", "lastPendingPersistMs", "lastExecRefresh8187")
         private val savedState = stateNames.associateWith { read<Any?>(Cortex7885, it) }
@@ -206,7 +206,23 @@ class Aate9045CortexCloseDeliveryTest {
             assertTrue("no delayed close task may escape into the next fixture", idle())
             worker.submit {}.get(5, TimeUnit.SECONDS)
             synchronized(Cortex7885) {
-                book.decode(savedBook); board.decode(JSONObject(savedBoard))
+                // These are owner-state restores, not persisted-input merges. An empty
+                // GradeBook decode is a no-op and Scoreboard decode keeps absent keys;
+                // both would leave this fixture's closes in the next test's model.
+                // Detached state also preserves lastGraded and full numeric precision.
+                read<MutableList<CortexGradeRecord8144>>(book, "decisions").apply {
+                    clear(); addAll(read<List<CortexGradeRecord8144>>(savedBook, "decisions"))
+                }
+                for (name in listOf("byId", "trades")) {
+                    read<MutableMap<String, CortexGradeRecord8144>>(book, name).apply {
+                        clear(); putAll(read<Map<String, CortexGradeRecord8144>>(savedBook, name))
+                    }
+                }
+                read<MutableMap<String, Long>>(book, "lastGraded").apply {
+                    clear(); putAll(read<Map<String, Long>>(savedBook, "lastGraded"))
+                }
+                board.books.apply { clear(); putAll(savedBoard.books) }
+                board.realized.apply { clear(); putAll(savedBoard.realized) }
                 savedSets.forEach { (name, values) -> read<MutableSet<String>>(Cortex7885, name).apply { clear(); addAll(values) } }
                 refreshMaps.forEach { (name, values) -> read<MutableMap<String, Any>>(Cortex7885, name).apply { clear(); putAll(values) } }
                 offsets.forEach { (stat, offset) -> stat.readOffset8187 = offset }
