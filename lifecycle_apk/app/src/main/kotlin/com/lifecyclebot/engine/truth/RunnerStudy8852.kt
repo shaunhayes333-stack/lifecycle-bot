@@ -114,6 +114,7 @@ internal object RunnerStudy8852 {
     }
     private val byLane = LinkedHashMap<String, Cell>()
     private var selected = 0L
+    private var lastNominationSweep9048 = 0L
     private var refusedCapacity = 0L
     private var complete = 0L
     private var noEntry = 0L
@@ -123,7 +124,11 @@ internal object RunnerStudy8852 {
     @Synchronized fun nominate(mint: String, lane: String, source: String, conviction: Double,
                                 nowMs: Long = System.currentTimeMillis()): Boolean {
         if (mint.isBlank() || lane.isBlank() || nowMs <= 0L || !conviction.isFinite()) return false
-        matureMissing(nowMs)
+        // Repeated READYs do not need to allocate a complete book copy each time.
+        if (lastNominationSweep9048 <= 0L || nowMs < lastNominationSweep9048 || nowMs - lastNominationSweep9048 >= 1_000L) {
+            lastNominationSweep9048 = nowMs
+            matureMissing(nowMs)
+        }
         val prior = active[mint]
         if (prior != null) {
             if (lane !in prior.lanes.split(',')) prior.lanes = (prior.lanes.split(',') + lane).take(8).joinToString(",")
@@ -482,7 +487,7 @@ internal object RunnerStudy8852 {
     @Synchronized internal fun resultsForTest(): List<Result> = recent.toList()
     @Synchronized internal fun resetForTest() {
         active.clear(); finishedAt.clear(); recent.clear(); byLane.clear()
-        selected = 0L; refusedCapacity = 0L
+        selected = 0L; refusedCapacity = 0L; lastNominationSweep9048 = 0L
         complete = 0L; noEntry = 0L; noExit = 0L
     }
 }

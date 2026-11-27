@@ -428,6 +428,8 @@ object LiveCanonicalRecovery6686 {
             // 10 min while its buy sat unverified (a hung verifier = unowned stops / rug exits). The bot's own pending buy now
             // gets its protective owner at once, on ITS OWN row (BASIS_UNCERTAIN, promotable by the verified fill, which keeps
             // the row's own buy cost); nothing is relabelled as a wallet remnant.
+            val restored9048 = try { CanonicalPositionAuthority6441.restoreExactLiveReceipt9048(mint, amount, holdingProofs8527[mint]) } catch (_: Throwable) { null }
+            if (restored9048 != null) { n7807++; continue }
             val pendingId8418 = pendingEntry8418[mint]
             if (pendingId8418 != null) try { PipelineHealthCollector.labelInc("BOT_HOLDING_PENDING_VERIFY_PROTECTED_8418") } catch (_: Throwable) {}
             // V5.0.8418 — the bot's own buy whose canonical row is not written yet (tokens land before the receipt is booked)
@@ -555,10 +557,11 @@ object LiveCanonicalRecovery6686 {
         val latest = buys.maxByOrNull { it.atMs }
         if (latest == null) null else {
             val pid = latest.positionId
-            val sells = rows.filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Sell>()
-                .filter { it.mode == "live" && it.positionId == pid && it.atMs >= latest.atMs }
-            val closed = sells.any { !it.partial || it.remainingQty.signum() == 0 }
             val legs = buys.filter { it.positionId == pid }
+            val firstAt9048 = legs.minOf { it.atMs }
+            val sells = rows.filterIsInstance<com.lifecyclebot.engine.truth.EconomicEventSchema6464.Sell>()
+                .filter { it.mode == "live" && it.positionId == pid && it.atMs >= firstAt9048 }
+            val closed = sells.any { !it.partial || it.remainingQty.signum() == 0 }
             // Partial exits already took their share of the cost basis.
             val soldCost = sells.filter { it.partial }.sumOf { it.allocatedCostBasisSol.coerceAtLeast(0.0) }
             val cost = (legs.sumOf { it.executedCostSol } - soldCost).coerceAtLeast(0.0)
@@ -875,6 +878,12 @@ object LiveCanonicalRecovery6686 {
             val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
             val runtimePos = ts?.position
             val saved = persisted[mint]
+            val restored9048 = try { CanonicalPositionAuthority6441.restoreExactLiveReceipt9048(mint, amount, holdingProofs8527[mint]) } catch (_: Throwable) { null }
+            if (restored9048 != null) {
+                existingLive.add(mint)
+                repaired++
+                continue
+            }
 
             // A LIVE buy reservation is bot-owned intent created before submit.
             // If the chain now proves the wallet holds this mint but the async
@@ -1300,6 +1309,7 @@ object LiveCanonicalRecovery6686 {
                         .takeUnless { it == com.lifecyclebot.engine.truth.AssetClass.UNKNOWN }
                         ?: com.lifecyclebot.engine.truth.AssetClass.SOLANA_TOKEN,
                     walletRecovery8527 = true, holdingRead8527 = holdingProofs8527[mint],
+                    recoveredOpenedAtMs9048 = basis.openedAtMs,
                 )
             } catch (_: Throwable) { CanonicalPositionAuthority6441.MutateResult.INVARIANT_VIOLATION }
 

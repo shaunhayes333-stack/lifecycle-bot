@@ -84,11 +84,15 @@ object ChainConfirm8950 {
         val local = if (mint == ts.mint) ts else ts.copy(mint = mint)
         // V5.0.8969 — a discovery read is not spent on a coin its own cohort's record says cannot be traded
         if (use.uppercase() in DISCOVERY_USES_8969) {
-            val skip = skip8969(use,
+            val cohortSkip9048 = skip8969(use,
                 cohortLosing = try { MarketCohort8701.clearlyLosing8969(local, nowMs) } catch (_: Throwable) { null },
                 armed = try { LaunchSniper8748.armedWindow8824(mint, nowMs) } catch (_: Throwable) { false },
                 pocket = try { com.lifecyclebot.engine.market.PocketRecovery8961.pending8969(mint) } catch (_: Throwable) { false },
                 held = try { CanonicalPositionAuthority6441.hasOpenMint(mint) } catch (_: Throwable) { false })
+            val skip = if (cohortSkip9048 != null && discoveryProbe9048.permit(mint, nowMs)) {
+                sampledDiscovery9048.incrementAndGet()
+                null
+            } else cohortSkip9048
             if (skip != null) { noteSkip8969(use, skip); return }
         }
         val inputs = inputsOf8950(missing)
@@ -111,6 +115,8 @@ object ChainConfirm8950 {
      */
     internal val DISCOVERY_USES_8969 = setOf("STAGE", "LANE")
     private val skipped8969 = ConcurrentHashMap<String, AtomicLong>()
+    private val discoveryProbe9048 = DiscoveryProbe9048()
+    private val sampledDiscovery9048 = AtomicLong(0L)
 
     /** Pure: the cohort a discovery read of this coin is skipped for, or null when it is read. */
     internal fun skip8969(use: String, cohortLosing: String?, armed: Boolean, pocket: Boolean, held: Boolean): String? =
@@ -123,7 +129,7 @@ object ChainConfirm8950 {
 
     fun skipLine8969(): String = "discoverySkipped8969{" + skipped8969.entries.sortedByDescending { it.value.get() }.take(12)
         .joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
-        " rule=STAGE / LANE chain reads skip a coin whose cohort is clearly losing (n100+, mean+2SE<0), unless armed, pocket or held}"
+        " rule=STAGE / LANE chain reads skip a coin whose cohort is clearly losing (n100+, mean+2SE<0), unless armed, pocket or held; sampledEvidenceOnly9048=${sampledDiscovery9048.get()} (max 2 coins/minute; no trade authority)}"
 
     /**
      * V5.0.8957 §ANSWERED_NOT_LOOPED — owner: "a one time chain ping to fill the data deferral gaps when required. no

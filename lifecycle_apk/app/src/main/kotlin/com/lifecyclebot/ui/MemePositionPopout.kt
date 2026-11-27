@@ -276,7 +276,7 @@ object MemePositionPopout {
                         if (i < rowLabels.size - 1) it.marginEnd = AateUi.dp(ctx, 6)
                     }
                 }
-                cell.addView(tv(ctx, label, 9f, AateUi.TEXT_MUTED))
+                cell.addView(tv(ctx, if (label == "VALUE") "NET LIQ." else label, 9f, AateUi.TEXT_MUTED))
                 val v = tv(ctx, "—", 12f, AateUi.TEXT, bold = true, mono = true).apply { maxLines = 1 }
                 cell.addView(v)
                 values[label] = v
@@ -393,7 +393,7 @@ object MemePositionPopout {
         v["QTY"]?.text = qty(r.qty)
         v["HOLD"]?.text = hold(r.holdMs)
         v["PEAK"]?.apply {
-            text = if (r.peakPct > 0.0) "+${r.peakPct.toInt()}%" else "—"
+            text = if (r.peakPct > 0.0) "+${r.peakPct.toInt()}%" else if (r.canDisplayPnl) "No + peak" else "—"
             setTextColor(if (r.peakPct >= 100.0) 0xFFFACC15.toInt() else AateUi.TEXT)
         }
         v["STOP / LOCK"]?.apply {
@@ -409,9 +409,16 @@ object MemePositionPopout {
         v["MCAP"]?.text = usd(r.mcapUsd)
         v["LANE"]?.text = r.lane
 
+        val exitLatch9048 = if (r.open && !r.paper) try {
+            com.lifecyclebot.engine.truth.ProtectiveExitScheduler6450.latch(r.positionId)
+        } catch (_: Throwable) { null } else null
         when {
             !r.open -> {
                 c.status.text = "Position closed — trade buttons disabled."
+                c.status.visibility = View.VISIBLE
+            }
+            exitLatch9048 != null -> {
+                c.status.text = "Protective exit triggered: " + exitLatch9048.kind.name + ". Awaiting verified settlement."
                 c.status.visibility = View.VISIBLE
             }
             !r.basisOk -> {
@@ -421,8 +428,9 @@ object MemePositionPopout {
             else -> c.status.visibility = View.GONE
         }
         for (b in listOf(c.addBtn, c.sellBtn)) {
-            b.isEnabled = r.open
-            b.alpha = if (r.open) 1f else 0.35f
+            val enabled9048 = r.open && (b !== c.addBtn || exitLatch9048 == null)
+            b.isEnabled = enabled9048
+            b.alpha = if (enabled9048) 1f else 0.35f
         }
     }
 

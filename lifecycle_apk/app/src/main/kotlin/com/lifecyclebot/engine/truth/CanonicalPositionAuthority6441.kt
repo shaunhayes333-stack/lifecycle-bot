@@ -277,6 +277,35 @@ object CanonicalPositionAuthority6441 {
         mode == "paper" && com.lifecyclebot.engine.LiveNoPaper8184.enforced8184 &&
             try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
 
+    /** Restore original receipt only; never emit a fresh BUY or reopen a spent lot. */
+    fun restoreExactLiveReceipt9048(mint: String, amount: CanonicalTokenAmount, holdingRead: WalletHoldingRead8527?): Position? {
+        lock.lock()
+        try {
+            if (!com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(mint, amount, holdingRead)) return null
+            if (positions.values.any { it.mint == mint && it.mode.equals("live", true) &&
+                    (it.lifecycle == Lifecycle.PENDING_ENTRY || isOpenLifecycleWithQty6743(it) || isFundedProtectiveQuarantine7807(it)) }) return null
+            val restored = ExactLiveReceiptRecovery9048.reconstruct(
+                EconomicEventSchema6464.snapshot(), mint, amount.raw, amount.decimals, System.currentTimeMillis()) ?: return null
+            if (positions[restored.positionId] != null ||
+                PositionStateLedger6454.lifecycle(restored.positionId) in setOf(PositionStateLedger6454.Lifecycle.CLOSING, PositionStateLedger6454.Lifecycle.CLOSED) ||
+                LiveReceiptSpent7959.isSpent(restored.openedAtMs, LiveReceiptSpent7959.lastLiveFullCloseMs(mint))) return null
+            if (!com.lifecyclebot.engine.LiveCanonicalRecovery6686.recoveryHoldingCurrent8527(mint, amount, holdingRead)) return null
+            positions[restored.positionId] = restored
+            muts.incrementAndGet()
+            try { lockEntryMetricsAtOpen6636(restored, freshExecution6715 = false) } catch (_: Throwable) {}
+            try {
+                PositionStateLedger6454.onEntry(restored.positionId)
+                if (restored.lifecycle == Lifecycle.PARTIALLY_CLOSED) PositionStateLedger6454.onPartial(restored.positionId)
+            } catch (_: Throwable) {}
+            try { CanonicalMintOccupancyRegistry6464.reconcileActiveFromCanonical6489(openPositions()) } catch (_: Throwable) {}
+            try {
+                PipelineHealthCollector.labelInc("EXACT_LIVE_RECEIPT_RESTORED_9048")
+                ForensicLogger.lifecycle("EXACT_LIVE_RECEIPT_RESTORED_9048", "mint=" + mint.take(12) + " positionId=" + restored.positionId + " openedAt=" + restored.openedAtMs + " raw=" + restored.remainingQtyRaw)
+            } catch (_: Throwable) {}
+            return restored
+        } finally { lock.unlock() }
+    }
+
     fun openPosition(
         idempotencyKey: String,
         positionId: String,
@@ -303,6 +332,7 @@ object CanonicalPositionAuthority6441 {
         candidateVersion7863: Long = 0L,
         walletRecovery8527: Boolean = false,
         holdingRead8527: WalletHoldingRead8527? = null,
+        recoveredOpenedAtMs9048: Long? = null,
     ): MutateResult {
         lock.lock()
         try {
@@ -438,7 +468,7 @@ object CanonicalPositionAuthority6441 {
             positions[positionId] = Position(
                 positionId = positionId, mode = canonicalMode6490,
                 mint = mint, symbol = symbol, lane = lane, runId = runId,
-                openedAtMs = System.currentTimeMillis(),
+                openedAtMs = if (walletRecovery8527) recoveredOpenedAtMs9048?.takeIf { it in 1L..System.currentTimeMillis() } ?: System.currentTimeMillis() else System.currentTimeMillis(),
                 entryCostSol = entryCostSol,
                 remainingQtyRaw = openedQtyRaw,
                 originalQtyRaw = openedQtyRaw,
@@ -531,12 +561,15 @@ object CanonicalPositionAuthority6441 {
             )
             markKeyUsed(idempotencyKey)
             if (lifecycle == Lifecycle.OPEN || lifecycle == Lifecycle.PARTIALLY_CLOSED) {
-                positions[positionId]?.let { bindOpenLearning7863(it, candidateVersion7863) }
+                if (!walletRecovery8527) positions[positionId]?.let { bindOpenLearning7863(it, candidateVersion7863) }
                 // V5.0.8144 — durable birth record of every LIVE lot: its sells keep a parent across restarts.
                 try { positions[positionId]?.let { noteLineage8144(it, runId, idempotencyKey, promoted = false) } } catch (_: Throwable) {}
             }
             // V5.0.6636 — direct OPEN and promoted OPEN share one commit hook.
-            try { positions[positionId]?.let(::lockEntryMetricsAtOpen6636) } catch (_: Throwable) {}
+            try {
+                if (walletRecovery8527) positions[positionId]?.let { lockEntryMetricsAtOpen6636(it, freshExecution6715 = false) }
+                else positions[positionId]?.let(::lockEntryMetricsAtOpen6636)
+            } catch (_: Throwable) {}
             muts.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc(
