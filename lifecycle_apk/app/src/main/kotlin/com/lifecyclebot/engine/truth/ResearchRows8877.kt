@@ -130,7 +130,8 @@ object ResearchRows8877 {
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
             "\"stage\":\"${s(stage, 32)}\",\"setup\":\"${s(setup, 40)}\",\"pred\":${n(pred)},\"v3\":${n(v3)},\"mcap\":${n(mcapUsd)}," +
             "\"liq\":${n(liqUsd)},\"cost\":${n(costPct)},\"net\":${n(net)},\"gross\":${n(gross)},\"peakPct\":${n(peakPct)}," +
-            "\"heldPeakPct\":${n(heldPeakPct)},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
+            "\"heldPeakPct\":${n(RunnerResearchContract9050.heldPeak(reason, heldPeakPct))},\"minPct\":${n(minPct)},\"reason\":\"${s(reason, 80)}\"" +
+            (if (RunnerResearchContract9050.sampledEndpoint(reason)) ",\"pathKind9050\":\"${RunnerResearchContract9050.ENDPOINT_ONLY}\"" else "") +
             ",\"originalReason9043\":" + org.json.JSONObject.quote(ResearchEvidence9043.originalReason9043(reason)) +
             (if (priceProof9043.startsWith("{") && priceProof9043.endsWith("}")) ",\"priceProof9043\":$priceProof9043" else "") +
             (if (labelRecipe9043.isNotBlank()) ",\"labelRecipe9043\":$labelRecipe9043,\"labelRecipeOrigin9043\":\"DECISION_FROZEN\""

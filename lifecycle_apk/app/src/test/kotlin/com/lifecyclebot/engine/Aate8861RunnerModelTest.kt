@@ -94,7 +94,7 @@ class Aate8861RunnerModelTest {
     private fun rows(n: Int = 500) = List(n) { i ->
         val runs = i % 5 < 2
         val x = DoubleArray(M.FEATURES_8861.size); x[M.FEATURES_8861.indexOf("volAccel")] = if (runs) 3.0 else 1.0
-        RunnerModel8861.Row("Mint$i", 1_000_000L + i * 60_000L, x, runs, if (runs) 100.0 else -20.0, false)
+        RunnerModel8861.Row("Mint$i", 1_000_000L + i * 5L * 3_600_000L, x, runs, if (runs) 100.0 else -20.0, false)
     }
 
     @Test fun theShareItBuysIsChosenOnLaterLaunchesAndReadOnTheNewest() {
@@ -150,7 +150,7 @@ class Aate8861RunnerModelTest {
         assertTrue(src("engine/truth/LaunchHour8628.kt").contains("\"SELECT t,p,side FROM trade WHERE m=? AND t > ? AND t <= ? ORDER BY t,s,side\""))
         val model = src("engine/truth/RunnerModel8861.kt")
         assertTrue(model.contains("LaunchHour8628.tail8861(c.r.mint, c.r.bornMs, HOLD_MS_8861)"))
-        assertTrue("a pick is forward only when the launch is newer than every row the model saw", model.contains("if (m0 != null && th0.isFinite() && r.bornMs > newestSeen)"))
+        assertTrue("a pick is forward only when the fitted model and its matured training labels predate the launch", model.contains("RunnerResearchContract9050.causalForward("))
         val providers = src("engine/truth/CandidateAdmission8136.kt")
             .substringAfter("marketCell8723 = selectMarketEvidence8961(", "").substringBefore("regimeCold8546 =")
         assertTrue(providers.contains("RunnerModel8861.evidence8861(ts.mint, nowMs)"))

@@ -71,6 +71,20 @@ object LaunchHour8628 {
             priorLaunches, priorRunners, priorDumps, at)
     }
 
+    /** Existing launch database writer; exact pre-outcome prediction receipt.
+     * Stores both outcomes of score >= threshold. No live entry is implied.
+     */
+    internal fun runnerCross9050(mint: String, bornMs: Long, eventMs: Long, receivedMs: Long,
+                                 publishedAtMs: Long, priceSol: Double, score: Double, threshold: Double,
+                                 requiredDelayMs: Long, solUsd: Double, features: DoubleArray) {
+        if (mint.length !in 32..44 || features.size != RunnerModel8861.FEATURES_8861.size ||
+            !solUsd.isFinite() || solUsd <= 0.0 ||
+            !RunnerResearchContract9050.validCross(bornMs,eventMs,receivedMs,publishedAtMs,priceSol,score,threshold,requiredDelayMs)) return
+        record("INSERT OR IGNORE INTO runner_cross_9050(m,b,t,r,model_at,p,score,threshold,delay,sol_usd,x) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            mint,bornMs,eventMs,receivedMs,publishedAtMs,priceSol,score,threshold,requiredDelayMs,solUsd,
+            features.joinToString("|") { it.toString() })
+    }
+
     fun observeDecision(ts: com.lifecyclebot.data.TokenState, lane: String, admit: Boolean, at: Long) {
         val born = CanonicalTokenBirthTime7440.peekBirthMs8418(ts.mint, at) ?: return
         if (at - born !in 0L..HOUR) return
@@ -112,6 +126,7 @@ object LaunchHour8628 {
                         execSQL("CREATE TABLE IF NOT EXISTS decision(m TEXT,t INTEGER,l TEXT,k TEXT,a INTEGER,c REAL, PRIMARY KEY(m,t,l,k,a))")
                         // V5.0.8840 — the launch's creator, create transaction and the creator's record at birth
                         execSQL("CREATE TABLE IF NOT EXISTS creator(m TEXT PRIMARY KEY,c TEXT,s TEXT,pl INTEGER,pr INTEGER,pd INTEGER,t INTEGER)")
+                        execSQL("CREATE TABLE IF NOT EXISTS runner_cross_9050(m TEXT,b INTEGER,t INTEGER,r INTEGER,model_at INTEGER,p REAL,score REAL,threshold REAL,delay INTEGER,sol_usd REAL,x TEXT,PRIMARY KEY(m,b))")
                     }.also { db = it }
                 }
                 store.beginTransactionNonExclusive()
@@ -124,6 +139,7 @@ object LaunchHour8628 {
                         store.execSQL("DELETE FROM trade WHERE t < ?", cutoff)
                         store.execSQL("DELETE FROM decision WHERE t < ?", cutoff)
                         store.execSQL("DELETE FROM creator WHERE t < ?", cutoff)
+                        store.execSQL("DELETE FROM runner_cross_9050 WHERE b < ?", cutoff)
                         lastTrim = now
                     }
                     store.setTransactionSuccessful()
@@ -257,7 +273,8 @@ object LaunchHour8628 {
     @Volatile internal var firstRead8894 = "-"
         private set
 
-    private const val PATH_MIN_PRINTS_8741 = 20
+    private const val PATH_MIN_PRINTS_8741 = 1  // include failed/sparse launches; do not condition research on survival
+    private const val FACT_MIN_PRINTS_9050 = 20  // expensive creator folds retain their previous export budget
     private const val REPLAY_MIN_PRINTS_8788 = 3
     private const val BAR_MS_8741 = 10_000L
 
@@ -362,9 +379,28 @@ object LaunchHour8628 {
                     LongArray(3) { col -> it.getLong(col) }
                 }
 
+                val runnerCrossMax9050 = try { db.rawQuery("SELECT max(rowid) FROM runner_cross_9050", null).use { if (it.moveToFirst()) it.getLong(0) else 0L } } catch (_: Exception) { 0L }
                 out.bufferedWriter().use { w ->
                     w.appendLine(JSONObject().put("exportMs", now).put("droppedThisProcess", dropped.get())
                         .put("unitMismatchRejected8642", unitMismatchRejected8906).toString())
+                    // Single bounded read, including declined scores. No future
+                    // print or later model may fill in an absent receipt.
+                    if (runnerCrossMax9050 > 0L) db.rawQuery(
+                        "SELECT m,b,t,r,model_at,p,score,threshold,delay,sol_usd,x FROM runner_cross_9050 WHERE rowid <= ? AND b >= ? AND r <= ? ORDER BY b,m",
+                        arrayOf(runnerCrossMax9050.toString(),(now - RETENTION).toString(),now.toString())).use { c ->
+                        while (c.moveToNext()) {
+                            val vals = c.getString(10).split('|')
+                            if (vals.size != RunnerModel8861.FEATURES_8861.size) continue
+                            val x = JSONObject()
+                            for (i in vals.indices) vals[i].toDoubleOrNull()?.takeIf { it.isFinite() }?.let { x.put(RunnerModel8861.FEATURES_8861[i],it) }
+                            w.appendLine(JSONObject().put("kind","RUNNER_CROSS_9050").put("mint",c.getString(0))
+                                .put("birthMs",c.getLong(1)).put("eventMs",c.getLong(2)).put("receivedMs",c.getLong(3))
+                                .put("modelPublishedMs",c.getLong(4)).put("priceSol",c.getDouble(5)).put("score",c.getDouble(6))
+                                .put("threshold",c.getDouble(7)).put("selected",c.getDouble(6) >= c.getDouble(7))
+                                .put("requiredDelayMs",c.getLong(8)).put("solUsdAtCross",c.getDouble(9))
+                                .put("features",x).put("liveFill",false).toString())
+                        }
+                    }
                     db.rawQuery("SELECT m,min(b) FROM birth WHERE rowid <= ${limits[0]} GROUP BY m HAVING min(b)>=CAST(? AS INTEGER) ORDER BY min(b)",
                         arrayOf((now - RETENTION).toString())).use { births ->
                         while (births.moveToNext()) {
@@ -394,7 +430,7 @@ object LaunchHour8628 {
                             // developing at 10k ... even if it gets out at 40k 50k"): 10-second bars of every observed print.
                             if (prints.size >= PATH_MIN_PRINTS_8741) w.appendLine(pathRow8741(db, mint, born, minOf(now, end - 1L), limits[1]).toString())
                             // V5.0.8840 — the launch's chain facts (creator, dev, bundle, snipers, holders) at fixed seconds from birth
-                            if (prints.size >= PATH_MIN_PRINTS_8741) try { factsRow8840(db, mint, born, minOf(now, end - 1L), limits[1])?.let { w.appendLine(it.toString()) } } catch (_: Exception) {}
+                            if (prints.size >= FACT_MIN_PRINTS_9050) try { factsRow8840(db, mint, born, minOf(now, end - 1L), limits[1])?.let { w.appendLine(it.toString()) } } catch (_: Exception) {}
                             db.rawQuery("SELECT t,l,k,a,c FROM decision d WHERE rowid <= ${limits[2]} AND m=? AND t BETWEEN ? AND ? AND (k!='UNATTRIBUTED' OR NOT EXISTS (SELECT 1 FROM decision x WHERE x.rowid <= ${limits[2]} AND x.m=d.m AND x.t=d.t AND x.l=d.l AND x.a=d.a AND x.k!='UNATTRIBUTED')) ORDER BY t", args).use { c ->
                                 while (c.moveToNext()) row(c.getLong(0), c.getString(1), c.getString(2), c.getInt(3), c.getDouble(4))
                             }

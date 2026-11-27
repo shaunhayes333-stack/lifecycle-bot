@@ -38,7 +38,7 @@ class Aate8993ChainPricesResearchTest {
         val row = f.carry8993(unpriced(), 0.00002, 18.0, -9.0)
         val done = JSONObject(f.finish8993(row, 0.00003)!!)   // +50 % gross, 6 % round trip
         assertEquals(50.0, done.getDouble("gross"), 1e-4); assertEquals(44.0, done.getDouble("net"), 1e-4)
-        assertEquals(50.0, done.getDouble("heldPeakPct"), 1e-4); assertEquals(-9.0, done.getDouble("minPct"), 1e-4)
+        assertTrue("a sampled high is not held", done.isNull("heldPeakPct")); assertEquals(50.0, done.getDouble("peakPct"), 1e-4); assertEquals(-9.0, done.getDouble("minPct"), 1e-4)
         assertEquals("CHAIN_8993:LOSTMARK8983/NATIVE_READY", done.getString("reason"))
         assertEquals(900_000L, done.getLong("horizonMs")); assertEquals("MOONSHOT", done.getString("lane")); assertFalse(done.has("e8993"))
         assertEquals(44.0, ResearchRows8877.rowNet8983(done), 1e-4)

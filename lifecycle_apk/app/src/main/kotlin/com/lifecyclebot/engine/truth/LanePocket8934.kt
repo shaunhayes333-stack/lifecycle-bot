@@ -93,9 +93,18 @@ object LanePocket8934 {
 
     /** Pure: the age and 60 s distinct-buyer count a research row carries (NaN when it carries none). */
     internal fun rowExtras9002(o: JSONObject): Pair<Double, Double> {
-        val age = if (o.isNull("age")) Double.NaN else o.optDouble("age", Double.NaN)
-        val f = o.optJSONObject("flow8924")
-        val buyers = if (f == null || f.isNull("buyers60")) Double.NaN else f.optDouble("buyers60", Double.NaN)
+        val at = o.optLong("t")
+        val precursor = o.optJSONObject("precursor9049")?.takeIf {
+            it.optInt("v") == 1 && it.optString("assetId").take(44) == o.optString("mint") &&
+                it.optString("lane") == o.optString("lane") && it.optLong("atMs") == at
+        }
+        val age = o.optDouble("age", Double.NaN).takeIf { it.isFinite() } ?: precursor?.optDouble("age", Double.NaN) ?: Double.NaN
+        val f = o.optJSONObject("flow8924") ?: precursor?.optJSONObject("flow")
+        val buyers = f?.takeIf {
+            // Legacy direct rows are retained. A stamped flow must be from
+            // the decision's own causal freshness window, never the recovery.
+            !it.has("asOfMs") || at - it.optLong("asOfMs") in 0L..20_000L
+        }?.optDouble("buyers60", Double.NaN) ?: Double.NaN
         return age to buyers
     }
 
@@ -274,6 +283,7 @@ object LanePocket8934 {
     @Volatile private var loadNotBefore8961 = 0L
     private val rows = AtomicLong(0L)
     private val exitsGraded8971 = AtomicLong(0L)
+    private val endpointOnlyManaged9050 = AtomicLong(0L)
     private val served = ConcurrentHashMap<String, AtomicLong>()
     private val huntDecisions8961 = ConcurrentHashMap<String, PocketHunt8961.Observation>()
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "lane-pocket-8934").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
@@ -304,7 +314,15 @@ object LanePocket8934 {
         // exactly as the base pocket grades its coins (BasePocket8904.doctrineNet8910); a row without its low / peak read keeps
         // the hour's net. 24 Nov research (27.4 h): proven cells CORE 9 -> 28, MOONSHOT 15 -> 27, SHITCOIN 22 -> 28,
         // EXPRESS 15 -> 28, MANIPULATED 12 -> 27; every other lane none either way. Crypto lanes keep the held net.
-        val graded = if (lane.startsWith("CRYPTO_")) net
+        // 9050: the recovered hour contains endpoint/sampled-high research only.
+        // It cannot be mixed into the 1h managed-exit proof. Longer horizon
+        // and native crypto endpoint research retain their existing horizon.
+        val sampled9050 = RunnerResearchContract9050.sampledEndpoint(o.optString("reason"), o.optString("pathKind9050"))
+        if (sampled9050 && !lane.startsWith("CRYPTO_") && h8991 == H1_8934) {
+            endpointOnlyManaged9050.incrementAndGet()
+            return
+        }
+        val graded = if (lane.startsWith("CRYPTO_") || h8991 != H1_8934) net
             else BasePocket8904.doctrineNet8910(lane, d("gross"), d("minPct"), d("heldPeakPct"), d("cost"), net)
         if (graded != net) exitsGraded8971.incrementAndGet()
         val coin = Coin8934(o.optLong("t", 0L), features8934(mint, o.optString("stage"), o.optString("setup"), d("v3"), d("pred"), d("liq"), mcap, rowExtras9002(o).first, rowExtras9002(o).second), graded)
@@ -494,13 +512,13 @@ object LanePocket8934 {
             val pr = provenExt8991[k].orEmpty()
             "$k=${synchronized(v) { v.size }}" + (if (pr.isEmpty()) "" else "/proven${pr.size}[${pr.first().id} n${pr.first().n} ${"%+.1f".format(pr.first().mean)}%]")
         }.ifBlank { "-" }
-        return pocketMapLine9012() + "\n               " + "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} coins{$coins} proven{$p} served{$used} extended8991{$extLine servedExt=${servedExt8991.get()}} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
+        return pocketMapLine9012() + "\n               " + "lanePocket8934[ready=$ready rows=${rows.get()} exitsGraded8971=${exitsGraded8971.get()} endpointOnlyManaged9050=${endpointOnlyManaged9050.get()} coins{$coins} proven{$p} served{$used} extended8991{$extLine servedExt=${servedExt8991.get()}} minedAgoMin=${if (minedAtMs > 0L) (System.currentTimeMillis() - minedAtMs) / 60_000L else -1L} " +
             "rule=each lane's own in-band coins at its designed hold (BLUECHIP 4 h, others 1 h) under the lane's own exits (8971), one coin once; a single feature or a pair proves at 30+ coins, " +
             "both halves positive, mean without the best three > z SE (z deflated over the lane's cells); meme lanes carry it as market-cell evidence]"
     }
 
     internal fun provenExtForTest8991(lane: String, horizonMs: Long): List<Cell8934> = provenExt8991[extKey8991(lane, horizonMs)].orEmpty()
-    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); survey9012 = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
+    internal fun resetForTest8934() { extBooks8991.clear(); provenExt8991 = emptyMap(); servedExt8991.set(0L); books.clear(); proven = emptyMap(); survey9012 = emptyMap(); served.clear(); huntDecisions8961.clear(); rows.set(0L); exitsGraded8971.set(0L); endpointOnlyManaged9050.set(0L); ready = true; loading = false; loadNotBefore8961 = 0L; minedAtMs = 0L }
     internal fun fileForTest8934(o: JSONObject) = file(o)
     internal fun mineForTest8934() = mine(System.currentTimeMillis())
     internal fun provenForTest8934(lane: String): List<Cell8934> = proven[lane].orEmpty()

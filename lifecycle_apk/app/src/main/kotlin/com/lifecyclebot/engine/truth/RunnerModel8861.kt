@@ -197,6 +197,10 @@ object RunnerModel8861 {
     private var loaded = false
     private val candidates = ArrayList<Candidate>()
     @Volatile private var model: TreeRanker8737.Model? = null
+    // Publish model, cutoff and actual readiness together; a feed callback
+    // must not read a new model with the previous generation's cutoff.
+    private data class LivePolicy9050(val model: TreeRanker8737.Model, val threshold: Double, val publishedAtMs: Long)
+    @Volatile private var livePolicy9050: LivePolicy9050? = null
     @Volatile private var theta = Double.NaN
     @Volatile private var quantile = Double.NaN
     @Volatile private var armed = false
@@ -291,11 +295,12 @@ object RunnerModel8861 {
         // after a restart the model is refitted from the kept rows first: it is the model the last run left, and saw none of [fresh]
         if (model == null) refit(nowMs)
         // forward: a fresh row newer than everything the fitted model saw is a pick the model made without it
-        val m0 = model; val th0 = theta
+        val policy9050 = livePolicy9050
+        val m0 = policy9050?.model; val th0 = policy9050?.threshold ?: Double.NaN
         val newestSeen = rows.maxOfOrNull { it.bornMs } ?: 0L
         for (r in fresh) {
             if (!r.mine) fromHive++
-            else if (m0 != null && th0.isFinite() && r.bornMs > newestSeen) { everyCross.add(r.net); if (m0.predict(r.x) >= th0) picks.add(r.net) }
+            else if (m0 != null && th0.isFinite() && RunnerResearchContract9050.causalForward(policy9050?.publishedAtMs ?: 0L, newestSeen, HOLD_MS_8861, r.bornMs)) { everyCross.add(r.net); if (m0.predict(r.x) >= th0) picks.add(r.net) }
             else if (m0 != null) lateRows++
             if (r.pastHour) pastHourRows++
             rows.add(r); known.add(r.mint)
@@ -311,21 +316,28 @@ object RunnerModel8861 {
 
     /** Fit the model the live path scores with (every row), and choose the share it buys on the time-ordered split. */
     private fun refit(nowMs: Long) {
-        if (rows.size < MIN_TRAIN_ROWS_8861) { model = null; theta = Double.NaN; quantile = Double.NaN; return }
+        if (rows.size < MIN_TRAIN_ROWS_8861) { model = null; livePolicy9050 = null; theta = Double.NaN; quantile = Double.NaN; return }
         rows.sortBy { it.bornMs }
         val a = rows.size * 6 / 10; val b = rows.size * 8 / 10
-        val q = try { choose8861(rows.subList(0, a), rows.subList(a, b), nowMs) } catch (_: Throwable) { null }
-        // the newest fifth, read with a model that saw only the rows before it
-        testLine = if (q == null || b < MIN_TRAIN_ROWS_8861) "-" else try {
-            val mt = fit(rows.subList(0, b), nowMs)
-            val th = quantile8861(DoubleArray(b) { mt.predict(rows[it].x) }, q)
+        // The row's 4h outcome must be knowable at the next cohort's birth.
+        // Embargo BOTH the training->validation and validation->test cuts.
+        val valStart = rows[a].bornMs
+        val testStart = rows[b].bornMs
+        val train = rows.subList(0, a).filter { RunnerResearchContract9050.maturedBefore(it.bornMs, HOLD_MS_8861, valStart) }
+        val valid = rows.subList(a, b).filter { RunnerResearchContract9050.maturedBefore(it.bornMs, HOLD_MS_8861, testStart) }
+        val testTrain = rows.subList(0, b).filter { RunnerResearchContract9050.maturedBefore(it.bornMs, HOLD_MS_8861, testStart) }
+        val q = try { choose8861(train, valid, nowMs) } catch (_: Throwable) { null }
+        testLine = if (q == null || testTrain.size < MIN_TRAIN_ROWS_8861) "-" else try {
+            val mt = fit(testTrain, nowMs)
+            val th = quantile8861(DoubleArray(testTrain.size) { mt.predict(testTrain[it].x) }, q)
             val pick = Record(); val all = Record()
             for (r in rows.subList(b, rows.size)) { all.add(r.net); if (mt.predict(r.x) >= th) pick.add(r.net) }
             "picks ${line(pick)} of all ${line(all)}"
         } catch (_: Throwable) { "-" }
-        if (q == null) { model = null; theta = Double.NaN; quantile = Double.NaN; return }
+        if (q == null) { model = null; livePolicy9050 = null; theta = Double.NaN; quantile = Double.NaN; return }
         val m = fit(rows, nowMs)
         model = m; quantile = q; theta = quantile8861(DoubleArray(rows.size) { m.predict(rows[it].x) }, q)
+        livePolicy9050 = LivePolicy9050(m, theta, System.currentTimeMillis())
     }
     @Volatile private var testLine = "-"
 
@@ -378,9 +390,17 @@ object RunnerModel8861 {
             }
             liveCrosses.incrementAndGet()
             if (liveSeen.size < MAX_LIVE_MINTS * 2) liveSeen[mint] = eventMs to scored
-            val m = model ?: return
-            val th = theta; if (!th.isFinite()) return
-            val score = m.predict(scored)
+            val policy9050 = livePolicy9050 ?: return
+            val th = policy9050.threshold; if (!th.isFinite()) return
+            val score = policy9050.model.predict(scored)
+            // Persist both selected and declined live crosses, using the actual
+            // immutable model generation, not the model present at grading.
+            val delay9050 = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { 0L }
+            if (RunnerResearchContract9050.validCross(s.bornMs, eventMs, recvMs, policy9050.publishedAtMs,
+                    priceSol, score, th, delay9050)) {
+                LaunchHour8628.runnerCross9050(mint, s.bornMs, eventMs, recvMs, policy9050.publishedAtMs,
+                    priceSol, score, th, delay9050, solUsd, scored)
+            }
             if (score < th) return
             if (!armed) { shadowPicks.incrementAndGet(); try { PipelineHealthCollector.labelInc("RUNNER_MODEL_SHADOW_PICK_8861") } catch (_: Throwable) {}; return }
             armedPicks.incrementAndGet()
@@ -475,13 +495,13 @@ object RunnerModel8861 {
             "live{crosses=${liveCrosses.get()} shadowPicks=${shadowPicks.get()} armedPicks=${armedPicks.get()} overflow=${liveOverflow.get()} evidenceServed=${served.get()}} " +
             "parity{same=$paritySame differ=$parityDiffer otherCrossPrint=$parityOtherCross} skipped{crossWasSpike=$spikeCross overflow=$overflow lateRows=$lateRows} " +
             "rule=tape features at the \$${FloorWatch8856.FLOOR_CAP_USD_8856.toInt()} cross -> doubled before a ${STOP_PCT_8861.toInt()}% stop; armed on the forward record only " +
-            "(n>=${LaunchReplay8744.PROVEN_MIN_N_8748}, mean-${LaunchReplay8744.FORWARD_Z_8856.toInt()}SE>0, positive without its best)]"
+            "(n>=${LaunchReplay8744.PROVEN_MIN_N_8748}, mean-${LaunchReplay8744.FORWARD_Z_8856.toInt()}SE>0, positive without its best)] causal9050=embargoed; historical forward record remains mixed-latency; frozen crossing receipts are research only"
     }
 
     @Synchronized
     internal fun resetForTest8861() {
         rows.clear(); known.clear(); candidates.clear(); copy(Record(), picks); copy(Record(), everyCross); loaded = true
-        model = null; theta = Double.NaN; quantile = Double.NaN; armed = false; status = "not-run"; testLine = "-"
+        model = null; livePolicy9050 = null; theta = Double.NaN; quantile = Double.NaN; armed = false; status = "not-run"; testLine = "-"
         bufs.clear(); fires.clear(); liveSeen.clear()
         lateRows = 0; spikeCross = 0; overflow = 0; pastHourRows = 0; paritySame = 0; parityDiffer = 0; parityOtherCross = 0
         fromHive = 0; hiveInbox.clear()

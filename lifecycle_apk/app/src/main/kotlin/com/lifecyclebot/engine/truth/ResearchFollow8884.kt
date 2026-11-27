@@ -277,7 +277,7 @@ object ResearchFollow8884 {
                     try {
                         val row8993 = ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
-                            if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,
+                            if (r != null) peak8973 else Double.NaN, Double.NaN,
                             if (r != null) low8973 else Double.NaN, why,
                             precursor9049 = w.precursor9049, runnerPath9049 = if (w.hour8983) w.runnerPath9049 else "")
                         // V5.0.8993 — a read Jupiter could not price carries what the chain's answer needs to finish it
@@ -306,7 +306,7 @@ object ResearchFollow8884 {
      * exits only at the hour, where in-band QUALITY / BLUECHIP sat at their round trip (-2.9 / -2.6 % medians). Every waiting
      * decision's coin is now priced every [SAMPLE_GAP_MS_8973] (one Jupiter batch per [BATCH_8884] distinct coins, the
      * longest-unsampled first, at most [SAMPLE_CALLS_8973] calls a pass), and the 4 h / 24 h row carries the path's high and
-     * low (gross % from the decision's price; heldPeakPct = the sampled high). The path is sampled, not tick-exact: a move
+     * low (gross % from the decision's price; heldPeakPct is unknown). The path is sampled, not tick-exact: a move
      * inside 15 minutes is not seen, so a stop is graded on the sampled lows (stated, not hidden).
      */
     internal const val SAMPLE_GAP_MS_8973 = 15L * 60_000L
@@ -670,7 +670,7 @@ object ResearchFollow8884 {
         val low = listOf(d("lo8993"), r.second).filter { it.isFinite() }.minOrNull() ?: r.second
         return ResearchRows8877.line8877(o.optLong("t", 0L), o.optLong("horizonMs", 0L), o.optString("mint"), o.optString("lane"),
             o.optBoolean("admitted"), o.optString("stage"), o.optString("setup"), d("pred"), d("v3"), d("mcap"), d("liq"), d("cost"),
-            r.first, r.second, peak, peak, low, CHAIN_PREFIX_8993 + o.optString("reason").removePrefix(UNPRICED_PREFIX_8993),
+            r.first, r.second, peak, Double.NaN, low, CHAIN_PREFIX_8993 + o.optString("reason").removePrefix(UNPRICED_PREFIX_8993),
             precursor9049 = o.optJSONObject("precursor9049")?.toString().orEmpty(),
             runnerPath9049 = o.optJSONObject("runnerPath9049")?.toString().orEmpty())
     }

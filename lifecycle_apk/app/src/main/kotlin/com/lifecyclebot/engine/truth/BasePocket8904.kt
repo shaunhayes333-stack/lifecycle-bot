@@ -129,6 +129,9 @@ object BasePocket8904 {
         val net = ResearchRows8877.rowNet8983(o)   // V5.0.8983 row reader; V5.0.8992 — an unpriced read is unknown, not filed
         val mint = o.optString("mint")
         if (!net.isFinite() || pocketOf8910(mint, o.optString("stage"), d("liq")) == null) return null
+        // Recovered endpoints remain in the research/authority file. They are not a
+        // sustained-price witness and cannot prove the managed base-exit strategy.
+        if (RunnerResearchContract9050.sampledEndpoint(o.optString("reason"), o.optString("pathKind9050"))) return null
         val lane = o.optString("lane")
         return Row8910(mint, lane, o.optLong("t", 0L), doctrineNet8910(lane, d("gross"), d("minPct"), d("heldPeakPct"), d("cost"), net), net)
     }

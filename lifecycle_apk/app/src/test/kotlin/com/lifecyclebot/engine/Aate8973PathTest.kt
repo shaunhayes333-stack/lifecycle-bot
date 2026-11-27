@@ -37,11 +37,11 @@ class Aate8973PathTest {
     @Test fun wired() {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/truth/ResearchFollow8884.kt").readText()
         assertTrue(src.contains("try { samplePaths8973(nowMs) } catch (_: Throwable) { failed.incrementAndGet() }"))
-        assertTrue(src.contains("if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,"))
+        assertTrue(src.contains("if (r != null) peak8973 else Double.NaN, Double.NaN,"))
         assertTrue(src.contains("again += w.carry8973(w.copy(next = w.next + 1))"))
         assertEquals(15L * 60_000L, f.SAMPLE_GAP_MS_8973)
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/ForwardReturnLabeler7731.kt").readText()
-            .contains("o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967, o.peakPct, o.minPct7962)"))
+            .contains("o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967, o.peakPct, o.minPct7962,"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 158. The path, not just the end (8973)"))
     }
 }
