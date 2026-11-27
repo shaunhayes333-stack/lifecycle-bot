@@ -16,7 +16,17 @@ internal object RunnerBarrierLearning9051 {
     private fun entryReachable(decision: Long, entry: Long, delay: Long): Boolean =
         decision > 0 && delay in 1L..60_000L && entry >= decision && entry - decision in delay..60_000L
 
-    /** Path coverage is a conservative prerequisite, even when a target was observed. */
+    /** Validate only bounded observed coverage; do not repair gaps by interpolation. */
+    internal fun validPrefix9057(entry: Long, last: Long, maxGap: Long, n: Int, prefix: Long, prefixN: Int): Boolean {
+        if (entry <= 0L || last < entry || prefix !in entry..last || n < 0 || prefixN !in 0..n ||
+            maxGap !in 0L..(last-entry) || (n.toLong() > last-entry) || (prefixN.toLong() > prefix-entry)) return false
+        if (n == 0) return last == entry && prefix == entry && maxGap == 0L && prefixN == 0
+        if (maxGap == 0L || last-entry > n.toLong()*maxGap) return false
+        if ((prefixN == 0) != (prefix == entry) || prefix-entry > prefixN.toLong()*GAP) return false
+        return if (maxGap <= GAP) prefix == last && prefixN == n else prefix < last && prefixN < n
+    }
+
+    /** Legacy v1 summaries retain their original conservative grading. */
     fun labels(decision: Long, entry: Long, delay: Long, last: Long, maxGap: Long,
                observations: Int, firstStop: Long, firstTargets: LongArray): IntArray {
         val out = IntArray(HEADS) { -1 }
@@ -29,13 +39,48 @@ internal object RunnerBarrierLearning9051 {
             (firstTargets[i-1] == 0L || firstTargets[i] < firstTargets[i-1])) return out
         for (h in horizons.indices) {
             val end = decision + horizons[h]
-            // Near-boundary marks are a labelled approximation; never use an
-            // incomplete path or an event after the horizon to manufacture a hit.
             if (last < end - 5_000L) continue
             for (i in targets.indices) {
                 val t = firstTargets[i]
                 if (t != 0L && t == firstStop) continue
                 out[h * targets.size + i] = if (t in 1L..end && (firstStop == 0L || t < firstStop)) 1 else 0
+            }
+        }
+        return out
+    }
+
+    /** v2: first barrier witnessed inside the continuous prefix is final for that
+     * head. Unresolved paths need horizon coverage; a later gap is not a loss.
+     * The existing five-second boundary approximation remains mark-only. */
+    internal fun prefixLabels9057(decision: Long, entry: Long, delay: Long, last: Long, maxGap: Long,
+                                  observations: Int, firstStop: Long, firstTargets: LongArray,
+                                  prefix: Long, prefixN: Int): IntArray {
+        val out = IntArray(HEADS) { -1 }
+        if (!entryReachable(decision,entry,delay) || decision > Long.MAX_VALUE-HOUR || last > decision+HOUR ||
+            !validPrefix9057(entry,last,maxGap,observations,prefix,prefixN) || prefixN == 0 ||
+            firstTargets.size != targets.size) return out
+        fun valid(t:Long) = t == 0L || t in (entry+1)..last
+        if (!valid(firstStop) || firstTargets.any { !valid(it) }) return out
+        for(i in 1 until firstTargets.size) if(firstTargets[i]!=0L &&
+            (firstTargets[i-1]==0L || firstTargets[i]<firstTargets[i-1])) return out
+        for(h in horizons.indices) {
+            val end = decision+horizons[h]
+            val through = minOf(prefix,end)
+            for(i in targets.indices) {
+                val hit = firstTargets[i]
+                val targetSeen = hit in (entry+1)..through
+                val stopSeen = firstStop in (entry+1)..through
+                val label = when {
+                    targetSeen && stopSeen && hit == firstStop -> -1
+                    targetSeen && (!stopSeen || hit < firstStop) -> 1
+                    stopSeen -> 0
+                    // A barrier recorded after the continuous prefix but within the horizon
+                    // cannot resolve ordering, even near the boundary.
+                    (hit in (through+1)..end || firstStop in (through+1)..end) -> -1
+                    prefix >= end-5_000L -> 0
+                    else -> -1
+                }
+                out[h*targets.size+i]=label
             }
         }
         return out

@@ -124,7 +124,8 @@ internal object SharedRunnerLab9051 {
             ResearchEvidence9043.read9043(o).quality!=ResearchEvidence9043.Quality.PRICED) return unknown
         val recipe=ForwardLabelRecipe9043.decode9043(o.optJSONObject("labelRecipe9043")) ?: return unknown
         val path=o.optJSONObject("runnerPath9049") ?: return unknown
-        if(recipe.decidedAtMs!=t || path.optInt("v")!=1 || path.optString("kind")!="OBSERVED_MARK_ORDER_ONLY" ||
+        val pathVersion=path.optInt("v")
+        if(recipe.decidedAtMs!=t || pathVersion !in 1..2 || path.optString("kind")!="OBSERVED_MARK_ORDER_ONLY" ||
             path.optBoolean("liveAuthority",true) || path.optLong("decisionMs")!=t ||
             path.optLong("horizonMs")!=RunnerBarrierLearning9051.HOUR ||
             abs(path.optDouble("stopPct",Double.NaN)-recipe.decision.stopPct)>1e-8 ||
@@ -144,8 +145,15 @@ internal object SharedRunnerLab9051 {
         if(stamps.length()!=RunnerBarrierLearning9051.targets.size || targetIds.length()!=stamps.length())return unknown
         for(i in RunnerBarrierLearning9051.targets.indices)if(targetIds.optDouble(i)!=RunnerBarrierLearning9051.targets[i].toDouble())return unknown
         val hits=LongArray(stamps.length()){if(stamps.isNull(it))0L else stamps.optLong(it,-1L)}
-        return RunnerBarrierLearning9051.labels(t,path.optLong("entryMs"),recipe.entryLatencyMs,path.optLong("lastMs"),
-            path.optLong("maxGapMs",-1),path.optInt("n"),if(path.isNull("firstStopMs"))0L else path.optLong("firstStopMs",-1),hits)
+        val entryMs=path.optLong("entryMs")
+        val last=path.optLong("lastMs")
+        val gap=path.optLong("maxGapMs",-1)
+        val n=path.optInt("n",-1)
+        val stop=if(path.isNull("firstStopMs"))0L else path.optLong("firstStopMs",-1)
+        // Legacy rows retain their conservative grading. No prefix inferred across a historical gap.
+        return if (pathVersion==2) RunnerBarrierLearning9051.prefixLabels9057(t,entryMs,recipe.entryLatencyMs,last,gap,n,stop,hits,
+            path.optLong("prefixLast9057",-1),path.optInt("prefixN9057",-1))
+        else RunnerBarrierLearning9051.labels(t,entryMs,recipe.entryLatencyMs,last,gap,n,stop,hits)
     }
 
     private fun trim(dest: File) {
