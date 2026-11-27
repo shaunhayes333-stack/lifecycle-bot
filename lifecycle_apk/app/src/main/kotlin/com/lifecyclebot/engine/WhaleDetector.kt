@@ -69,7 +69,14 @@ object WhaleDetector {
         val largestBuyerSharePct60s: Double = 0.0,
         val top3BuyerSharePct60s: Double = 0.0,
         val repeatBuyerWallets60s: Int = 0,
-    )
+        // A zero count is observed only when this view contains an actual print.
+        // Legacy/caller-constructed views without provenance remain unknown.
+        private val observedAtMs9047: Long = 0L,
+    ) {
+        /** At least one actual print in this window, not a claim of continuous feed coverage. */
+        fun countsObserved9047(nowMs: Long): Boolean = observedAtMs9047 > 0L &&
+            nowMs - observedAtMs9047 in 0L..60_000L && buyTx60s + sellTx60s > 0
+    }
     private val launchTrades7401 = java.util.concurrent.ConcurrentHashMap<String, java.util.ArrayDeque<LaunchTrade>>()
 
     data class LargeBuy(
@@ -221,9 +228,9 @@ object WhaleDetector {
             while (q.isNotEmpty() && nowMs - q.first().ts > 90_000L) q.removeFirst()
             q.toList()
         }
-        val r60 = rows.filter { nowMs - it.ts <= 60_000L }
-        val r15 = rows.filter { nowMs - it.ts <= 15_000L }
-        val prev15 = rows.filter { nowMs - it.ts in 15_001L..30_000L }
+        val r60 = rows.filter { it.ts > 0L && nowMs - it.ts in 0L..60_000L }
+        val r15 = r60.filter { nowMs - it.ts <= 15_000L }
+        val prev15 = r60.filter { nowMs - it.ts in 15_001L..30_000L }
         val buys = r60.filter { it.isBuy }
         val sells = r60.filterNot { it.isBuy }
         val buySol = buys.sumOf { it.sol }
@@ -269,6 +276,7 @@ object WhaleDetector {
             largestBuyerSharePct60s = largestBuyerShare7450,
             top3BuyerSharePct60s = top3BuyerShare7450,
             repeatBuyerWallets60s = repeatBuyerWallets7450,
+            observedAtMs9047 = r60.maxOfOrNull { it.ts } ?: 0L,
         )
     }
 

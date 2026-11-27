@@ -869,6 +869,10 @@ object LanePlaybook7907 {
         val buyerFlow8666 = try { com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs) } catch (_: Throwable) { null }
         val tape = try { com.lifecyclebot.engine.market.LaunchTape7921.features(ts.mint, nowMs) } catch (_: Throwable) { null }
         val flow = try { com.lifecyclebot.engine.WhaleDetector.launchFlow7401(ts.mint, nowMs = nowMs) } catch (_: Throwable) { null }
+        // The legacy reader returns an all-zero object even for an absent queue.
+        // Only an actual, in-window print makes its counts observations. A real
+        // sells-only window still has zero buys; no new entry gate is introduced.
+        val observedCountFlow9047 = flow?.takeIf { it.countsObserved9047(nowMs) }
         val opp = try { com.lifecyclebot.engine.market.MarketSweep7297.opportunityFor7777(ts.mint) } catch (_: Throwable) { null }
         val social = try { com.lifecyclebot.network.DexScreenerSocialSource.peek7895(ts.mint) } catch (_: Throwable) { null }
         val creator = try {
@@ -968,10 +972,10 @@ object LanePlaybook7907 {
             tapeDevSold = tape?.let { if (it.devSold) 1.0 else 0.0 } ?: Double.NaN,
             tapeFromPeak = tape?.fromPeakPct ?: Double.NaN,
             tapeFromFirst = tape?.fromFirstPct ?: Double.NaN,
-            buyTx15s = buyerFlow8666?.buyTx15s?.toDouble() ?: flow?.buyTx15s?.toDouble() ?: Double.NaN,
-            buyTxPrev15s = buyerFlow8666?.buyTxPrev15s?.toDouble() ?: flow?.buyTxPrev15s?.toDouble() ?: Double.NaN,
+            buyTx15s = buyerFlow8666?.buyTx15s?.toDouble() ?: observedCountFlow9047?.buyTx15s?.toDouble() ?: Double.NaN,
+            buyTxPrev15s = buyerFlow8666?.buyTxPrev15s?.toDouble() ?: observedCountFlow9047?.buyTxPrev15s?.toDouble() ?: Double.NaN,
             repeatBuyers60s = buyerFlow8666?.repeatBuyers60s?.toDouble()
-                ?: flow?.repeatBuyerWallets60s?.toDouble() ?: Double.NaN,
+                ?: observedCountFlow9047?.repeatBuyerWallets60s?.toDouble() ?: Double.NaN,
             oppSetup = opp?.setup.orEmpty(),
             oppPercentile = opp?.percentile ?: Double.NaN,
             oppRs = opp?.relativeStrengthPct ?: Double.NaN,

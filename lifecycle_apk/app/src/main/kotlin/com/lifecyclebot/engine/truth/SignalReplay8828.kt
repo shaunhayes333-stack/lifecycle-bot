@@ -24,7 +24,7 @@ object SignalReplay8828 {
 
     data class Rec(val id: String, val stopPct: Double, val n: Int, val mean: Double, val se: Double, val median: Double,
                    val exTop3: Double, val exTop3Se: Double, val win: Double, val tenX: Double, val halfA: Double, val halfB: Double,
-                   val capMedUsd: Double, val wallet: Boolean) {
+                   val capMedUsd: Double, val wallet: Boolean, val gradedDelayMs9047: Long = 0L) {
         val key: String get() = "$id stop${stopPct.toInt()}%"
         val proven: Boolean get() = n >= PROVEN_MIN_N && exTop3.isFinite() && exTop3Se.isFinite() && exTop3 - exTop3Se > 0.0 &&
             halfA > 0.0 && halfB > 0.0
@@ -76,7 +76,8 @@ object SignalReplay8828 {
                 }
             }
         }
-        return got.mapNotNull { (k, v) -> stats8828(k.substringBefore('|'), k.substringAfter('|').toDouble(), v) }
+        return got.mapNotNull { (k, v) -> stats8828(k.substringBefore('|'), k.substringAfter('|').toDouble(), v)
+            ?.copy(gradedDelayMs9047 = delayMs) }
             .sortedWith(compareByDescending<Rec> { it.n >= SHADOW_MIN_N }.thenByDescending { (it.exTop3 - it.exTop3Se).takeIf { d -> d.isFinite() } ?: -1e18 })
     }
 
@@ -108,7 +109,8 @@ object SignalReplay8828 {
     fun windowMs9025(id: String): Long = windowFor9025(id, gradedDelayMs9025)
 
     /** LaunchSniper8748: the signal it may trade (proven) and the one it watches (shadow). */
-    fun proven8828(): Rec? = proven
+    fun proven8828(minDelayMs: Long = LaunchSniper8748.requiredDelayMs8749()): Rec? =
+        proven?.takeIf { LaunchSniper8748.latencyFits9047(it.gradedDelayMs9047, minDelayMs) }
     fun shadow8828(): Rec? = shadow
 
     /** The live wallet key: a named buyer's 63-bit hash, or -1 when the feed named none. */
@@ -128,7 +130,7 @@ object SignalReplay8828 {
     }
 
     fun statusLine8828(): String {
-        val p = proven; val s = shadow
+        val p = proven8828(); val s = shadow
         val top = records.take(6).joinToString(" | ") { fmt(it) }.ifBlank { "-" }
         val bottom = records.filter { it.n >= SHADOW_MIN_N }.takeLast(3).joinToString(" | ") { fmt(it) }.ifBlank { "-" }
         return "signalReplay8828[$status signals=${SignalTape8828.IDS.size} proven{${p?.let { fmt(it) } ?: "none"}} shadow{${s?.let { fmt(it) } ?: "none"}} " +

@@ -102,6 +102,9 @@ object LearnerColumns8798 {
             put("tapeCrowd", f.tapeCrowd); put("tapeNetSol", f.tapeNetSol); put("buyersPerMin", f.tapeBuyersPerMin)
             put("buyShare", f.tapeBuyShare); put("largestBuyer", f.tapeLargest); put("top3Buyers", f.tapeTop3)
             put("devSold", f.tapeDevSold); put("fromPeak", f.tapeFromPeak); put("fromFirst", f.tapeFromFirst)
+            // V5.0.9047: the frame now distinguishes an absent legacy tape from
+            // observed zero counts. Existing dataset zeros have no recoverable
+            // provenance and remain unchanged; no schema/model-dimension reset.
             put("buyTx15s", f.buyTx15s); put("buyTxPrev15s", f.buyTxPrev15s); put("repeatBuyers60s", f.repeatBuyers60s)
             put("oppPct", f.oppPercentile); put("oppRs", f.oppRs); put("oppVolAccel", f.oppVolAccel); put("oppTxAccel", f.oppTxAccel)
             put("oppLiqDelta", f.oppLiqDelta); put("boost", f.boost); put("socials", f.socials); put("cto", b(f.cto))

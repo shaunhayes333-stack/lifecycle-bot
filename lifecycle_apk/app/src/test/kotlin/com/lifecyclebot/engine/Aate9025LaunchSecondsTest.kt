@@ -134,7 +134,10 @@ class Aate9025LaunchSecondsTest {
         assertEquals(23_000L, SignalReplay8828.windowFor9025("O9025A", 13_000L))
         assertEquals("never graded: the default window", 0L, SignalReplay8828.windowFor9025("O9025A", 0L))
         assertEquals("the other signals keep their window", 0L, SignalReplay8828.windowFor9025("O9010A", 13_000L))
-        assertTrue(src("engine/truth/LaunchSniper8748.kt").contains("gradedDelayMs8968 = SignalReplay8828.windowMs9025(rec.id)"))
+        val sniper = src("engine/truth/LaunchSniper8748.kt")
+        assertTrue(sniper.contains("gradedDelayMs8968 = SignalReplay8828.windowFor9025(rec.id, rec.gradedDelayMs9047)"))
+        assertTrue("the replay delay is frozen separately from the signal's evidence window",
+            sniper.contains("proofDelayMs9047 = rec.gradedDelayMs9047"))
     }
 
     @Test fun aCloseIsBookedOnceAcrossTheBusReplay() {

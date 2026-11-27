@@ -442,10 +442,10 @@ object LaunchReplay8744 {
     }
 
     /** The report: every nominee's forward record, most entries first. */
-    @Synchronized internal fun forwardLine8856(): String = "forward8856{" + forward8856.values.sortedByDescending { it.n }.joinToString(" | ") { f ->
+    @Synchronized internal fun forwardLine8856(minDelayMs: Long = LaunchSniper8748.requiredDelayMs8749()): String = "forward8856{" + forward8856.values.sortedByDescending { it.n }.joinToString(" | ") { f ->
         "${f.rule.id} n${f.n} mean${if (f.mean.isFinite()) "%+.1f".format(f.mean) else "-"}±${if (f.se.isFinite()) "%.1f".format(f.se) else "-"}% " +
             "exBest${if (f.exBest.isFinite()) "%+.1f".format(f.exBest) else "-"}% win${if (f.n > 0) f.wins * 100 / f.n else 0}% 2x+${if (f.n > 0) f.twoX * 100 / f.n else 0}% " +
-            (if (forwardProves8856(f)) "PROVEN" else "watching")
+            (if (forwardProves8856(f, minDelayMs)) "PROVEN" else "watching")
     }.ifBlank { "-" } + "}"
 
     internal fun resetForwardForTest8856() = synchronized(this) { forward8856.clear(); forwardRestored8856 = true }
@@ -453,6 +453,51 @@ object LaunchReplay8744 {
     /** Pure: the rule the sniper watches in shadow while none is proven: the best one it could trade, by the same order. */
     internal fun shadowOf8748(results: List<Result>, minDelayMs: Long = ARM_MIN_DELAY_MS_8748): Result? = results.firstOrNull {
         it.rule.ladder == Ladder.DOCTRINE && it.rule.delayMs >= maxOf(ARM_MIN_DELAY_MS_8748, minDelayMs) && it.n >= MIN_N
+    }
+
+    /**
+     * One completed grading pass. Forward records are detached while their owner holds its monitor; no live read
+     * consults that mutable book. Every distinct graded delay has its already-selected winner, using the unchanged
+     * replay-before-forward policy and each source's original ranking. A changing measured delay only selects among
+     * those grades; it neither retrains nor borrows a faster rule's return.
+     */
+    internal class ProofSet9047(val generation: Long, replayResults: List<Result>, forwardRecords: List<Forward8856>) {
+        private val delays: LongArray
+        private val proven: Array<Result?>
+        private val shadow: Array<Result?>
+
+        init {
+            val replay = replayResults.toList()
+            val forward = forwardRecords.filter { forwardProves8856(it) }.map { f ->
+                Result(f.rule, f.n, f.mean, f.se, f.wins.toDouble() / f.n, f.twoX.toDouble() / f.n,
+                    f.tenX.toDouble() / f.n, Double.NaN, f.exBest, f.se)
+            }
+            delays = (replay.asSequence() + forward.asSequence()).map { it.rule.delayMs }
+                .filter { it >= ARM_MIN_DELAY_MS_8748 }.distinct().sorted().toList().toLongArray()
+            proven = arrayOfNulls(delays.size)
+            shadow = arrayOfNulls(delays.size)
+            for (i in delays.indices) {
+                val need = delays[i]
+                proven[i] = provenOf8748(replay, need) ?: forward.filter { it.rule.delayMs >= need }
+                    .maxByOrNull { it.mean - FORWARD_Z_8856 * it.se }
+                shadow[i] = shadowOf8748(replay, need)
+            }
+        }
+
+        /** First graded boundary at or beyond the current need; allocation-free and independent of the worker. */
+        private fun indexAt(requiredDelayMs: Long): Int {
+            val need = maxOf(ARM_MIN_DELAY_MS_8748, requiredDelayMs)
+            var lo = 0
+            var hi = delays.size
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (delays[mid] < need) lo = mid + 1 else hi = mid
+            }
+            return lo
+        }
+
+        fun provenAt(requiredDelayMs: Long): Result? = proven.getOrNull(indexAt(requiredDelayMs))
+        fun shadowAt(requiredDelayMs: Long): Result? = shadow.getOrNull(indexAt(requiredDelayMs))
     }
 
     /**
@@ -472,18 +517,21 @@ object LaunchReplay8744 {
     fun attention8825(): Result? = attention
 
     @Volatile private var last: List<Result> = emptyList()
-    @Volatile private var proven: Result? = null
-    @Volatile private var shadow: Result? = null
+    @Volatile private var publishedProofs9047 = ProofSet9047(0L, emptyList(), emptyList())
     @Volatile private var lastRunMs = 0L
     @Volatile private var status = "not-run"
     private val running = AtomicBoolean(false)
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "launch-replay-8744").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
 
-    /** LaunchSniper8748: the proven rule (trade it) and the shadow rule (watch it), from the last run. */
-    fun proven8748(): Result? = proven
+    /** Select from the last completed grades at the latency the bot has now, not only when the replay last ran. */
+    fun proven8748(minDelayMs: Long = LaunchSniper8748.requiredDelayMs8749()): Result? = publishedProofs9047.provenAt(minDelayMs)
     /** V5.0.8756 — the last run's graded rules (the Lab's ladder comparison). */
     internal fun results8756(): List<Result> = last
-    fun shadow8748(): Result? = shadow
+    fun shadow8748(minDelayMs: Long = LaunchSniper8748.requiredDelayMs8749()): Result? = publishedProofs9047.shadowAt(minDelayMs)
+
+    @Synchronized internal fun publishProofs9047(results: List<Result>) {
+        publishedProofs9047 = ProofSet9047(publishedProofs9047.generation + 1L, results, forward8856.values.toList())
+    }
 
     /** Re-run in the background when due; never blocks the caller. */
     private fun maybeRun8744(nowMs: Long = System.currentTimeMillis()) {
@@ -515,12 +563,16 @@ object LaunchReplay8744 {
                     val cost = FieldManual7715.roundTripCostPct7766(SIZE_SOL_8748, SIZE_SOL_8748 * solUsd, 2.0 * CURVE_SOL_8748 * solUsd)
                     val need = try { LaunchSniper8748.requiredDelayMs8749() } catch (_: Throwable) { ARM_MIN_DELAY_MS_8748 }
                     val res = evaluate8748(set, solUsd, cost, rulesFor8829(need))   // V5.0.8829 — and at the latency the bot has
-                    last = res; shadow = shadowOf8748(res, need); attention = attentionOf8825(res)
+                    val watched = shadowOf8748(res, need)
+                    last = res; attention = attentionOf8825(res)
                     // V5.0.8856 — the watched rule is graded forward, on launches born after it was named, with no window
-                    try { restoreForward8856(); shadow?.rule?.let { nominate8856(it, nowMs) }; gradeForward8856(set, solUsd, cost, nowMs); saveForward8856() } catch (_: Throwable) {}
-                    proven = provenOf8748(res, need) ?: forwardProven8856(need)
+                    try {
+                        restoreForward8856(); watched?.rule?.let { nominate8856(it, nowMs) }
+                        gradeForward8856(set, solUsd, cost, nowMs); saveForward8856()
+                        publishProofs9047(res)
+                    } catch (_: Throwable) {}
                     // V5.0.8788 — the ladders on the same launches as the rule the sniper watches (or the best graded one)
-                    (shadow ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->
+                    (watched ?: res.firstOrNull { it.n >= MIN_N })?.rule?.let { base ->
                         try { paired = pairedLadders8788(set, base, solUsd, cost); pairedBase = base } catch (_: Throwable) {}
                     }
                     try { BaseFamily8754.evaluate8754(set, solUsd, cost, need) } catch (_: Throwable) {}   // V5.0.8754 the base family, same paths
@@ -604,9 +656,13 @@ object LaunchReplay8744 {
 
     fun statusLine8744(): String {
         maybeRun8744()
+        val need = LaunchSniper8748.requiredDelayMs8749()
+        val proofs = publishedProofs9047
+        val proven = proofs.provenAt(need)
+        val shadow = proofs.shadowAt(need)
         val top = last.take(5).joinToString(" · ") { line(it) }.ifBlank { "-" }
         return "launchReplay8744[$status rules=${GRID.size} proven{${proven?.let { line(it) } ?: "none"}} ${ladderLine8756(last)} ${pairedLine8788()} " +
-            "${totalLine8824(last)} ${forwardLine8856()} " +
+            "${totalLine8824(last)} ${forwardLine8856(need)} " +
             "shadow{${shadow?.let { line(it) } ?: "none"}} best{$top} rule=live prints only, spikes dropped, fills at the curve after " +
             "the latency, ranked by the mean without each rule's 3 best launches; proven = DOCTRINE ladder, >=${ARM_MIN_DELAY_MS_8748 / 1000}s, " +
             "n>=$PROVEN_MIN_N_8748, ex-top-3 mean - SE > 0 on the 48 h window, or the watched rule's forward record " +

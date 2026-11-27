@@ -58,7 +58,9 @@ object LaunchSniper8748 {
         val f = fires[mint]?.takeIf { liveFire8959(it, nowMs) } ?: return
         // V5.0.9008 — a proven tape signal's fire holds the stop its record was graded at, as the launch rule's does: until
         // now only the cap-cross rule matched here, so a position bought on a signal took the lane's stop instead
-        val stop9008 = LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId }?.stopPct
+        // 9047: retain the fire's own stop when a latency change selects a different current proof.
+        val stop9008 = f.gradedStopPct9047.takeIf { it.isFinite() && it > 0.0 }
+            ?: LaunchReplay8744.proven8748()?.rule?.takeIf { it.id == f.ruleId }?.stopPct
             ?: signalStop9008(f.ruleId, SignalReplay8828.proven8828()) ?: return
         if (admitted8949.size > 2_000) admitted8949.entries.removeIf { nowMs - it.value.second > ENTRY_MATCH_MS_8949 }
         admitted8949[mint] = stop9008 to nowMs
@@ -101,7 +103,8 @@ object LaunchSniper8748 {
     data class Fire(val mint: String, val atMs: Long, val ageMs: Long, val capUsd: Double, val ruleId: String, val n: Int,
                     val exTop3: Double, val exTop3Se: Double, val tenX: Double, val armed: Boolean, val triggerEventMs: Long = atMs,
                     val gradedDelayMs8968: Long = 0L, val sourceEventId9043: String = "",
-                    val receivedElapsedMs9043: Long? = null) {
+                    val receivedElapsedMs9043: Long? = null, val gradedStopPct9047: Double = Double.NaN,
+                    val proofDelayMs9047: Long = gradedDelayMs8968) {
         val opportunityId9043: String get() = "$mint|$ruleId|$triggerEventMs|${sourceEventId9043.ifBlank { atMs.toString() }}"
     }
 
@@ -138,6 +141,10 @@ object LaunchSniper8748 {
         val need = measured ?: ((quantileMs8749(lagHistSnapshot(), LAG_EDGES_S, 0.75) ?: 2_000L) + DECIDE_SEND_MS_8749)
         return maxOf(10_000L, need)
     }
+
+    /** Cached proof is authority only at a delay it was actually graded at, including the existing minimum. */
+    internal fun latencyFits9047(gradedDelayMs: Long, requiredDelayMs: Long): Boolean =
+        gradedDelayMs >= maxOf(LaunchReplay8744.ARM_MIN_DELAY_MS_8748, requiredDelayMs)
 
     /** Chain truth joins the exact sealed attempt. Mint/time proximity cannot prove which fire a buy captured. */
     fun noteBuyConfirmed8749(mint: String, nowMs: Long, attemptId: String = "", signature: String = "",
@@ -189,12 +196,15 @@ object LaunchSniper8748 {
             // V5.0.8856 — the floor watch follows every witnessed launch on this feed, whatever the replays have graded
             FloorWatch8856.onPrint8856(mint, eventMs, recvMs, priceSol, isBuy, live)
             // V5.0.8755 — a rule the Lab promoted (StrategyLab8755) is traded when the replays have not proven their own
-            val proven = LaunchReplay8744.proven8748() ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()
-            val result = proven ?: LaunchReplay8744.shadow8748()
-            val baseProven = BaseFamily8754.proven8754() ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()
-            val baseRule = baseProven ?: BaseFamily8754.shadow8754()
+            val need = requiredDelayMs8749()
+            val proven = LaunchReplay8744.proven8748(need)
+                ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+            val result = proven ?: LaunchReplay8744.shadow8748(need)
+            val baseProven = BaseFamily8754.proven8754()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+                ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+            val baseRule = baseProven ?: BaseFamily8754.shadow8754()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
             val attention = LaunchReplay8744.attention8825()?.rule   // V5.0.8825
-            val signalProven = SignalReplay8828.proven8828()             // V5.0.8828 — the owner's signals, graded
+            val signalProven = SignalReplay8828.proven8828(need)         // V5.0.8828 — the owner's signals, graded
             val signal = signalProven ?: SignalReplay8828.shadow8828()
             if (result == null && baseRule == null && attention == null && signal == null) return
             var s = st[mint]
@@ -226,7 +236,7 @@ object LaunchSniper8748 {
                         s.fired = true
                         fires.add(Fire(mint, recvMs, eventMs - s.bornMs, cap, result.rule.id, result.n, result.exTop3, result.exTop3Se, result.tenX,
                             armed = proven != null, triggerEventMs = eventMs, gradedDelayMs8968 = result.rule.delayMs,
-                            sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043))
+                            sourceEventId9043 = sig, receivedElapsedMs9043 = receivedElapsedMs9043, gradedStopPct9047 = result.rule.stopPct))
                     }
                 }
                 // the base family: every print shapes its peak and window; only a live one can fire (as in the replay)
@@ -271,7 +281,8 @@ object LaunchSniper8748 {
         onFire(Fire(mint, recvMs, eventMs - st.bornMs, cap, "SIGNAL8828:${rec.key}", rec.n, rec.exTop3, rec.exTop3Se, rec.tenX,
             armed = armed, triggerEventMs = eventMs,
             // V5.0.9025 — a first-seconds signal is evidence for the delay it was graded at plus one bar, not for 120 s
-            gradedDelayMs8968 = SignalReplay8828.windowMs9025(rec.id), sourceEventId9043 = sourceEventId, receivedElapsedMs9043 = receivedElapsedMs))
+            gradedDelayMs8968 = SignalReplay8828.windowFor9025(rec.id, rec.gradedDelayMs9047), sourceEventId9043 = sourceEventId,
+            receivedElapsedMs9043 = receivedElapsedMs, gradedStopPct9047 = rec.stopPct, proofDelayMs9047 = rec.gradedDelayMs9047))
     }
 
     /** V5.0.8825 — a crosser meeting the attention trigger: on the watchlist to be decided on and labelled (no evidence). */
@@ -331,7 +342,11 @@ object LaunchSniper8748 {
         f.receivedElapsedMs9043?.let { f.atMs - minOf(f.triggerEventMs, f.atMs) + elapsedMs - it }
             ?: (nowMs - minOf(f.triggerEventMs, f.atMs))
 
-    internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = f.armed &&
+    internal fun liveFire8959(f: Fire, nowMs: Long): Boolean = liveFireAtDelay9047(f, nowMs, requiredDelayMs8749())
+
+    /** A slower current runtime cannot reuse a faster grade. Recovery never renews this fire's original deadline. */
+    internal fun liveFireAtDelay9047(f: Fire, nowMs: Long, requiredDelayMs: Long): Boolean = f.armed &&
+        latencyFits9047(minOf(f.proofDelayMs9047, window8968(f.gradedDelayMs8968)), requiredDelayMs) &&
         (f.receivedElapsedMs9043 != null || nowMs >= f.atMs) && fireElapsed9043(f, nowMs) in 0L..window8968(f.gradedDelayMs8968)
 
     internal fun deadlineElapsed9043(f: Fire): Long? = f.receivedElapsedMs9043?.let {
@@ -574,19 +589,24 @@ object LaunchSniper8748 {
     }
 
     fun statusLine8748(): String {
-        val p = LaunchReplay8744.proven8748(); val sh = LaunchReplay8744.shadow8748()
+        val need = requiredDelayMs8749()
+        val p = LaunchReplay8744.proven8748(need)
+            ?: com.lifecyclebot.engine.lab.StrategyLab8755.launchProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+        val sh = LaunchReplay8744.shadow8748(need)
         val mode = when { p != null -> "ARMED on ${p.rule.id}"; sh != null -> "SHADOW on ${sh.rule.id}"; else -> "IDLE (no replay rule with n>=50 yet)" }
-        val bp = BaseFamily8754.proven8754(); val bsh = BaseFamily8754.shadow8754()
+        val bp = BaseFamily8754.proven8754()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+            ?: com.lifecyclebot.engine.lab.StrategyLab8755.baseProven8755()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
+        val bsh = BaseFamily8754.shadow8754()?.takeIf { latencyFits9047(it.rule.delayMs, need) }
         val baseMode = when { bp != null -> "ARMED on ${bp.rule.id}"; bsh != null -> "SHADOW on ${bsh.rule.id}"; else -> "IDLE" }
         val lf = lastFire?.let { "${it.mint.take(6)} age=${it.ageMs / 1000}s cap=\$${"%.0f".format(it.capUsd)} ${if (it.armed) "armed" else "shadow"} ${it.ruleId.take(40)}" } ?: "-"
         val h = lagHistSnapshot()
         val lag = "p50=${quantileMs8749(h, LAG_EDGES_S, 0.5)?.div(1000) ?: "-"}s p75=${quantileMs8749(h, LAG_EDGES_S, 0.75)?.div(1000) ?: "-"}s " +
             "p90=${quantileMs8749(h, LAG_EDGES_S, 0.9)?.div(1000) ?: "-"}s"
         val landedLine = synchronized(landed) { if (landed.isEmpty()) "-" else "n${landed.size} p50=${landed.sorted()[landed.size / 2] / 1000}s" }
-        return "sniper8748[launch:$mode base:$baseMode needDelay=${requiredDelayMs8749() / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
+        return "sniper8748[launch:$mode base:$baseMode needDelay=${need / 1000}s tapeLag{$lag} armedLanded{$landedLine} tracked=${st.size} livePrints=${livePrints.get()} latePrints=${latePrints.get()} noBirth=${unborn.get()} " +
             "fires{shadow=${shadowFires.get()} armed=${armedFires.get()}} runNow8949=${runs8949.get()} admitted8949=${admits8949.get()} heldOnRuleStop8949=${held8949.get()} watchAdds=${watchAdds.get()} evidenceServed=${evidenceServed.get()} " +
             "attention8825{on=${LaunchReplay8744.attention8825()?.rule?.id ?: "none"} fires=${attentionFires.get()} watchlistAdds=${attentionAdds.get()}} " +
-            "signals8828{${SignalReplay8828.proven8828()?.let { "ARMED ${it.key}" } ?: SignalReplay8828.shadow8828()?.let { "SHADOW ${it.key}" } ?: "none"} " +
+            "signals8828{${SignalReplay8828.proven8828(need)?.let { "ARMED ${it.key}" } ?: SignalReplay8828.shadow8828()?.let { "SHADOW ${it.key}" } ?: "none"} " +
             "tapes=${sigTapes.size}/$MAX_SIGNAL_TAPES_8828 fires=${signalFires.get()} armed=${signalArmed.get()} tapeFull=${signalTapeFull.get()}} " +
             "lastFire=$lf rule=every live pump.fun print checked against the replay's own trigger; buys only through admission + every safety door] " +
             clockLine9025()
