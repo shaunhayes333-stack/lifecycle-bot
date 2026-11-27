@@ -38,11 +38,13 @@ internal class NativeZoneSequence9058(
     data class Decision(val scope: Scope, val mark: Mark, val at: Long, val latency: Long,
                         val stop: Double, val cost: Double, val raw: DoubleArray, val admitted: Boolean,
                         val signalAt9059: Long? = null, val signal: NativeZoneContract9059.Signal? = null,
-                        val objective: NativeZoneContract9059.Objective? = null) {
+                        val objective: NativeZoneContract9059.Objective? = null,
+                        val market9061: NativeZoneMarket9061.Snapshot? = null,
+                        val pocket9061: LanePocketContext9061.Snapshot? = null) {
         fun valid() = scope.valid() && at in 1L..Long.MAX_VALUE-HOUR && mark.validAt(at) &&
             latency in 1L..60_000L && stop.isFinite() && stop in .01..100.0 && cost.isFinite() && cost in 0.0..100.0 && raw.size==RAW &&
             (signalAt9059==null || (signalAt9059>0L && at-signalAt9059 in 0L..5_000L)) &&
-            (signal==null || (signal.valid(at)&&signal.primary()==scope.setup&&signalAt9059==signal.at)) && (objective==null||objective.valid())
+            (signal==null || (signal.valid(at)&&signal.primary()==scope.setup&&signalAt9059==signal.at)) && (objective==null||objective.valid()) && (market9061==null||market9061.valid()) && (pocket9061==null||pocket9061.valid(scope.lane,scope.setup,at))
     }
     data class Prediction(val head: Int, val published: Long, val linear: Double, val neural: Double) {
         fun valid(at:Long) = head in NativeZoneContract9059.NATIVE_HEAD until HEADS && published in 1L..at && linear in 0.0..1.0 && neural in 0.0..1.0
@@ -53,7 +55,8 @@ internal class NativeZoneSequence9058(
                          val observations: Int, val maxGap: Long, val reason: String, val prediction: Prediction?,
                          val predictions9059: List<Prediction> = listOfNotNull(prediction),
                          val signalAt9059: Long? = null, val signal:NativeZoneContract9059.Signal?=null,
-                         val objective:NativeZoneContract9059.Objective?=null,val nativeHit:Long=0L,val nativeLabel:Int=-1) {
+                         val objective:NativeZoneContract9059.Objective?=null,val nativeHit:Long=0L,val nativeLabel:Int=-1,
+                         val market9061:NativeZoneMarket9061.Snapshot?=null,val pocket9061:LanePocketContext9061.Snapshot?=null) {
         val entryAt: Long get() = entry?.event ?: 0L
         val entryUsd: Double get() = entry?.usd ?: Double.NaN
         fun sample() = RunnerBarrierLearning9051.Sample(asset,at,available,features,labels)
@@ -130,7 +133,7 @@ internal class NativeZoneSequence9058(
         done++;if(w.labels.all{it<0})censored++
         if(completed.size>=maxCompleted){completed.removeFirst();dropped++}
         completed.addLast(Completed(w.d.scope,w.d.mark.asset,w.d.at,maxOf(now,w.d.at),w.features.copyOf(),w.labels.copyOf(),
-            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059,w.d.signal,w.d.objective,w.nativeHit,w.nativeLabel))
+            w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059,w.d.signal,w.d.objective,w.nativeHit,w.nativeLabel,w.d.market9061,w.d.pocket9061))
     }
     private fun mature(w:Window,t:Long,inclusive:Boolean){
         for(h in horizons.indices){val end=w.d.at+horizons[h]

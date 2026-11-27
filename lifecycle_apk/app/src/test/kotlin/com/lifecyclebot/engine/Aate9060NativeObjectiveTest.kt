@@ -20,7 +20,7 @@ class Aate9060NativeObjectiveTest {
         assertTrue(no.names().isEmpty())
         assertEquals("OBS_NO_MATCH",no.primary())
         val x=c.vector(DoubleArray(45){1.0},scope.copy(setup="RANGE_SUPPORT"),signal,null,t)
-        assertEquals(52,x.size)
+        assertEquals(73,x.size)
         assertTrue(x[40].isNaN()&&x[41].isNaN()&&x[50].isNaN())
         assertEquals(0.0,x[48],0.0)
         assertTrue(c.cohort("BASE_RETEST",t)!!.scorePct.isNaN())

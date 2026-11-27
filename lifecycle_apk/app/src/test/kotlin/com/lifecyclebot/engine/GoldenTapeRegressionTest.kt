@@ -3165,7 +3165,7 @@ class GoldenTapeRegressionTest {
         val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
         assertTrue("CYCLIC paper must use a virtual ring book and not mutate shared paper cash", cyclic.contains("paperLayerTag = \"CYCLIC\"") && cyclic.contains("debitPaperWallet = isLiveMode") && exec.contains("PAPER_BUY_SHARED_WALLET_DEBIT_SKIPPED") && exec.contains("PAPER_SELL_SHARED_WALLET_CREDIT_SKIPPED"))
         assertTrue("CYCLIC virtual sizing must bypass the normal tiny paper trade cap while preserving live cap", cyclic.contains("maxPaperTradeSolOverride = if (isLiveMode) null else cyclicAuthorizedSize7835") && exec.contains("maxPaperTradeSolOverride"))
-        assertTrue("CYCLIC persisted ring state must reset if impossible", cyclic.contains("sanitizeRingState") && cyclic.contains("CYCLIC_RING_IMPOSSIBLE_RESET"))
+        assertTrue("CYCLIC invalid state must await reconciliation without fabricating capital", cyclic.contains("sanitizeRingState") && cyclic.contains("CYCLIC_RING_RECONCILIATION_REQUIRED_9061"))
         assertTrue("CYCLIC panel must display engine-published price/PnL authority, not raw token fallback", main.contains("cyclicStatusDisplay") && main.contains("engine.entryPriceSol") && main.contains("engine.currentPriceSol") && main.contains("engine.priceState") && main.contains("px=") && main.contains("priceTxt") && !main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd"))
     }
 
@@ -3313,7 +3313,7 @@ class GoldenTapeRegressionTest {
         assertTrue("liveBuy must emit plan/route/tx/terminal stages", listOf("BUY_PLAN_OK", "BUY_ROUTE_REQUESTED", "BUY_TX_SUBMITTED", "buyTerminalOk", "buyTerminalFail").all { exec.contains(it) })
         assertTrue("Provider capability report must expose Helius Sender hot-path and fallback truth", pipe.contains("Provider capability (execution truth)") && pipe.contains("Helius role:") && pipe.contains("HOT_PATH=true(sender_for_proven_envelopes)") && pipe.contains("Helius Sender:") && pipe.contains("Jupiter quote/build/confirm") && pipe.contains("Execution leases:"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("CYCLIC must remain available but bankroll-gated in live", bot.contains("walletUsdNow >= liveThreshold") && bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE"))
+        assertTrue("Cyclic scheduling respects enablement and retains held exits without a 5000 USD prerequisite", bot.contains("isPaperRuntime || cyclicEnabled || CyclicTradeEngine.isInPosition") && !bot.contains("val liveThreshold = 5000.0"))
         assertTrue("DUMP live policy must soft-size risky lanes, not paper-only veto them", !exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") && exec.contains("REGIME_INNER_LANE_PIVOT_4568") && exec.contains("DUMP_INNER_LANE_DEFENSIVE_PIVOT"))
         assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
     }
@@ -3512,11 +3512,11 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("CYCLIC live tick must follow enabled authority only after wallet USD bankroll gate", bot.contains("cyclicEnabled && walletUsdNow >= liveThreshold") && !bot.contains("CYCLIC is a live bleeder"))
+        assertTrue("Cyclic scheduling respects enablement and retains held exits without a 5000 USD prerequisite", bot.contains("isPaperRuntime || cyclicEnabled || CyclicTradeEngine.isInPosition") && !bot.contains("val liveThreshold = 5000.0"))
         assertFalse("DUMP regime must not force live lanes to paper-only", exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") || exec.contains("dump_paper_only:"))
         assertTrue("DUMP regime must remain risk-shaped via the V5.0.4568 inner-lane defensive pivot", exec.contains("REGIME_INNER_LANE_PIVOT_4568") && exec.contains("DUMP_INNER_LANE_DEFENSIVE_PIVOT"))
         assertTrue("Fresh no-pair discoveries must be held hot before aged demotion", bot.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && bot.contains("NO_PAIR_NO_FALLBACK_AGED"))
-        assertTrue("Report must expose live lane policy and no-pair hot hydration", pipe.contains("noPairHeldHot") && (pipe.contains("CYCLIC=liveSoftSized") || bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE")))
+        assertTrue("Report must expose live lane policy and no-pair hot hydration", pipe.contains("noPairHeldHot") && (pipe.contains("CYCLIC=liveSoftSized") || bot.contains("CyclicTradeEngine.isInPosition")))
     }
 
     @Test
@@ -3755,7 +3755,7 @@ class GoldenTapeRegressionTest {
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         val merge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMergeQueue.kt").readText()
         val lanes = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
-        assertTrue("CYCLIC must not tick live until actual wallet USD is >= 5000", bot.contains("val liveThreshold = 5000.0") && bot.contains("walletUsdNow >= liveThreshold") && bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE"))
+        assertTrue("Cyclic scheduling respects enablement and retains held exits without a 5000 USD prerequisite", bot.contains("isPaperRuntime || cyclicEnabled || CyclicTradeEngine.isInPosition") && !bot.contains("val liveThreshold = 5000.0"))
         assertFalse("CYCLIC live threshold must not remain 1500", bot.contains("val liveThreshold = 1500.0") || bot.contains("walletUsd >= ${'$'}1500"))
         assertTrue("Jupiter quote endpoint must never be disabled", endpoint.contains("neverDisable(endpoint)") && endpoint.contains("JUPITER_QUOTE_NEVER_DISABLED") && endpoint.contains("return false"))
         assertFalse("Executor must not pre-throw PROVIDER_DISABLED for Jupiter quote", exec.contains("""throw Exception("PROVIDER_DISABLED:JUPITER_QUOTE"""))
@@ -9000,7 +9000,8 @@ class GoldenTapeRegressionTest {
         assertFalse("tick must never resurrect disabled Cyclic authority", cyclic.contains("if (!enabled.get()) { enabled.set(true) }"))
         assertTrue(cyclic.contains("CYCLIC_TICK_SKIPPED_DISABLED_6566"))
         val closeCycle = cyclic.substring(cyclic.indexOf("private fun closeCycle("), cyclic.indexOf("private fun clearLocalCycleState6566"))
-        assertTrue(closeCycle.indexOf("when (sellResult6566)") < closeCycle.indexOf("// Update ring only after confirmed sell finality."))
+        assertTrue(closeCycle.indexOf("when (sellResult6566)") < closeCycle.indexOf("if (!settleCycle9061(context,reason,solPrice))"))
+        assertTrue(closeCycle.contains("SpecialistCloseProjection7858.settledOutcome") && closeCycle.contains("settled.netSol"))
         assertTrue(closeCycle.contains("CYCLIC_SELL_NOT_FINAL_6566") && closeCycle.contains("retain_position_no_learning"))
         assertTrue(closeCycle.contains("Executor.SellResult.CONFIRMED") && closeCycle.contains("Executor.SellResult.PAPER_CONFIRMED"))
     }

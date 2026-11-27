@@ -34,7 +34,7 @@ internal object NativeZoneNet9058 {
         val tr=RunnerBarrierLearning9051.windows9055(split.train,head)
         val va=RunnerBarrierLearning9051.windows9055(split.valid,head)
         val te=RunnerBarrierLearning9051.windows9055(split.test,head)
-        val width=tr.first().sample.features.size;if(width !in 1..64)return null
+        val width=tr.first().sample.features.size;if(width !in 1..96)return null
         val mean=DoubleArray(width);val sd=DoubleArray(width)
         for(k in 0 until width){var n=0.0;var s=0.0;var ss=0.0
             for(r in tr){val z=squash(r.sample.features[k]);if(z.isFinite()){n+=r.weight;s+=r.weight*z;ss+=r.weight*z*z}}

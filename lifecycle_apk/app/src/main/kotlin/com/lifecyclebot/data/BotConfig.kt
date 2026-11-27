@@ -350,7 +350,7 @@ data class BotConfig(
     val forexEnabled: Boolean = true,           // Forex trader (Major, Cross, EM pairs)
     val perpsEnabled: Boolean = true,           // SOL Perps trader
 
-    // ═══ Cyclic Trade Ring ($500 USD compound ring) ═══
+    // ═══ Cyclic Trade Ring (starts at $5, compounds its own realised returns) ═══
     // V5.0.6573 — operator mandate: "all trading lanes, layers, trading tools
     // need to be enabled and functioning" so the self-learning system has full
     // observation across every lane. Cyclic paper ring rejoins the paper
