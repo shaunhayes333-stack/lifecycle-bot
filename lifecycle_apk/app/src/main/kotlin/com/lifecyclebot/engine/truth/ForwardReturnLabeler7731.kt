@@ -428,6 +428,9 @@ object ForwardReturnLabeler7731 {
         @Volatile var v38877 = Double.NaN
         @Volatile var age9002 = Double.NaN   // V5.0.9002 — the coin's age (minutes) at the decision, for the research row
         @Volatile var flow8924 = ""   // V5.0.8924 — the buyer flow at the decision (BuyerFlow8666.View), for the research row
+        // Immutable decision features survive consumption of the short-horizon EdgeModel snapshot.
+        @Volatile var precursor9049 = ""
+        @Volatile var runnerPath9049: RunnerTargetPath9049? = null
         @Volatile var pathNet8855 = Double.NaN
         @Volatile var pathStopped8855 = false
         /** V5.0.8859 — why a mark seen inside an open horizon window could not grade it (blank = no mark was seen in one). */
@@ -1012,6 +1015,8 @@ object ForwardReturnLabeler7731 {
             .put("trajectoryDone8851", org.json.JSONArray(o.trajectoryDone8851.toList()))
             .put("qualifiedLong8851", o.qualifiedLong8851)
             .put("pred8855", o.pred8855.toString()).put("pathNet8855", o.pathNet8855.toString()).put("pathStopped8855", o.pathStopped8855)
+            .put("v38877", o.v38877.toString()).put("age9002", o.age9002.toString()).put("flow8924", o.flow8924)
+            .put("precursor9049", o.precursor9049).put("runnerPath9049", o.runnerPath9049?.pack().orEmpty())
             .put("gateNet8856", o.gateNet8856.toString()).put("gateFlags8856", o.gateFlags8856)
             .put("targetHorizon", o.targetHorizon8521).put("interimUnavailable", o.interimUnavailable8521)
             .put("firstReadValid", o.firstReadValid8521)
@@ -1042,6 +1047,11 @@ object ForwardReturnLabeler7731 {
         o.trajectoryVenueEpoch8851 = e.optInt("trajectoryVenueEpoch8851").takeIf { it > 0 }
         o.qualifiedLong8851 = e.optBoolean("qualifiedLong8851")
         o.pred8855 = e.optString("pred8855").toDoubleOrNull() ?: Double.NaN
+        o.v38877 = e.optString("v38877").toDoubleOrNull() ?: Double.NaN
+        o.age9002 = e.optString("age9002").toDoubleOrNull() ?: Double.NaN
+        o.flow8924 = e.optString("flow8924").takeIf { it.length <= 1024 }.orEmpty()
+        o.precursor9049 = ResearchRows8877.validPrecursor9049(e.optString("precursor9049"), o.mint, o.lane, o.atMs)
+        o.runnerPath9049 = RunnerTargetPath9049.unpack(e.optString("runnerPath9049"), o.atMs, o.basis8386.mark.observedAtMs)
         o.pathNet8855 = e.optString("pathNet8855").toDoubleOrNull() ?: Double.NaN
         o.pathStopped8855 = e.optBoolean("pathStopped8855")
         o.gateNet8856 = e.optString("gateNet8856").toDoubleOrNull() ?: Double.NaN
@@ -1498,6 +1508,7 @@ object ForwardReturnLabeler7731 {
                 it.v38877 = it.edge8537?.raw?.v3 ?: Double.NaN   // V5.0.8877 — for the hour's research row
                 it.age9002 = try { CanonicalTokenBirthTime7440.resolvedAgeMinutes(ts, nowMs) ?: Double.NaN } catch (_: Throwable) { Double.NaN }
                 it.flow8924 = try { ResearchRows8877.flowJson8924(com.lifecyclebot.engine.market.BuyerFlow8666.read(ts.mint, nowMs)) } catch (_: Throwable) { "" }
+                it.precursor9049 = try { ResearchRows8877.precursor9049(it.mint, l, it.atMs, it.edge8537, it.flow8924) } catch (_: Throwable) { "" }
                 it.liqUsd8539 = liq  // V5.0.8539
                 it.entryLiq7997 = if (ts.lastLiquidityUsd.isFinite() && ts.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd else 0.0
                 it.kind8063 = try { kindOf8063(ts) } catch (_: Throwable) { "" }
@@ -1635,7 +1646,8 @@ object ForwardReturnLabeler7731 {
         if (!ResearchFollow8884.tradeable8923(o.liqUsd8539)) return
         try {
             ResearchFollow8884.noteLostHour8983(o.atMs, o.mint, o.lane, o.admitted, o.stage, o.setup7955, o.pred8855, o.v38877,
-                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967)
+                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967,
+                precursor9049 = o.precursor9049, runnerPath9049 = o.runnerPath9049?.json().orEmpty())
         } catch (_: Throwable) {}
     }
 
@@ -2378,7 +2390,8 @@ object ForwardReturnLabeler7731 {
                 ResearchRows8877.pathJson9013(o.dipBeforePeak7962, if (o.peakAtMs7955 > o.atMs) o.peakAtMs7955 - o.atMs else 0L, o.giveback5_7955),
                 priceProof9043 = ResearchEvidence9043.priceProof9043(o.basis8386.mark, o.lastAcceptedMark8395,
                     o.peakMark9043, try { o.lastAcceptedMark8395?.let { LabelEvidence8386.migrationHook8911?.invoke(o.basis8386.mark, it) } == true } catch (_: Throwable) { false }),
-                labelRecipe9043 = o.labelRecipe9043?.json9043()?.toString().orEmpty()))
+                labelRecipe9043 = o.labelRecipe9043?.json9043()?.toString().orEmpty(),
+                precursor9049 = o.precursor9049, runnerPath9049 = o.runnerPath9049?.json().orEmpty()))
             // V5.0.8891 — measurement: an hour booked on a last accepted mark older than this labeler's own price age bar
             if (o.lastPxAtMs > 0L && System.currentTimeMillis() - o.lastPxAtMs > MARK_MAX_AGE_MS_7731)
                 ResearchRows8877.noteStale8891(o.lastSkip8891.ifBlank { "NONE_REFUSED" })
@@ -2386,7 +2399,8 @@ object ForwardReturnLabeler7731 {
         // V5.0.8884 (plan W8) — and the same decision is read again 4 h and 24 h after it, in the same file
         try {
             ResearchFollow8884.note8884(o.atMs, o.mint, o.lane, o.admitted, o.stage, o.setup7955, o.pred8855, o.v38877,
-                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967, o.peakPct, o.minPct7962)
+                o.entryMcap, o.liqUsd8539, o.costPct, o.entryPrice, o.reason7967, o.peakPct, o.minPct7962,
+                precursor9049 = o.precursor9049)
         } catch (_: Throwable) {}
         book(o, 240, net, gross)
         return true // Cortex's old onLabel(..., 240) was a no-op; the exact revision now owns delivery.
@@ -3448,6 +3462,17 @@ object ForwardReturnLabeler7731 {
      * Recovery finishes a horizon, not the original observation. Keep its identity and basis for the next
      * checkpoint. The hour uses the same tokenomics/exit-deferral decision as an on-time hour completion.
      */
+    /** Same accepted-mark path for every lane; no signal/entry authority is granted. */
+    private fun noteRunnerPath9049(o: Obs, mark: LabelMark8386, gross: Double) {
+        val recipe = o.labelRecipe9043 ?: return
+        if (o.precursor9049.isBlank() || !entryFill8521(o) || !eligible8386(o) ||
+            !LabelEvidence8386.independent8418(o.basis8386.mark) || !LabelEvidence8386.independent8418(mark) ||
+            mark.observedAtMs > o.atMs + H240_MS_7731) return
+        val path = o.runnerPath9049 ?: RunnerTargetPath9049.start(o.atMs, o.basis8386.mark.observedAtMs,
+            recipe.decision.stopPct, o.costPct)?.also { o.runnerPath9049 = it } ?: return
+        path.observe(mark.observedAtMs, gross)
+    }
+
     private fun recoveredHorizon8397(key: String, o: Obs, recovered: LabelMark8386, nowMs: Long) {
         o.via8891 = "RECOVERED:" + recovered.source.take(24)   // V5.0.8891 — measurement: the hour came from a recovery read
         if (!entryFill8521(o)) {
@@ -3468,6 +3493,7 @@ object ForwardReturnLabeler7731 {
             }
         }
         o.lastMark8386 = recovered; o.lastAcceptedMark8395 = recovered
+        noteRunnerPath9049(o, recovered, gross)
         o.lastPx = recovered.usd; o.lastPxAtMs = recovered.observedAtMs
         val net = netPct(o.entryPrice, recovered.usd, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
         if (!o.done60) {
@@ -3809,6 +3835,7 @@ object ForwardReturnLabeler7731 {
                     // V5.0.8094 — the rebased entry already holds the decision-to-fill move: the chase is not charged twice.
                     if (rebaseClearsChase8094(labelEntryLatency9043(o))) { o.costPct = (o.costPct - o.chase8094).coerceAtLeast(0.0); o.chase8094 = 0.0 }
                     o.peakPct = 0.0; o.minPct7962 = 0.0; o.heldPeak8071 = 0.0; o.dipBeforePeak7962 = Double.NaN; o.peakMark9043 = null
+                    o.runnerPath9049 = null   // the new reachable entry has its own barrier clock
                     synchronized(o.recent8071) { o.recent8071.clear(); resetPath8366(o) }
                 }
               }
@@ -3835,6 +3862,7 @@ object ForwardReturnLabeler7731 {
             o.lastAcceptedMark8395=mark8386
             o.accepted8891++
             val gross = (px / o.entryPrice - 1.0) * 100.0
+            noteRunnerPath9049(o, mark8386, gross)
             noteWindowRelease8418(o, gross, mark8386.observedAtMs)   // V5.0.8418 — before the low is graded
             if (gross < o.minPct7962) { notePathLow8366(o, mark8386.observedAtMs, gross); o.minPct7962 = gross }  // V5.0.8366 — first mark past a stop
             // V5.0.8000 — a runner inside its first 30 minutes is broadcast to every installed instance.

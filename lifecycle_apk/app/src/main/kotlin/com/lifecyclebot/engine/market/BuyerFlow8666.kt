@@ -138,6 +138,19 @@ object BuyerFlow8666 {
         }
     }
 
+    /** Cheap evidence priority check; observed trades, not a buy signal or approval.
+     * No allocating a full flow View on each discovery skip. The existing read
+     * and every safety/entry gate still apply.
+     */
+    internal fun freshEvidence9049(mint: String, nowMs: Long): Boolean {
+        val q = prints[mint] ?: return false
+        return synchronized(q) {
+            val latest = q.prints.peekLast()?.atMs ?: return@synchronized false
+            q.prints.size >= 3 && nowMs - latest in 0L..FRESH_MS &&
+                q.prints.count { nowMs - it.atMs in 0L..WINDOW_MS } >= 3
+        }
+    }
+
     /** A non-fetching, freshness-stamped read; null is genuinely unobserved. */
     fun read(mint: String, nowMs: Long = System.currentTimeMillis()): View? {
         val q = prints[mint]

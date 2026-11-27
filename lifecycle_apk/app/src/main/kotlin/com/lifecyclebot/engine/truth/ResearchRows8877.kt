@@ -123,7 +123,8 @@ object ResearchRows8877 {
     fun line8877(atMs: Long, horizonMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String,
                  pred: Double, v3: Double, mcapUsd: Double, liqUsd: Double, costPct: Double, net: Double, gross: Double,
                  peakPct: Double, heldPeakPct: Double, minPct: Double, reason: String, diag: String = "", flow: String = "",
-                 ageMin: Double = Double.NaN, path: String = "", priceProof9043: String = "", labelRecipe9043: String = ""): String {
+                 ageMin: Double = Double.NaN, path: String = "", priceProof9043: String = "", labelRecipe9043: String = "",
+                 precursor9049: String = "", runnerPath9049: String = ""): String {
         fun n(v: Double) = if (v.isFinite()) "%.6g".format(java.util.Locale.US, v) else "null"
         fun s(v: String, max: Int) = v.replace("\\", "").replace("\"", "").take(max)
         return "{\"t\":$atMs,\"horizonMs\":$horizonMs,\"mint\":\"${s(mint, 44)}\",\"lane\":\"${s(lane, 32)}\",\"admitted\":$admitted," +
@@ -141,7 +142,9 @@ object ResearchRows8877 {
             // V5.0.9013 — the hour's path: the low before the peak, when the peak came, the give-back after it (pathJson9013)
             (if (path.startsWith("{") && path.endsWith("}")) ",\"path9013\":$path" else "") +
             // V5.0.8924 — the buyer flow at the decision, when it was read
-            (if (flow.startsWith("{") && flow.endsWith("}")) ",\"flow8924\":$flow}" else "}")
+            (if (flow.startsWith("{") && flow.endsWith("}")) ",\"flow8924\":$flow" else "") +
+            (if (precursor9049.startsWith("{") && precursor9049.endsWith("}")) ",\"precursor9049\":$precursor9049" else "") +
+            (if (runnerPath9049.startsWith("{") && runnerPath9049.endsWith("}")) ",\"runnerPath9049\":$runnerPath9049" else "") + "}"
     }
 
     /**
@@ -186,9 +189,48 @@ object ResearchRows8877 {
     fun flowJson8924(v: com.lifecyclebot.engine.market.BuyerFlow8666.View?): String {
         if (v == null) return ""
         fun n(x: Double) = if (x.isFinite()) "%.4g".format(java.util.Locale.US, x) else "null"
-        return "{\"buyers60\":${v.distinctBuyers60s},\"new15\":${v.newBuyers15s},\"perMin\":${n(v.buyersPerMin)},\"buyShare\":${n(v.buySharePct)}," +
+        return "{\"asOfMs\":${v.atMs},\"buyers60\":${v.distinctBuyers60s},\"new15\":${v.newBuyers15s},\"perMin\":${n(v.buyersPerMin)},\"buyShare\":${n(v.buySharePct)}," +
             "\"netSol60\":${n(v.netSol60s)},\"buyTx15\":${v.buyTx15s},\"buyTxPrev15\":${v.buyTxPrev15s},\"repeat60\":${v.repeatBuyers60s}," +
             "\"txPerMin\":${n(v.txPerMin)},\"accel\":${n(v.volumeAccelScore)},\"sustained\":${v.sustainedDemand}}"
+    }
+
+    /** Compact immutable decision features from the existing EdgeModel snapshot, never re-read at label time.
+     * Full asset identity is retained here (older research rows truncated asset IDs).
+     * Legacy/missing features remain absent, and the flow source time is explicit.
+     */
+    internal fun precursor9049(mint: String, lane: String, atMs: Long, snap: EdgeModel8537.Snap?, flow: String): String {
+        val o = org.json.JSONObject().put("v", 1).put("assetId", mint).put("lane", lane).put("atMs", atMs)
+        val s = snap?.takeIf { it.mint == mint && it.raw.lane == lane && it.atMs == atMs }
+        o.put("rawPresent", s != null)
+        if (s != null) {
+            val r = s.raw
+            o.put("source", r.source.take(120)).put("phase", r.phase).put("modelEpoch", s.modelEpoch)
+            fun n(k: String, v: Double) { if (v.isFinite()) o.put(k, v) }
+            n("age",r.ageMin); n("runup",r.runup); n("pxPeak",r.pxPeak); n("dd",r.dd)
+            n("bp",r.bp); n("chg5m",r.chg5m); n("chg1h",r.chg1h); n("volAccel",r.volAccel)
+            n("holderVel",r.holderVel); n("txVel",r.txVel); n("top",r.top); n("turnover",r.turnover)
+            n("newBuyers15s8666",r.newBuyers15s8666)
+            for (k in listOf("agePrice","ageBp","ageChg","ageLiq","ageHolders","secsSincePrint",
+                "oppVolAccel","oppTxAccel","oppLiqDelta","buyTx15s","buyTxPrev15s","repeatBuyers60s"))
+                n(k, LearnerColumns8798.valueOf8873(r.ext, k))
+        }
+        // A stale, absent or future observation is not zero demand.
+        try {
+            if (flow.isNotBlank()) {
+                val b = org.json.JSONObject(flow)
+                if (atMs - b.optLong("asOfMs") in 0L..20_000L) o.put("flow",b)
+            }
+        } catch (_: Exception) {}
+        return o.toString().takeIf { it.length <= 2048 }.orEmpty()
+    }
+
+    internal fun validPrecursor9049(raw: String, mint: String, lane: String, atMs: Long): String {
+        if (raw.isBlank() || raw.length > 2048) return ""
+        return try {
+            val o = org.json.JSONObject(raw)
+            raw.takeIf { o.optInt("v") == 1 && o.optString("assetId") == mint &&
+                o.optString("lane") == lane && o.optLong("atMs") == atMs }.orEmpty()
+        } catch (_: Exception) { "" }
     }
 
     /** ForwardReturnLabeler7731.bookTwoForty7944: write one decision's hour read. Never blocks the labeler. */

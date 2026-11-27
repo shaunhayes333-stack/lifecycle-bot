@@ -51,7 +51,15 @@ object ResearchFollow8884 {
         @Volatile var hiUsd8973: Double = Double.NaN
         @Volatile var loUsd8973: Double = Double.NaN
         @Volatile var sampledAtMs8973: Long = 0L
-        fun carry8973(to: Wait8884): Wait8884 { to.hiUsd8973 = hiUsd8973; to.loUsd8973 = loUsd8973; to.sampledAtMs8973 = sampledAtMs8973; return to }
+        @Volatile var precursor9049: String = ""
+        @Volatile var runnerPath9049: String = ""
+        fun carry8973(to: Wait8884): Wait8884 {
+            to.hiUsd8973 = hiUsd8973; to.loUsd8973 = loUsd8973; to.sampledAtMs8973 = sampledAtMs8973
+            to.precursor9049 = precursor9049
+            // Never represent the first-hour path as an ordered four/24-hour path.
+            if (to.hour8983) to.runnerPath9049 = runnerPath9049
+            return to
+        }
         fun see8973(usd: Double, atMs: Long) {
             if (!(usd.isFinite() && usd > 0.0)) return
             if (!(hiUsd8973 >= usd)) hiUsd8973 = usd
@@ -115,9 +123,11 @@ object ResearchFollow8884 {
      * 24 h. A coin Jupiter prices writes its real hour row; one it cannot price is asked of the chain once (8993), then writes NO_PRICE (unknown, 8992).
      */
     fun noteLostHour8983(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
-                         mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String) {
+                         mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String,
+                         precursor9049: String = "", runnerPath9049: String = "") {
         lostHourNoted8983.incrementAndGet()
-        note8884(atMs, mint, lane, admitted, stage, setup, pred, v3, mcap, liq, cost, entryUsd, reason, hour8983 = true)
+        note8884(atMs, mint, lane, admitted, stage, setup, pred, v3, mcap, liq, cost, entryUsd, reason, hour8983 = true,
+            precursor9049 = precursor9049, runnerPath9049 = runnerPath9049)
     }
 
     /** Brief: the lost marks sent to the hour read and what the read found. */
@@ -145,7 +155,8 @@ object ResearchFollow8884 {
     internal fun encode8884(w: Wait8884): String = JSONObject().put("t", w.atMs).put("m", w.mint).put("l", w.lane).put("a", w.admitted)
         .put("st", w.stage).put("su", w.setup).put("p", num(w.pred)).put("v", num(w.v3)).put("mc", num(w.mcap)).put("lq", num(w.liq))
         .put("c", num(w.cost)).put("e", w.entryUsd).put("r", w.reason).put("n", w.next)
-        .put("hi", num(w.hiUsd8973)).put("lo", num(w.loUsd8973)).put("ps", w.sampledAtMs8973).put("h1", w.hour8983).toString()
+        .put("hi", num(w.hiUsd8973)).put("lo", num(w.loUsd8973)).put("ps", w.sampledAtMs8973).put("h1", w.hour8983)
+        .put("precursor9049", w.precursor9049).put("runnerPath9049", w.runnerPath9049).toString()
 
     private fun num(v: Double): Any = if (v.isFinite()) v else JSONObject.NULL
 
@@ -156,6 +167,8 @@ object ResearchFollow8884 {
             word8945(o.optString("su")), d("p"), d("v"), d("mc"), d("lq"), d("c"), o.getDouble("e"), word8945(o.optString("r")), o.optInt("n", 0),
             hour8983 = o.optBoolean("h1", false))   // V5.0.8983 (absent before: false)
         w.hiUsd8973 = d("hi"); w.loUsd8973 = d("lo"); w.sampledAtMs8973 = o.optLong("ps", 0L)   // V5.0.8973 (absent before: NaN / 0)
+        w.precursor9049 = ResearchRows8877.validPrecursor9049(o.optString("precursor9049"),w.mint,w.lane,w.atMs)
+        w.runnerPath9049 = o.optString("runnerPath9049").takeIf { w.hour8983 && it.length <= 1024 && it.startsWith("{") && it.endsWith("}") }.orEmpty()
         w.takeIf { it.mint.isNotBlank() && it.entryUsd > 0.0 && it.next in HORIZONS_8884.indices }
     } catch (_: Throwable) { null }
 
@@ -164,12 +177,15 @@ object ResearchFollow8884 {
     /** ForwardReturnLabeler7731.bookTwoForty7944: the decision that just wrote its hour row waits for its 4 h and 24 h reads. */
     fun note8884(atMs: Long, mint: String, lane: String, admitted: Boolean, stage: String, setup: String, pred: Double, v3: Double,
                  mcap: Double, liq: Double, cost: Double, entryUsd: Double, reason: String,
-                 peakPct8973: Double = Double.NaN, minPct8973: Double = Double.NaN, hour8983: Boolean = false) {
+                 peakPct8973: Double = Double.NaN, minPct8973: Double = Double.NaN, hour8983: Boolean = false,
+                 precursor9049: String = "", runnerPath9049: String = "") {
         if (mint.isBlank() || !entryUsd.isFinite() || entryUsd <= 0.0) return
         if (!tradeable8923(liq)) { untradeable8923.incrementAndGet(); return }   // V5.0.8923
         ensureStarted8884()
         val w = Wait8884(atMs, mint, word8945(lane), admitted, word8945(stage), word8945(setup), pred, v3, mcap, liq, cost, entryUsd,
             word8945(if (hour8983) LOST_TAG_8983 + reason.take(64) else reason.take(80)), 0, hour8983)
+        w.precursor9049 = ResearchRows8877.validPrecursor9049(precursor9049,mint,lane,atMs)
+        if (hour8983) w.runnerPath9049 = runnerPath9049.takeIf { it.length <= 1024 && it.startsWith("{") && it.endsWith("}") }.orEmpty()
         // V5.0.8973 — the labeler's own high and low since the decision seed the path (gross % -> USD)
         if (peakPct8973.isFinite()) w.see8973(entryUsd * (1.0 + peakPct8973 / 100.0), System.currentTimeMillis())
         if (minPct8973.isFinite()) w.see8973(entryUsd * (1.0 + minPct8973 / 100.0), System.currentTimeMillis())
@@ -262,7 +278,8 @@ object ResearchFollow8884 {
                         val row8993 = ResearchRows8877.line8877(w.atMs, horizon, w.mint, w.lane, w.admitted, w.stage, w.setup,
                             w.pred, w.v3, w.mcap, w.liq, w.cost, r?.first ?: Double.NaN, r?.second ?: Double.NaN,
                             if (r != null) peak8973 else Double.NaN, if (r != null) peak8973 else Double.NaN,
-                            if (r != null) low8973 else Double.NaN, why)
+                            if (r != null) low8973 else Double.NaN, why,
+                            precursor9049 = w.precursor9049, runnerPath9049 = if (w.hour8983) w.runnerPath9049 else "")
                         // V5.0.8993 — a read Jupiter could not price carries what the chain's answer needs to finish it
                         emit8978(if (r == null && !tooLate && !implausible) carry8993(row8993, w.entryUsd, peak8973, low8973) else row8993, nowMs)
                         written.incrementAndGet()
@@ -653,7 +670,9 @@ object ResearchFollow8884 {
         val low = listOf(d("lo8993"), r.second).filter { it.isFinite() }.minOrNull() ?: r.second
         return ResearchRows8877.line8877(o.optLong("t", 0L), o.optLong("horizonMs", 0L), o.optString("mint"), o.optString("lane"),
             o.optBoolean("admitted"), o.optString("stage"), o.optString("setup"), d("pred"), d("v3"), d("mcap"), d("liq"), d("cost"),
-            r.first, r.second, peak, peak, low, CHAIN_PREFIX_8993 + o.optString("reason").removePrefix(UNPRICED_PREFIX_8993))
+            r.first, r.second, peak, peak, low, CHAIN_PREFIX_8993 + o.optString("reason").removePrefix(UNPRICED_PREFIX_8993),
+            precursor9049 = o.optJSONObject("precursor9049")?.toString().orEmpty(),
+            runnerPath9049 = o.optJSONObject("runnerPath9049")?.toString().orEmpty())
     }
 
     /** [mint]'s USD price as the chain last answered inside [CHAIN_AGE_MS_8993]: its pool (vaults or state), else its active curve. */
