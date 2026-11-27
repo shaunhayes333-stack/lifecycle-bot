@@ -36,6 +36,34 @@ object ChainConfirm8950 {
     private val lastAsk = ConcurrentHashMap<String, Long>()   // "mint|input" -> last asked
     private val asks = ConcurrentHashMap<String, AtomicLong>()  // "use:input" -> count
     private val io = Executors.newFixedThreadPool(2) { r -> Thread(r, "chain-confirm-8950").apply { isDaemon = true } }
+    private data class Read9052(val ts: TokenState, val input: Input8950, val use: String, val generation: Long)
+    private val readQueue9052 = EvidenceReadQueue9052<Read9052>()
+    private val queued9052 = AtomicLong()
+    private val promoted9052 = AtomicLong()
+    private val coalesced9052 = AtomicLong()
+    private val full9052 = AtomicLong()
+    private val expired9052 = AtomicLong()
+    private val failed9052 = AtomicLong()
+    private val throttled9052 = AtomicLong()
+    private val queueDelayTotal9052 = AtomicLong()
+    private val queueDelayMax9052 = AtomicLong()
+    private val dispatched9052 = AtomicLong()
+    private val fallbackAt9052 = LinkedHashMap<String,Long>()
+    // Reuse the existing two workers. One is reserved for holds/exits and
+    // urgent decision proofs; the other also serves normal discovery/research.
+    private val readers9052 by lazy {
+        repeat(2) { worker ->
+            io.execute {
+                while (!Thread.currentThread().isInterrupted) {
+                    val job = try { readQueue9052.take(urgentOnly = worker == 0) }
+                        catch (_: InterruptedException) { Thread.currentThread().interrupt(); return@execute }
+                    try { dispatch9052(job) }
+                    catch (_: Exception) { failed9052.incrementAndGet() }
+                    finally { readQueue9052.complete(job.key) }
+                }
+            }
+        }
+    }
 
     /** Pure: the chain inputs that answer the admission / door / exit names in [missing] (missing inputs and defer causes). */
     fun inputsOf8950(missing: Collection<String>): Set<Input8950> {
@@ -101,9 +129,8 @@ object ChainConfirm8950 {
         }
         val inputs = inputsOf8950(missing)
         if (inputs.isEmpty() && missing.isNotEmpty()) unmapped8957.incrementAndGet()
-        var askedAny = false
-        for (input in inputs) if (ask8950(local, input, use, nowMs)) askedAny = true
-        if (askedAny && use.uppercase() in RERUN_USES_8957 && needsTimedFallback8959(inputs)) rerun8957(mint, nowMs)
+        for (input in inputs) ask8950(local, input, use, nowMs)
+        // A fallback is armed at actual dispatch, not while a job is waiting.
     }
 
     /**
@@ -207,35 +234,86 @@ object ChainConfirm8950 {
         }
     }
 
+    private fun priority9052(ts: TokenState, use: String, nowMs: Long): Int = when (use) {
+        "HOLD", "EXIT", "RUG_VERIFY" -> 0
+        "DECISION", "EVIDENCE", "EXEC" -> 1
+        "LANE" -> if (com.lifecyclebot.engine.market.PocketRecovery8961.pending8969(ts.mint,nowMs) ||
+            com.lifecyclebot.engine.market.BuyerFlow8666.freshEvidence9049(ts.mint,nowMs)) 1 else 2
+        "STAGE" -> 3
+        else -> 4
+    }
+
     private fun ask8950(ts: TokenState, input: Input8950, use: String, nowMs: Long): Boolean {
+        val normalized=use.uppercase()
         val key = "${ts.mint}|${input.name}"
-        synchronized(lastAsk) {
-            val prior = lastAsk[key] ?: 0L
-            val due = due8950(prior, nowMs, gapFor8986(input, use))
-            if (input == Input8950.PRICE_DEPTH && use.uppercase() in RERUN_USES_8957 && due)
-                armDepth8959(ts.mint, nowMs)
-            if (!due) return false
-            if (lastAsk.size > CAP_8950) lastAsk.entries.removeIf { nowMs - it.value > GAP_MS_8950 }
-            lastAsk[key] = nowMs
+        // The timestamp is the last actual dispatch, NOT the enqueue time.
+        // Full/expired jobs therefore cannot consume a provider's retry gap.
+        val due = synchronized(lastAsk) { due8950(lastAsk[key] ?: 0L, nowMs, gapFor8986(input, normalized)) }
+        if (!due) return false
+        val priority=priority9052(ts,normalized,nowMs)
+        val ttl=when(priority){0->10_000L;1->5_000L;2,3->8_000L;else->30_000L}
+        val request=Read9052(ts,input,normalized,com.lifecyclebot.engine.BotRuntimeController.currentGeneration())
+        return when(readQueue9052.offer(key,priority,System.nanoTime(),ttl,request)){
+            EvidenceReadQueue9052.Result.QUEUED -> { queued9052.incrementAndGet(); readers9052; true }
+            EvidenceReadQueue9052.Result.PROMOTED -> { promoted9052.incrementAndGet(); readers9052; true }
+            EvidenceReadQueue9052.Result.COALESCED -> { coalesced9052.incrementAndGet(); false }
+            EvidenceReadQueue9052.Result.FULL -> { full9052.incrementAndGet(); false }
         }
-        asks.computeIfAbsent("${use.take(12)}:${input.name}") { AtomicLong(0L) }.incrementAndGet()
-        val mint = ts.mint
-        try {
-            io.execute {
-                try {
-                    when (input) {
-                        Input8950.PRICE_DEPTH -> OnChainDepth8038.needDepth8047(ts, System.currentTimeMillis(), decisionPing8959 = use.uppercase() in RERUN_USES_8957)
-                        Input8950.HISTORY -> StageRead8950.askChain8950(ts, System.currentTimeMillis())
-                        Input8950.AUTHORITY -> AuthorityProofPrefetch8136.prefetchIfLive8136(mint)
-                        Input8950.HOLDERS -> OnChainHolderConcentration7379.observation8522(mint, maxAgeMs = 60_000L)
-                        Input8950.LP -> poolsOf8950(ts).forEach { PoolLock8895.request8895(mint, it) }
-                        Input8950.SAFETY -> com.lifecyclebot.engine.SafetyProofPriority8310.noteDeferred8310(mint, "CHAIN_CONFIRM_8950")
-                        Input8950.SUPPLY -> OnChainSupplyAuthority7075.requestAsync7075(mint)   // V5.0.8951 — the mint account's supply and decimals
-                    }
-                } catch (_: Throwable) {}
+    }
+
+    private fun dispatch9052(job: EvidenceReadQueue9052.Work<Read9052>) {
+        val req=job.value
+        val ns=System.nanoTime()
+        if (job.expired(ns) || !live8950() ||
+            req.generation!=com.lifecyclebot.engine.BotRuntimeController.currentGeneration()){
+            expired9052.incrementAndGet();return
+        }
+        val now=System.currentTimeMillis()
+        synchronized(lastAsk) {
+            if (!due8950(lastAsk[job.key] ?: 0L,now,gapFor8986(req.input,req.use))) {
+                throttled9052.incrementAndGet();return
             }
-        } catch (_: Throwable) {}
-        return true
+            if(lastAsk.size>=CAP_8950)lastAsk.entries.removeIf{now-it.value>GAP_MS_8950}
+            lastAsk[job.key]=now
+        }
+        val delay=((ns-job.enqueuedNs)/1_000_000L).coerceAtLeast(0L)
+        dispatched9052.incrementAndGet();queueDelayTotal9052.addAndGet(delay)
+        queueDelayMax9052.getAndUpdate{maxOf(it,delay)}
+        asks.computeIfAbsent("${req.use.take(12)}:${req.input.name}") { AtomicLong(0L) }.incrementAndGet()
+        val ts=req.ts
+        val mint=ts.mint
+        val ping=req.use in RERUN_USES_8957
+        when(req.input){
+            Input8950.PRICE_DEPTH -> {
+                if(ping)armDepth8959(mint,now)
+                OnChainDepth8038.needDepth8047(ts,now,decisionPing8959=ping)
+            }
+            Input8950.HISTORY -> StageRead8950.askChain8950(ts,now)
+            Input8950.AUTHORITY -> AuthorityProofPrefetch8136.prefetchIfLive8136(mint)
+            Input8950.HOLDERS -> OnChainHolderConcentration7379.observation8522(mint,maxAgeMs=60_000L)
+            Input8950.LP -> poolsOf8950(ts).forEach{PoolLock8895.request8895(mint,it)}
+            Input8950.SAFETY -> com.lifecyclebot.engine.SafetyProofPriority8310.noteDeferred8310(mint,"CHAIN_CONFIRM_8950")
+            Input8950.SUPPLY -> OnChainSupplyAuthority7075.requestAsync7075(mint)
+        }
+        if(ping && needsTimedFallback8959(setOf(req.input))) {
+            val run=synchronized(fallbackAt9052){
+                val key=mint+"|"+req.generation
+                if(fallbackAt9052.size>=CAP_8950)fallbackAt9052.entries.removeIf{now-it.value>GAP_MS_8950}
+                val prev=fallbackAt9052[key] ?: 0L
+                if(prev>0L && now-prev in 0L until GAP_MS_8950)false
+                else { if(fallbackAt9052.size>=CAP_8950)fallbackAt9052.remove(fallbackAt9052.keys.first())
+                    fallbackAt9052[key]=now;true }
+            }
+            if(run)rerun8957(mint,System.currentTimeMillis())
+        }
+    }
+
+    private fun queueLine9052(): String {
+        val (pending,active)=readQueue9052.counts()
+        val n=dispatched9052.get()
+        return "readQueue9052{pending=$pending active=$active queued=${queued9052.get()} promoted=${promoted9052.get()} "+
+            "coalesced=${coalesced9052.get()} full=${full9052.get()} expired=${expired9052.get()} throttle=${throttled9052.get()} "+
+            "dispatch=$n failed=${failed9052.get()} avgQueueMs=${if(n>0L)queueDelayTotal9052.get()/n else 0L} maxQueueMs=${queueDelayMax9052.get()}}"
     }
 
     private fun poolsOf8950(ts: TokenState): List<String> =
@@ -282,7 +360,7 @@ object ChainConfirm8950 {
     fun statusLine8950(): String =
         "chainConfirm8950[" + asks.entries.sortedByDescending { it.value.get() }.joinToString(",") { "${it.key}=${it.value.get()}" }.ifBlank { "-" } +
             " marketAnswers8959=${marketAnswers8959.get()} reruns8957=${reruns8957.get()} unmapped8957=${unmapped8957.get()} probation8951{curveAsked=${probationAsked8951.get()} promoted=${probationPromoted8951.get()} otherVenue=${probationOther8951.get()}}" +
-            " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; supply: the mint; " +
+            " " + queueLine9052() + " rule=a LIVE decision, hold or exit missing an input reads it from the chain now (price/depth: curve or pool vaults; supply: the mint; " +
             "history/stage: the coin's swap history; authority; holders; LP lock; safety report), each (coin, input) at most every " +
             "${GAP_MS_8950 / 1000}s, and the coin's pipeline re-runs when the answers land (2.5 s, 7 s); nothing decided here]"
 }

@@ -21,6 +21,7 @@ internal object SharedRunnerLab9051 {
         "newBuyers15s8666","agePrice","ageBp","ageChg","ageLiq","ageHolders","secsSincePrint","oppVolAccel","oppTxAccel","oppLiqDelta","liq","mcap","v3","cost","venue")
     private val flowKeys = listOf("buyers60","new15","perMin","buyShare","netSol60","buyTx15","buyTxPrev15","repeat60","txPerMin","accel")
     private val width = rawKeys.size + flowKeys.size
+    private val lanePattern9052 = Regex("[A-Z0-9_]{1,64}")
     private val appended = AtomicLong()
     private val censored = AtomicLong()
     private val writeFailed = AtomicLong()
@@ -31,7 +32,7 @@ internal object SharedRunnerLab9051 {
     @Volatile private var status = "waiting for causal paths"
     private fun file() = AATEApp.appContextOrNull()?.filesDir?.let { File(it,FILE) }
     private fun scope(lane: String): String? {
-        if (!lane.matches(Regex("[A-Z0-9_]{1,64}"))) return null
+        if (!lanePattern9052.matches(lane)) return null
         return lane.takeIf { it in EdgeModel8537.LANES || it.startsWith("CRYPTO_") ||
             it.startsWith("PERPS_") || it.startsWith("EVM_") || it.startsWith("XSTOCK_") ||
             it.startsWith("MARKETS_") || it.startsWith("STOCK_") }
@@ -47,9 +48,9 @@ internal object SharedRunnerLab9051 {
                 val k=rawKeys[i]
                 when {
                     k=="bp" && !fresh("ageBp",20.0) -> Double.NaN
-                    k in setOf("chg5m","chg1h") && !fresh("ageChg",60.0) -> Double.NaN
+                    (k=="chg5m" || k=="chg1h") && !fresh("ageChg",60.0) -> Double.NaN
                     k=="liq" && !fresh("ageLiq",15.0) -> Double.NaN
-                    k in setOf("top","holderVel") && !fresh("ageHolders",120.0) -> Double.NaN
+                    (k=="top" || k=="holderVel") && !fresh("ageHolders",120.0) -> Double.NaN
                     else -> d(k)
                 }
             }
@@ -175,8 +176,10 @@ internal object SharedRunnerLab9051 {
 
     /** Freeze a shadow prediction at decision time using the same feature contract as training. */
     fun prediction(p:JSONObject):JSONObject? {
+        val snapshot=models
+        if(snapshot.isEmpty())return null
         val lane=scope(p.optString("lane")) ?: return null
-        val model=models[lane] ?: return null
+        val model=snapshot[lane] ?: return null
         val at=p.optLong("atMs")
         if(at-model.published !in 0L..MODEL_TTL || p.optDouble("agePrice",Double.NaN) !in 0.0..5.0)return null
         val x=features(p) ?: return null
