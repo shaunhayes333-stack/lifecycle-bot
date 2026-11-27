@@ -154,6 +154,11 @@ internal object RunnerBarrierLearning9051 {
     /** Fixed hyperparameters. Asset-balanced train, validation and untouched holdout. */
     fun fit(split: Split, head: Int, yield: () -> Unit = {}): Fit? {
         if (head !in 0 until HEADS) return null
+        // Validate identity on the entire partition, before censoring per-head rows.
+        val trainAssets = split.train.map { it.asset }.toSet()
+        val validAssets = split.valid.map { it.asset }.toSet()
+        val testAssets = split.test.map { it.asset }.toSet()
+        if (trainAssets.any { it in validAssets || it in testAssets } || validAssets.any { it in testAssets }) return null
         val tr=windows9055(split.train,head); val va=windows9055(split.valid,head); val te=windows9055(split.test,head)
         fun assets(rs: List<Weighted9055>) = rs.map { it.sample.asset }.toSet()
         val ta=assets(tr); val vaa=assets(va); val ea=assets(te)

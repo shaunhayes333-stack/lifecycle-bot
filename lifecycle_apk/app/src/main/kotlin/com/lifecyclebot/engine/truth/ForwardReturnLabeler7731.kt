@@ -1017,6 +1017,7 @@ object ForwardReturnLabeler7731 {
             .put("pred8855", o.pred8855.toString()).put("pathNet8855", o.pathNet8855.toString()).put("pathStopped8855", o.pathStopped8855)
             .put("v38877", o.v38877.toString()).put("age9002", o.age9002.toString()).put("flow8924", o.flow8924)
             .put("precursor9049", o.precursor9049).put("runnerPath9049", o.runnerPath9049?.pack().orEmpty())
+            .put("deskSetup9013",o.deskSetup9013)
             .put("gateNet8856", o.gateNet8856.toString()).put("gateFlags8856", o.gateFlags8856)
             .put("targetHorizon", o.targetHorizon8521).put("interimUnavailable", o.interimUnavailable8521)
             .put("firstReadValid", o.firstReadValid8521)
@@ -1051,6 +1052,7 @@ object ForwardReturnLabeler7731 {
         o.age9002 = e.optString("age9002").toDoubleOrNull() ?: Double.NaN
         o.flow8924 = e.optString("flow8924").takeIf { it.length <= 1024 }.orEmpty()
         o.precursor9049 = ResearchRows8877.validPrecursor9049(e.optString("precursor9049"), o.mint, o.lane, o.atMs)
+        o.deskSetup9013 = e.optString("deskSetup9013").takeIf { o.lane.startsWith("CRYPTO_") && it.startsWith("CX_") && it.length<=40 }.orEmpty()
         o.runnerPath9049 = RunnerTargetPath9049.unpack(e.optString("runnerPath9049"), o.atMs, o.basis8386.mark.observedAtMs)
         o.pathNet8855 = e.optString("pathNet8855").toDoubleOrNull() ?: Double.NaN
         o.pathStopped8855 = e.optBoolean("pathStopped8855")
@@ -1336,12 +1338,15 @@ object ForwardReturnLabeler7731 {
      * exit-profile key (setup7955) and every learner that reads it are untouched; a restart before the hour falls back to it.
      */
     private val deskSetups9013 = java.util.concurrent.atomic.AtomicLong(0L)
-    fun noteDeskSetup9013(mint: String, lane: String, strategy: String?, trend: String?) {
+    fun noteDeskSetup9013(mint: String, lane: String, strategy: String?, trend: String?, decisionMs9058: Long? = null) {
         val s = deskSetup9013(strategy, trend)
         if (mint.isBlank() || s.isBlank()) return
         val l = lane.trim().uppercase()
         if (!l.startsWith("CRYPTO_")) return
-        pending["$mint|$l"]?.let { it.deskSetup9013 = s; deskSetups9013.incrementAndGet() }
+        // Never relabel an earlier observation with a later desk decision.
+        if (decisionMs9058 != null)
+            pending["$mint|$l"]?.takeIf { it.atMs == decisionMs9058 && it.deskSetup9013.isBlank() }
+                ?.let { it.deskSetup9013 = s; deskSetups9013.incrementAndGet() }
     }
     fun deskSetupLine9013(): String = "cryptoDeskSetups9013=${deskSetups9013.get()}"
 
@@ -1367,7 +1372,7 @@ object ForwardReturnLabeler7731 {
         observe(ts, lane, admitted, reason, nowMs, score, incumbent8506)
     }
 
-    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null) {
+    fun observe(ts: TokenState, lane: String, admitted: Boolean, reason: String?, nowMs: Long = System.currentTimeMillis(), score: Int = -1, incumbent8506: Boolean? = null, deskSetup9058: String? = null) {
         val l = lane.trim().uppercase().ifBlank { "UNKNOWN" }
         try { FloorWatch8856.onDecision8856(ts.mint, admitted, reason, nowMs) } catch (_: Throwable) {}   // V5.0.8856 — cross -> first verdict
         // Capture the decision even when the forward labeler cannot establish an entry mark.
@@ -1409,6 +1414,8 @@ object ForwardReturnLabeler7731 {
             else chainEntry8571.incrementAndGet()
         }
         val px = basisMark8571.usd
+        // Research windows must not disappear behind the original pending mint/lane or 15-minute lock.
+        try { NativeZoneLab9058.capture(ts,l,admitted,basisMark8571,nowMs,deskSetup9058) } catch (_: Exception) {}
         // V5.0.7930 — an ADMIT supersedes a pending refusal of the same (mint, lane): a
         // token refused earlier (or by an advisory gate) and then bought was labelled
         // and graded as "refused" for up to four hours.
@@ -1472,6 +1479,10 @@ object ForwardReturnLabeler7731 {
         pending[key] = Obs(ts.mint, ts.symbol, cell, sourceFamily(ts.source), l, admitted, score8051, sig8051.first, regime, sig8051.second, px, cost.coerceIn(0.0, 60.0), nowMs)
             .also {
                 it.honest8366 = true  // V5.0.8366
+                if (l.startsWith("CRYPTO_") && !deskSetup9058.isNullOrBlank()) {
+                    it.deskSetup9013 = deskSetup9058.take(40)
+                    deskSetups9013.incrementAndGet()
+                }
                 it.targetHorizon8521 = com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetHorizon(
                     com.lifecyclebot.engine.cortex.CortexForwardEpoch8521.targetKind(l))
                 it.gate8418 = GateOutcome8418.attachGate8418("", nowMs, admitted, reason, l, nowMs).orEmpty()  // V5.0.8418
@@ -2583,12 +2594,15 @@ object ForwardReturnLabeler7731 {
         // V5.0.8475 — the coin's own tape (Helius program curve tape, PumpSwap pooled prints, PumpPortal frames): an executed
         // print is a chain-exact mark. 8471: tape prints priced 6 labels while the tape taped thousands.
         try {
-            val tp = TradeTape8100.lastPrint8360(mint)
+            val tp = TradeTape8100.lastWitnessedTrade9058(mint)
             val solUsd = com.lifecyclebot.engine.WalletManager.labelSolPrice8580(nowMs)
             if (tp != null && !(solUsd.isFinite() && solUsd > 0.0)) noSolRate8508.incrementAndGet()
-            // V5.0.8750 — only a witnessed print (PrintWitness8750) is a label mark: a self-priced decode could carry a unit error
-            if (tp != null && solUsd.isFinite() && solUsd > 0.0 && PrintWitness8750.witnessedPrint8750(mint, tp.second, tp.first))
-                candidates.add(LabelMark8386(mint, "", tp.first * solUsd, tp.second, nowMs, TAPE_MARK_SOURCE_8475, independentBasis = true))
+            // Preserve the witnessed trade's actual event time and venue; mint account evidence supplies decimals, never a guess.
+            if (tp != null && solUsd.isFinite() && solUsd > 0.0) {
+                val decimals9058=MintSupply8418.of8418(mint)?.takeIf{it.observedAtMs in 1L..nowMs}?.decimals ?: -1
+                candidates.add(LabelMark8386(mint,tp.pool,tp.priceSol*solUsd,tp.atMs,nowMs,TAPE_MARK_SOURCE_8475,
+                    decimals=decimals9058,independentBasis=true))
+            }
         } catch (_: Throwable) {}
         // V5.0.8750 — a quiet pump.fun curve still stands at its last witnessed print while the program stream has had no gap
         try {
@@ -3493,6 +3507,7 @@ object ForwardReturnLabeler7731 {
             }
         }
         o.lastMark8386 = recovered; o.lastAcceptedMark8395 = recovered
+        try { NativeZoneLab9058.acceptedMark(recovered,nowMs) } catch (_: Exception) {}
         noteRunnerPath9049(o, recovered, gross)
         o.lastPx = recovered.usd; o.lastPxAtMs = recovered.observedAtMs
         val net = netPct(o.entryPrice, recovered.usd, o.costPct).coerceAtMost(NET_CEILING_PCT_7738)
@@ -3649,6 +3664,7 @@ object ForwardReturnLabeler7731 {
     }
 
     private fun tickOnce8442(priceFor0: (String) -> Double?, nowMs: Long) {
+        try { NativeZoneLab9058.expire(nowMs) } catch (_: Exception) {}
         prunePendingMints8475(nowMs)
         shadowWanted8442.entries.removeIf { it.value <= nowMs }
         drainForwardOutcomes8404()
@@ -3860,6 +3876,7 @@ object ForwardReturnLabeler7731 {
             }
             val priorAccepted8395 = o.lastAcceptedMark8395
             o.lastAcceptedMark8395=mark8386
+            try { NativeZoneLab9058.acceptedMark(mark8386,nowMs) } catch (_: Exception) {}
             o.accepted8891++
             val gross = (px / o.entryPrice - 1.0) * 100.0
             noteRunnerPath9049(o, mark8386, gross)

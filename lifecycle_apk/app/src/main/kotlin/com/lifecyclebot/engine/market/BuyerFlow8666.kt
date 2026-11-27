@@ -28,7 +28,8 @@ object BuyerFlow8666 {
     internal data class Print(val atMs: Long, val wallet: String, val sol: Double, val buy: Boolean,
                               val firstSeenBuyer: Boolean = true,
                               /** Retained only on walletless prints so a richer duplicate can fill its identity. */
-                              val missingWalletSignature: String = "", val signed9056: Boolean = false)
+                              val missingWalletSignature: String = "", val signed9056: Boolean = false,
+                              val sourceTimeKnown9058: Boolean = true)
     private class MintWindow {
         val prints = ArrayDeque<Print>()
         val seenBuyerAtMs = LinkedHashMap<String, Long>()
@@ -62,24 +63,33 @@ object BuyerFlow8666 {
     private val unsignedWalletless8790 = AtomicLong(0L)
     private val freshReads8790 = AtomicLong(0L)
     private val emptyReads8790 = AtomicLong(0L)
+    private val earlyCap9058 = AtomicLong(0L)
 
     /** The next capture distinguishes an absent trade feed from an undecoded buyer address. */
     fun statusLine8790(): String = "buyerFlow8790[accepted=${accepted8790.get()} walletlessSigned=${signedWalletless8790.get()} " +
         "walletRecovered=${walletRepaired8790.get()} duplicates=${duplicate8790.get()} stale=${stale8790.get()} " +
         "unsignedWalletless=${unsignedWalletless8790.get()} freshReads=${freshReads8790.get()} " +
-        "emptyReads=${emptyReads8790.get()} trackedMints=${prints.size}]"
+        "emptyReads=${emptyReads8790.get()} earlyCap9058=${earlyCap9058.get()} trackedMints=${prints.size}]"
+
+    /** Pre-care launch publication must not churn the entire buyer book on every new program mint.
+     * The normal tape path still admits/replaces quiet mints under its existing bounded policy.
+     */
+    internal fun noteBeforeWake9058(mint:String,wallet:String,sol:Double,buy:Boolean,event:Long,sig:String,received:Long,available:Long) {
+        if(!prints.containsKey(mint) && prints.size>=MAX_MINTS){earlyCap9058.incrementAndGet();return}
+        note(mint,wallet,sol,buy,event,sig,received,availableAtMs9058=available)
+    }
 
     fun note(mint: String, wallet: String, sol: Double, buy: Boolean, nowMs: Long = System.currentTimeMillis(),
-             signature: String = "", receivedAtMs: Long = nowMs) {
+             signature: String = "", receivedAtMs: Long = nowMs,
+             availableAtMs9058: Long = receivedAtMs, sourceTimeKnown9058: Boolean = true) {
         // A walletless signed swap is still measured trade volume; do not throw that
         // evidence away because the provider omitted the trader identity. Unsigned
         // AND walletless records are ambiguous and cannot prove an actual print.
         if (mint.isBlank() || !sol.isFinite() || sol <= 0.0 || nowMs <= 0L) return
         if (wallet.isBlank() && signature.isBlank()) { unsignedWalletless8790.incrementAndGet(); return }
-        if (receivedAtMs - nowMs !in 0L..WINDOW_MS) { stale8790.incrementAndGet(); return }
+        if (receivedAtMs - nowMs !in 0L..WINDOW_MS || availableAtMs9058 < receivedAtMs) { stale8790.incrementAndGet(); return }
         val q = prints.computeIfAbsent(mint) { MintWindow() }
         synchronized(q) {
-            q.latestMutationReceipt9056 = maxOf(q.latestMutationReceipt9056, receivedAtMs)
             // The same signed swap may arrive from several providers. A later
             // provider may supply the wallet omitted by the first; count it once.
             q.signatures.entries.removeAll { receivedAtMs - it.value > WINDOW_MS }
@@ -102,6 +112,7 @@ object BuyerFlow8666 {
                             }
                         }
                         q.prints.clear(); q.prints.addAll(amended)
+                        q.latestMutationReceipt9056 = maxOf(q.latestMutationReceipt9056, availableAtMs9058)
                         walletRepaired8790.incrementAndGet()
                     }
                 }
@@ -122,7 +133,9 @@ object BuyerFlow8666 {
             }
             while (q.seenBuyerAtMs.size > MAX_KNOWN_WALLETS) q.seenBuyerAtMs.remove(q.seenBuyerAtMs.keys.first())
             val row = Print(nowMs, wallet, sol, buy, firstSeen,
-                missingWalletSignature = if (wallet.isBlank()) signature else "", signed9056 = signature.isNotBlank())
+                missingWalletSignature = if (wallet.isBlank()) signature else "", signed9056 = signature.isNotBlank(),
+                sourceTimeKnown9058 = sourceTimeKnown9058)
+            q.latestMutationReceipt9056 = maxOf(q.latestMutationReceipt9056, availableAtMs9058)
             accepted8790.incrementAndGet()
             if (wallet.isBlank()) signedWalletless8790.incrementAndGet()
             if (q.prints.isEmpty() || q.prints.peekLast().atMs <= nowMs) q.prints.addLast(row)
@@ -176,11 +189,16 @@ object BuyerFlow8666 {
             }
             q.prints.toList() to q.latestMutationReceipt9056
         }
-        val view = calculate(observed, nowMs)
+        // Untimed provider trades are not event-time evidence. Preserve them in the legacy live view,
+        // but expose their count separately and do not manufacture unique/new buyers from them.
+        val undated = observed.filter { !it.sourceTimeKnown9058 && nowMs-it.atMs in 0L..WINDOW_MS }
+        val timed = observed.filter { it.sourceTimeKnown9058 }
+        val view = calculate(timed, nowMs)
         if (view == null) { emptyReads8790.incrementAndGet(); return null }
         val evidence = BuyerFlowEvidence9056.Builder(nowMs)
-        for (row in observed) evidence.add(row.atMs, row.buy, row.wallet.isNotBlank(), row.signed9056, row.sol)
-        val frozen = evidence.freeze(receipt)
+        for (row in timed) evidence.add(row.atMs, row.buy, row.wallet.isNotBlank(), row.signed9056, row.sol)
+        val frozen = evidence.freeze(receipt)?.copy(undated60 = undated.size, undatedBuy60 = undated.count { it.buy },
+            publicationClock9058 = true)
         if (frozen == null || !frozen.validFor(nowMs, view.atMs)) { emptyReads8790.incrementAndGet(); return null }
         freshReads8790.incrementAndGet()
         return view.copy(evidence9056 = frozen)
@@ -249,6 +267,6 @@ object BuyerFlow8666 {
     internal fun clearForTest() {
         prints.clear()
         listOf(accepted8790, signedWalletless8790, walletRepaired8790, duplicate8790, stale8790,
-            unsignedWalletless8790, freshReads8790, emptyReads8790).forEach { it.set(0L) }
+            unsignedWalletless8790, freshReads8790, emptyReads8790, earlyCap9058).forEach { it.set(0L) }
     }
 }

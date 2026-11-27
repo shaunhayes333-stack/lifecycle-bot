@@ -56,9 +56,10 @@ object PumpSwapTape8307 {
 
     /** Pure: an event's block time in ms, or 0 when unstated / implausible (in the future beyond a minute). */
     internal fun eventMs8307(tsSec: Long, nowMs: Long): Long {
-        if (tsSec <= 0L) return 0L
+        // A seconds field is not an arbitrary millisecond guess. Guard overflow and implausible clocks.
+        if (tsSec <= 0L || tsSec > Long.MAX_VALUE / 1000L || nowMs <= 0L) return 0L
         val ms = tsSec * 1000L
-        return if (ms > nowMs + 60_000L) 0L else ms
+        return if (ms > nowMs && ms - nowMs > 60_000L) 0L else ms
     }
 
     /** HeliusWebSocket (per-mint stream): a PumpSwap swap decoded for [mint] — keep its pool and time for its print. */

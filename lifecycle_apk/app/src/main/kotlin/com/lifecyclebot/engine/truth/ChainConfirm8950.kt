@@ -333,7 +333,7 @@ object ChainConfirm8950 {
         val (pending,active)=readQueue9052.counts()
         val n=dispatched9052.get()
         return "readQueue9052{pending=$pending active=$active queued=${queued9052.get()} promoted=${promoted9052.get()} "+
-            "coalesced=${coalesced9052.get()} full=${full9052.get()} expired=${expired9052.get()} throttle=${throttled9052.get()} "+
+            "coalesced=${coalesced9052.get()} full=${full9052.get()} expired=${expired9052.get()} queueExpired9058=${readQueue9052.expiredWaiting9058()} throttle=${throttled9052.get()} "+
             "dispatch=$n failed=${failed9052.get()} avgQueueMs=${if(n>0L)queueDelayTotal9052.get()/n else 0L} maxQueueMs=${queueDelayMax9052.get()}}"
     }
 

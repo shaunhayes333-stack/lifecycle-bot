@@ -46,8 +46,9 @@ class Aate8475HeliusTapeTest {
         val frl = src("engine/truth/ForwardReturnLabeler7731.kt")
         assertTrue(frl.contains("notePendingMint8475(ts.mint, nowMs)\n        pending[key] = Obs("))
         val mark = frl.substringAfter("internal fun typedMark8386(").substringBefore("private fun markFor(")
-        assertTrue(mark.contains("TradeTape8100.lastPrint8360(mint)"))
-        assertTrue(mark.contains("TAPE_MARK_SOURCE_8475, independentBasis = true"))
+        assertTrue(mark.contains("TradeTape8100.lastWitnessedTrade9058(mint)"))
+        assertTrue(mark.contains("tp.pool,tp.priceSol*solUsd,tp.atMs,nowMs,TAPE_MARK_SOURCE_8475"))
+        assertTrue(mark.contains("decimals=decimals9058,independentBasis=true"))
     }
 
     @Test fun aDustRouteQuoteIsNotAMark() {

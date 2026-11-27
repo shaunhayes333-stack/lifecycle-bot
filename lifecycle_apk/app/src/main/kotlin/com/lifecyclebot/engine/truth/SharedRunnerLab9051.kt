@@ -22,6 +22,7 @@ internal object SharedRunnerLab9051 {
     private val flowKeys = listOf("buyers60","new15","perMin","buyShare","netSol60","buyTx15","buyTxPrev15","repeat60","txPerMin","accel")
     private val legacyWidth9056 = rawKeys.size + flowKeys.size
     private const val FEATURE_SCHEMA_9056 = "F9056"
+    private const val FEATURE_SCHEMA_9058 = "F9058"
     private val evidenceKeys9056 = listOf("coverage60","coverage15","observed60","observedSpanMs","signedShare","receiptLagMs",
         "buy5","net5","net15","netPrev15")
     private val identityKeys9056 = setOf("buyers60","new15","perMin","repeat60")
@@ -48,7 +49,7 @@ internal object SharedRunnerLab9051 {
         fun fresh(k: String, seconds: Double) = d(k) in 0.0..seconds
         val decision = p.optLong("atMs")
         val flow = p.optJSONObject("flow")
-        val proof = ResearchRows8877.flowEvidence9056(flow, decision)
+        val proof = ResearchRows8877.flowEvidence9056(flow, decision)?.takeIf { it.publicationClock9058 }
         fun observed(k: String): Double {
             if (proof == null || flow == null) return Double.NaN
             if (k in identityKeys9056 && !proof.identities60) return Double.NaN
@@ -88,7 +89,7 @@ internal object SharedRunnerLab9051 {
 
     /** Retain older mark labels and independent raw features, but remove unstamped flow and identity fields. */
     internal fun upgradeLegacy9056(x: DoubleArray): DoubleArray? {
-        if (x.size!=legacyWidth9056) return null
+        if (x.size!=legacyWidth9056 && x.size!=width) return null
         return DoubleArray(width) { i ->
             if (i>=rawKeys.size || rawKeys[i]=="newBuyers15s8666") Double.NaN else x[i]
         }
@@ -110,7 +111,7 @@ internal object SharedRunnerLab9051 {
             val now=System.currentTimeMillis()
             if (now<t) return
             val dest=file() ?: return
-            dest.appendText(listOf(lane,asset,t.toString(),now.toString(),x.joinToString(","),labels.joinToString(","),FEATURE_SCHEMA_9056).joinToString("\t")+"\n")
+            dest.appendText(listOf(lane,asset,t.toString(),now.toString(),x.joinToString(","),labels.joinToString(","),FEATURE_SCHEMA_9058).joinToString("\t")+"\n")
             if(labels.all { it<0 }) censored.incrementAndGet()
             if(appended.incrementAndGet()%128L==0L && dest.length()>MAX_BYTES) trim(dest)
         } catch (_: Exception) { writeFailed.incrementAndGet() }
@@ -172,10 +173,10 @@ internal object SharedRunnerLab9051 {
     private fun decode(line:String): Scoped? { return try {
         if(line.length>4096)return null
         val c=line.split('\t')
-        if(c.size!=6 && !(c.size==7 && c[6]==FEATURE_SCHEMA_9056))return null
+        if(c.size!=6 && !(c.size==7 && c[6] in setOf(FEATURE_SCHEMA_9056,FEATURE_SCHEMA_9058)))return null
         val lane=scope(c[0]) ?: return null
         val raw=c[4].split(',').map{it.toDouble()}.toDoubleArray()
-        val x=if(c.size==6) upgradeLegacy9056(raw) ?: return null else raw
+        val x=if(c.size==6 || c[6]==FEATURE_SCHEMA_9056) upgradeLegacy9056(raw) ?: return null else raw
         val y=c[5].split(',').map{it.toInt()}.toIntArray()
         if(x.size!=width || y.size!=RunnerBarrierLearning9051.HEADS || y.any{it !in -1..1})null
         else Scoped(lane,RunnerBarrierLearning9051.Sample(c[1],c[2].toLong(),c[3].toLong(),x,y))

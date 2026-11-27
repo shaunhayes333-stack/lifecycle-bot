@@ -65,6 +65,9 @@ production=(
   "$sources/market/BuyerFlowEvidence9056.kt"
   "$sources/truth/RunnerBarrierLearning9051.kt"
   "$sources/truth/RunnerTargetPath9049.kt"
+  "$sources/truth/EvidenceReadQueue9052.kt"
+  "$sources/truth/NativeZoneSequence9058.kt"
+  "$sources/truth/NativeZoneNet9058.kt"
   "$output_dir/StrategyRank8153.kt"
   "$sources/truth/SetupTimingGrades8528.kt"
   "$sources/truth/EntryFloorEvidence8528.kt"
@@ -127,6 +130,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -jvm-target 17 -no-stdlib -no-reflect -classpath "$classpath:$output_dir/production.jar" \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
   "$tests/Aate9057OrderedBarrierTest.kt" \
+  "$tests/Aate9052EvidenceReadQueueTest.kt" "$tests/Aate9058NativeZoneTest.kt" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
   "$tests/Aate8826SignalBibleTest.kt" \
   "$tests/Aate8871CortexSamplingTest.kt" \
@@ -147,6 +151,8 @@ printf 'Running pure-model behavior tests (not Android/service integration).\n'
 cd -- "$apk_dir/app"
 java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit.runner.JUnitCore \
   com.lifecyclebot.engine.Aate9057OrderedBarrierTest \
+  com.lifecyclebot.engine.Aate9052EvidenceReadQueueTest \
+  com.lifecyclebot.engine.Aate9058NativeZoneTest \
   com.lifecyclebot.engine.Aate8675BuyerFlowTest \
   com.lifecyclebot.engine.Aate8528SetupTimingTest \
   com.lifecyclebot.engine.Aate8528FluidFloorTest \

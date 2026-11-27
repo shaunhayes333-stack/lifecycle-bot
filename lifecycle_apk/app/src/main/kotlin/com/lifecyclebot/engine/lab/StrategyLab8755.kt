@@ -259,8 +259,12 @@ object StrategyLab8755 {
     private fun run(nowMs: Long) {
         // Reuse this bounded batch turn; the compact ledger never trains on a
         // trading or stream thread. Under memory pressure keep the native lab path unchanged.
-        if (try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name == "NORMAL" } catch (_: Exception) { false })
-            try { com.lifecyclebot.engine.truth.SharedRunnerLab9051.train(nowMs) } catch (e: InterruptedException) { throw e } catch (_: Exception) {}
+        if (try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name == "NORMAL" } catch (_: Exception) { false }) {
+            val zone9058 = try { com.lifecyclebot.engine.truth.NativeZoneLab9058.batch(nowMs) }
+                catch (e: InterruptedException) { throw e } catch (_: Exception) { false }
+            if (!zone9058) try { com.lifecyclebot.engine.truth.SharedRunnerLab9051.train(nowMs) }
+                catch (e: InterruptedException) { throw e } catch (_: Exception) {}
+        }
         val file = EdgeModel8537.datasetFile8755()
         if (file == null || !file.exists()) { status = "no dataset"; return }
         // V5.0.8756 — each line is parsed as it is read and only the parsed row is kept (the tail of raw JSON strings held
@@ -562,7 +566,8 @@ object StrategyLab8755 {
         val fams = all.filter { it.status == LabStrategyStatus.PROMOTED }.groupingBy { specOf8755(it)?.family?.name ?: "?" }.eachCount()
         return "strategyLab8755[$status runnerHead{$headLine} minedTested=${minedTested.get()} memeStrategies=${all.size} promoted=$fams " +
             "live{cells=${liveCells.size} runner=${liveRunner?.first?.name ?: "-"} launch=${liveLaunch?.rule?.id ?: "-"} base=${liveBase?.rule?.id ?: "-"}} " +
-            com.lifecyclebot.engine.truth.SharedRunnerLab9051.statusLine() + " evidenceServed=${served.get()} sources=${sourceFactor.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${"%.2f".format(it.value)}" }} " +
+            com.lifecyclebot.engine.truth.SharedRunnerLab9051.statusLine() + " " +
+            com.lifecyclebot.engine.truth.NativeZoneLab9058.statusLine() + " evidenceServed=${served.get()} sources=${sourceFactor.entries.sortedByDescending { it.value }.take(4).joinToString(",") { "${it.key}=${"%.2f".format(it.value)}" }} " +
             "rule=held-out / witnessed-replay record, net of cost, ex-top-3 mean - ${Z_HELDOUT.toInt()} SE (held-out) or 1 SE (replay, DOCTRINE, the bot's latency) > 0, n>=$MIN_N]"
     }
 }

@@ -203,7 +203,8 @@ object ResearchRows8877 {
             ",\"ev9056\":{\"cutoff\":${it.cutoffMs},\"receipt\":${it.receiptMs},\"n\":${it.n60}," +
                 "\"b60\":${it.buy60},\"id60\":${it.id60},\"b15\":${it.buy15},\"id15\":${it.id15}," +
                 "\"signed\":${it.signed60},\"span\":${it.spanMs},\"b5\":${it.buy5}," +
-                "\"net5\":${it.net5},\"net15\":${it.net15},\"netPrev15\":${it.netPrev15}}"
+                "\"net5\":${it.net5},\"net15\":${it.net15},\"netPrev15\":${it.netPrev15}," +
+                "\"undated60\":${it.undated60},\"undatedBuy60\":${it.undatedBuy60},\"publicationClock9058\":${it.publicationClock9058}}"
         }.orEmpty()
         return "{\"asOfMs\":${v.atMs},\"buyers60\":$buyers,\"new15\":$new15,\"perMin\":$perMin,\"buyShare\":${n(v.buySharePct)}," +
             "\"netSol60\":${n(v.netSol60s)},\"buyTx15\":${v.buyTx15s},\"buyTxPrev15\":${v.buyTxPrev15s},\"repeat60\":$repeat60," +
@@ -220,7 +221,8 @@ object ResearchRows8877 {
             val stamp = com.lifecyclebot.engine.market.BuyerFlowEvidence9056.Snapshot(
                 e.getLong("cutoff"), asOf, e.getLong("receipt"), e.getInt("n"), e.getInt("b60"),
                 e.getInt("id60"), e.getInt("b15"), e.getInt("id15"), e.getInt("signed"),
-                e.getLong("span"), e.getInt("b5"), e.getDouble("net5"), e.getDouble("net15"), e.getDouble("netPrev15"))
+                e.getLong("span"), e.getInt("b5"), e.getDouble("net5"), e.getDouble("net15"), e.getDouble("netPrev15"),
+                e.optInt("undated60",0), e.optInt("undatedBuy60",0), e.optBoolean("publicationClock9058",false))
             stamp.takeIf { it.validFor(decisionMs, asOf) }
         } catch (_: Exception) { null }
     }

@@ -122,6 +122,8 @@ object TradeTape8100 {
      */
     fun launchEvidence8750(mint: String, priceSol: Double, sol: Double, tokenQty: Double, isBuy: Boolean, src: String, sig: String,
                            eventMs: Long, recvMs: Long, basis: PrintWitness8750.Basis, wallet: String = ""): PrintWitness8750.Verdict {
+        // A future event is not a recent trade and must never seed the witness or launch path.
+        if (recvMs <= 0L || eventMs < 0L || eventMs > recvMs) return PrintWitness8750.Verdict.OUT_OF_BAND
         val key8841 = launchKey8841(mint, sig, isBuy)
         var fresh8841 = key8841 == null
         var v = PrintWitness8750.Verdict.UNWITNESSED
@@ -145,17 +147,24 @@ object TradeTape8100 {
         if ((v == PrintWitness8750.Verdict.RESERVES || v == PrintWitness8750.Verdict.WITNESSED) && eventMs in 1L..recvMs) {
           if (fresh8841) {
             launchPublishedCount8841.incrementAndGet()
+            // A signed witnessed print supplies the early buyer window BEFORE any launch fire.
+            // The later tape path uses the same signature and therefore cannot double its volume.
+            val available9058 = maxOf(recvMs, System.currentTimeMillis())
+            if (sig.isNotBlank() && tokenQty.isFinite() && tokenQty > 0.0 &&
+                sol.isFinite() && sol > 0.0 && available9058-eventMs in 0L..5_000L)
+                com.lifecyclebot.engine.market.BuyerFlow8666.noteBeforeWake9058(mint, wallet, sol, isBuy,
+                    eventMs, sig, recvMs, available9058)
             LaunchHour8628.trade(mint, eventMs, sig, isBuy, sol, tokenQty, priceSol, recvMs, src, wallet)
-            LaunchPrints8942.onPrint8942(mint, eventMs)   // V5.0.8942 — the launch is re-read at its 20th / 40th / 80th print
             // V5.0.8861 — the runner model reads the print exactly as the tape stores it (the stored price, a signed print only)
             if (sig.isNotBlank()) LaunchHour8628.observedPrice8642(sol, tokenQty, priceSol)?.let { stored ->
                 RunnerModel8861.onPrint8861(mint, eventMs, recvMs, stored, sol, isBuy, wallet)
             }
             ManualRead8806.onPrint8806(mint, eventMs, priceSol, isBuy, recvMs)   // V5.0.8806 — the owner's read, every witnessed print
             com.lifecyclebot.engine.chart.OwnBars8816.onPrint8816(mint, eventMs, priceSol, sol, recvMs)   // V5.0.8816 — every coin's own chart
+            LaunchFacts8840.onPrint8840(mint, eventMs, priceSol, sol, isBuy, wallet, sig, recvMs)   // V5.0.8840 — the launch's chain facts
             LaunchSniper8748.onPrint8748(mint, eventMs, priceSol, isBuy, recvMs, sig, sol, wallet)   // V5.0.8748 / 8828 — live prints only (it checks the lag)
             BaseBreakout8995.onPrint8995(mint, eventMs, recvMs, priceSol, isBuy, sol)   // V5.0.8995 — the base breakout past the first hour, every venue
-            LaunchFacts8840.onPrint8840(mint, eventMs, priceSol, sol, isBuy, wallet, sig, recvMs)   // V5.0.8840 — the launch's chain facts
+            LaunchPrints8942.onPrint8942(mint, eventMs)   // V5.0.8942 — feature publication precedes the milestone wake
             // V5.0.8756 — a witnessed print is also the fast exit's tick (the paper book stops on the print, not the next sweep)
             // and, with its wallet, the graded smart-money signal's input.
             try { MemePaperTrader8544.onPrint8756(mint, priceSol, eventMs) } catch (_: Throwable) {}
@@ -181,6 +190,7 @@ object TradeTape8100 {
         historyOnly8751: Boolean = false,
     ): Boolean {
         if (mint.isBlank() || !priceSol.isFinite() || priceSol <= 0.0) return false
+        if (recvMs <= 0L || eventMs < 0L || eventMs > recvMs || (historyOnly8751 && eventMs == 0L)) return false
         val src = source.ifBlank { "other" }
         val sig = signature.trim()
         // V5.0.8750 — every print is judged against an independent price witness (launchEvidence8750, the one route): a
@@ -208,7 +218,8 @@ object TradeTape8100 {
                 // trade or another SOL. OUT_OF_BAND duplicates returned before reaching this guard.
                 if (wallet.isNotBlank() && tokenQty.isFinite() && tokenQty > 0.0 && sol.isFinite() && sol > 0.0)
                     com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
-                        if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
+                        if (eventMs > 0L) eventMs else recvMs, sig, recvMs,
+                        availableAtMs9058 = maxOf(recvMs,System.currentTimeMillis()), sourceTimeKnown9058 = eventMs > 0L)
                 (if (prior == src) sameFeedDup8285 else crossFeedDup8285).incrementAndGet()
                 return false
             }
@@ -219,8 +230,9 @@ object TradeTape8100 {
         // A duplicate must not also enter the buyer accumulator: the signature
         // check above is authoritative for the complete event, not just the tape.
         if (tokenQty.isFinite() && tokenQty > 0.0) com.lifecyclebot.engine.market.BuyerFlow8666.note(mint, wallet, sol, isBuy,
-            if (eventMs > 0L) eventMs else recvMs, sig, recvMs)
-        val eventKnown = eventMs > 0L && eventMs <= recvMs + 5_000L
+            if (eventMs > 0L) eventMs else recvMs, sig, recvMs,
+            availableAtMs9058 = maxOf(recvMs,System.currentTimeMillis()), sourceTimeKnown9058 = eventMs > 0L)
+        val eventKnown = eventMs > 0L && eventMs <= recvMs
         val at = if (eventKnown) eventMs else recvMs
         if (eventKnown) noteLatency8285(src, (recvMs - eventMs).coerceAtLeast(0L))
         else noEventTs8285.computeIfAbsent(src) { AtomicLong(0) }.incrementAndGet()
@@ -233,6 +245,10 @@ object TradeTape8100 {
         val q = tapes[mint]
         val newest = q != null && synchronized(q) { q.lastOrNull()?.atMs == t.atMs }
         if (!historyOnly8751 && newest && freshExecutedMark(t, recvMs)) try { onExecutedTrade?.invoke(mint, t) } catch (_: Throwable) {}
+        if (!historyOnly8751 && eventKnown && sig.isNotBlank() &&
+            (verdict8750 == PrintWitness8750.Verdict.RESERVES || verdict8750 == PrintWitness8750.Verdict.WITNESSED) &&
+            tokenQty.isFinite() && tokenQty > 0.0 && sol.isFinite() && sol > 0.0)
+            try { NativeZoneLab9058.witnessedTrade9058(mint,t) } catch (_: Exception) {}
         if (!historyOnly8751 && eventKnown && sol.isFinite() && sol > 0 && tokenQty.isFinite() && tokenQty > 0)
             com.lifecyclebot.network.HeliusCurveTape8354.onValidEvent8386(mint, eventMs, recvMs)
         return true
@@ -617,6 +633,13 @@ object TradeTape8100 {
         val q = tapes[mint] ?: return null
         val t = synchronized(q) { q.lastOrNull() } ?: return null
         return if (t.priceSol.isFinite() && t.priceSol > 0.0 && t.atMs > 0L) t.priceSol to t.atMs else null
+    }
+
+    /** A source-timed executed witness, not a receipt-stamped unknown or a synthetic reserve price. */
+    internal fun lastWitnessedTrade9058(mint:String): Trade? {
+        val q=tapes[mint] ?: return null
+        val t=synchronized(q){q.lastOrNull{it.sourceTimeKnown8386 && !it.priceOnly && it.tokenQty>0.0 && it.sol>0.0}} ?: return null
+        return t.takeIf{PrintWitness8750.witnessedPrint8750(mint,it.atMs,it.priceSol)}
     }
 
     internal fun resetForTest8100() {
