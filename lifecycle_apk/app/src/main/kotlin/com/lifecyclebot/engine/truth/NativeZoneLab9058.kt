@@ -27,11 +27,15 @@ internal object NativeZoneLab9058 {
     private val missingSignal9059 = AtomicLong()
     private val scopeOverflow9059 = AtomicLong()
     private val noProof = AtomicLong()
+    private enum class ProofReject { BASIS_UNKNOWN, DEPENDENT_BASIS, UNTRUSTED_SOURCE, VENUE_UNKNOWN, DECIMALS_CONFLICT, DECIMALS_UNKNOWN, CLOCK_OR_PRICE }
+    private val proofReject9061 = Array(ProofReject.values().size){AtomicLong()}
     private val noCost = AtomicLong()
     private val badScope = AtomicLong()
     private val predicted = AtomicLong()
     private val saved = AtomicLong()
     private val writeFailed = AtomicLong()
+    private val checkpointRuns9061 = AtomicLong()
+    private val storageDeferred9061 = AtomicLong()
     private var turn = 0L
     private var pendingWrite = emptyList<NativeZoneSequence9058.Completed>()
     private val lastAttempt = LinkedHashMap<String,Long>()
@@ -40,13 +44,16 @@ internal object NativeZoneLab9058 {
 
     private fun file() = AATEApp.appContextOrNull()?.filesDir?.let{File(it,FILE)}
     private fun proof(m:LabelMark8386,at:Long):NativeZoneSequence9058.Mark? {
-        if(!m.known() || !m.independentBasis || !LabelEvidence8386.independentSource8418(m.source) ||
-            !LabelEvidence8386.venueIdentity8787(m.venue))return null
+        fun reject(reason:ProofReject):NativeZoneSequence9058.Mark? {proofReject9061[reason.ordinal].incrementAndGet();return null}
+        if(!m.known())return reject(ProofReject.BASIS_UNKNOWN)
+        if(!m.independentBasis)return reject(ProofReject.DEPENDENT_BASIS)
+        if(!LabelEvidence8386.independentSource8418(m.source))return reject(ProofReject.UNTRUSTED_SOURCE)
+        if(!LabelEvidence8386.venueIdentity8787(m.venue))return reject(ProofReject.VENUE_UNKNOWN)
         val supply=MintSupply8418.of8418(m.mint)?.takeIf{it.observedAtMs in 1L..at}
-        if(supply!=null&&m.decimals>=0&&m.decimals!=supply.decimals)return null
-        val decimals=if(m.decimals>=0)m.decimals else supply?.decimals?:return null
+        if(supply!=null&&m.decimals>=0&&m.decimals!=supply.decimals)return reject(ProofReject.DECIMALS_CONFLICT)
+        val decimals=if(m.decimals>=0)m.decimals else supply?.decimals?:return reject(ProofReject.DECIMALS_UNKNOWN)
         return NativeZoneSequence9058.Mark(m.mint,m.venue,decimals,m.observedAtMs,m.readAtMs,m.usd,m.source)
-            .takeIf{it.validAt(at)}
+            .takeIf{it.validAt(at)} ?: reject(ProofReject.CLOCK_OR_PRICE)
     }
 
     /** Preserve actual native signal identity, including competing fired predicates. */
@@ -283,14 +290,25 @@ internal object NativeZoneLab9058 {
         Row(scope,RunnerBarrierLearning9051.Sample(asset,t,available,x,labels),basis.venue,entry?.event?:0L,entry?.usd?:Double.NaN,ps,signal,objective,nativeLabel,market9061,pocket9061)
     } catch(_:Exception){null} }
 
-    private fun flush(dest:File):Boolean{
-        if(pendingWrite.isEmpty())pendingWrite=tracker.drain()
+    /** Both callers run on StrategyLab's single worker. Never called from a quote/order thread. */
+    fun checkpoint9061(pressure:String):Boolean {
+        val dest=file()?:return false
+        checkpointRuns9061.incrementAndGet()
+        return flush(dest,NativeZoneCheckpoint9061.limit(pressure),NativeZoneCheckpoint9061.compact(pressure))
+    }
+
+    private fun flush(dest:File,limit:Int=128,compact:Boolean=true):Boolean{
+        // Keep the journal bounded even when compaction is unsafe. Completed queue/drop counters remain visible.
+        if(!compact && dest.length()>=MAX_BYTES){storageDeferred9061.incrementAndGet();return false}
+        if(pendingWrite.isEmpty())pendingWrite=tracker.drain(limit)
         if(pendingWrite.isEmpty())return true
         return try{
             val now=System.currentTimeMillis()
-            dest.appendText(pendingWrite.joinToString("\n",postfix="\n"){encode(it,now)})
-            saved.addAndGet(pendingWrite.size.toLong());pendingWrite=emptyList()
-            if(dest.length()>MAX_BYTES){
+            val count=minOf(limit,pendingWrite.size)
+            // Encode/write one row at a time, avoiding a second full batch of JSON strings.
+            NativeZoneJournal9061.append(dest,count){i->encode(pendingWrite[i],now)}
+            saved.addAndGet(count.toLong());pendingWrite=pendingWrite.drop(count)
+            if(compact && dest.length()>MAX_BYTES){
                 val tmp=File(dest.path+".tmp9058")
                 FileInputStream(dest).use{input->
                     input.channel.position((dest.length()-KEEP_BYTES).coerceAtLeast(0L))
@@ -370,5 +388,7 @@ internal object NativeZoneLab9058 {
     fun statusLine()=tracker.status()+" zoneLab9058[$status unsupported="+unsupported.get()+" noProof="+noProof.get()+
         " noCost="+noCost.get()+" badScope="+badScope.get()+" missingSignal9059="+missingSignal9059.get()+
         " scopeOverflow9059="+scopeOverflow9059.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
+        " checkpoint9061="+checkpointRuns9061.get()+" storageDeferred9061="+storageDeferred9061.get()+
+        " proofReject9061="+ProofReject.values().joinToString(","){it.name+":"+proofReject9061[it.ordinal].get()}+
         " predictions="+predicted.get()+" models="+feedback9059.count()+" authority=NONE]"
 }

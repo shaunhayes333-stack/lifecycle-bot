@@ -1,5 +1,7 @@
 # AATE 9061 — lane populations, pocket context and a $5 cyclic seed
 
+28 November continuation: see [new-data review](AATE_9061_NEW_DATA_REVIEW.md) for the profitable 9060 baseline, reproducible dataset audit, bounded journal checkpoints, rejection diagnostics and current validation. The new continuation does not change live entries or exits.
+
 ## Scope and evidence
 
 Base: main `f66a21ccd9f496011edefa1724e0589da61685aa` (9060).

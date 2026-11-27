@@ -67,6 +67,8 @@ production=(
   "$sources/truth/RunnerTargetPath9049.kt"
   "$sources/truth/EvidenceReadQueue9052.kt"
   "$sources/truth/NativeZoneSequence9058.kt"
+  "$sources/truth/NativeZoneCheckpoint9061.kt"
+  "$sources/truth/NativeZoneJournal9061.kt"
   "$sources/truth/NativeZoneNet9058.kt"
   "$sources/truth/NativeZoneFeedback9059.kt"
   "$sources/truth/NativeZoneContract9059.kt"

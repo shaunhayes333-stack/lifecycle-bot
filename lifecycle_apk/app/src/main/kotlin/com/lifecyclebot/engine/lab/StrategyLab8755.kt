@@ -230,11 +230,29 @@ object StrategyLab8755 {
     internal fun deferredForMemory9033(pressure: String, deferredForMs: Long): Boolean =
         (pressure.equals("HARD", true) || pressure.equals("CRITICAL", true)) && deferredForMs in 0L until DEFER_MAX_MS_9033
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "strategy-lab-8755").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
+    private val checkpoint9061 = com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061()
+
+    /** Saving already completed observations must not wait for the hourly training turn.
+     * One queued task, same serial worker, bounded rows; pressure never authorizes training. */
+    private fun maybeCheckpoint9061() {
+        if(!checkpoint9061.acquire(System.nanoTime()/1_000_000L))return
+        try {
+            exec.execute {
+                try {
+                    val pressure=try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name } catch (_:Exception) { "CRITICAL" }
+                    com.lifecyclebot.engine.truth.NativeZoneLab9058.checkpoint9061(pressure)
+                } catch (_:Exception) {
+                    // Journal failures retain the bounded pending batch for retry.
+                } finally { checkpoint9061.release() }
+            }
+        } catch (_:Exception) { checkpoint9061.release() }
+    }
 
     // ── the cycle ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
     /** LlmLabEngine.tick: run the grading cycle in the background when due. Never blocks. */
     fun maybeRun8755(nowMs: Long = System.currentTimeMillis()) {
+        maybeCheckpoint9061()
         // V5.0.9033 — 26 Nov 23:38: the second run took 16 minutes of wall for 28 s of its own CPU, in a heap at its limit.
         // A cycle that is due while memory pressure is HARD or CRITICAL waits for a tick that is not, for at most
         // [DEFER_MAX_MS_9033]; its hour is not spent (lastRunMs is not moved), so it runs as soon as there is room.

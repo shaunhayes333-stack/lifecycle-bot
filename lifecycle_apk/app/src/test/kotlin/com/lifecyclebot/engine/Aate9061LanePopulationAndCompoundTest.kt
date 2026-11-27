@@ -10,6 +10,43 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class Aate9061LanePopulationAndCompoundTest {
+    @org.junit.Test fun failedJournalBatchRetainsPriorRowsAndCanBeRetriedWithoutDuplicates() {
+        val f=java.io.File.createTempFile("native-zone-journal",".jsonl")
+        try {
+            f.writeText("{\"old\":true}\n")
+            try {
+                com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,3){i->
+                    if(i==1)throw java.io.IOException("injected encode failure")
+                    "{\"row\":$i}"
+                }
+                org.junit.Assert.fail("expected failure")
+            }catch(_:java.io.IOException){}
+            org.junit.Assert.assertEquals("{\"old\":true}\n",f.readText())
+            com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,3){i->"{\"row\":$i}"}
+            org.junit.Assert.assertEquals(listOf("{\"old\":true}","{\"row\":0}","{\"row\":1}","{\"row\":2}"),f.readLines())
+            try {
+                com.lifecyclebot.engine.truth.NativeZoneJournal9061.append(f,1){"x".repeat(8193)}
+                org.junit.Assert.fail("oversized row")
+            }catch(_:IllegalArgumentException){}
+            org.junit.Assert.assertEquals(4,f.readLines().size)
+        }finally{f.delete()}
+    }
+    @org.junit.Test fun checkpointsCoalesceWithoutDependingOnTrainingOrMemoryHeadroom() {
+        val c=com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061()
+        org.junit.Assert.assertTrue(c.acquire(0L))
+        org.junit.Assert.assertFalse(c.acquire(90_000L)) // still queued/running
+        c.release()
+        org.junit.Assert.assertFalse(c.acquire(29_999L))
+        org.junit.Assert.assertTrue(c.acquire(30_000L))
+        c.release()
+        org.junit.Assert.assertTrue(c.acquire(1L)) // monotonic origin reset
+        c.release()
+        org.junit.Assert.assertFalse(c.acquire(-1L))
+        org.junit.Assert.assertEquals(128,com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061.limit("NORMAL"))
+        org.junit.Assert.assertEquals(32,com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061.limit("HARD"))
+        org.junit.Assert.assertEquals(8,com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061.limit("CRITICAL"))
+        org.junit.Assert.assertFalse(com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061.compact("HARD"))
+    }
     private val population=NativeZoneMarket9061.Snapshot(20_000.0,5_000.0,1.0,1.0,
         3_000.0,500_000.0,.25,3.0,2_000.0,"CURVE_LAUNCH")
 

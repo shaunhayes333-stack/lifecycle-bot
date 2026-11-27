@@ -78,6 +78,7 @@ internal class NativeZoneSequence9058(
     private val completed=java.util.ArrayDeque<Completed>()
     private var count=0; private var bucket=0L; private var budget=0
     private var offered=0L;private var capped=0L;private var invalid=0L;private var done=0L;private var censored=0L;private var dropped=0L
+    private val completionReasons9061=LinkedHashMap<String,Long>()
 
     // Three causal frames per lane/asset; one early lane cannot consume a token's entire research budget.
     // Total windows stay bounded at 384. The former eight-per-token cap excluded later native desks.
@@ -136,6 +137,7 @@ internal class NativeZoneSequence9058(
         count--;val lane=w.d.scope.lane;val left=(laneCounts[lane]?:1)-1
         if(left<=0)laneCounts.remove(lane) else laneCounts[lane]=left
         done++;if(w.labels.all{it<0})censored++
+        completionReasons9061[reason]=(completionReasons9061[reason]?:0L)+1L
         if(completed.size>=maxCompleted){completed.removeFirst();dropped++}
         completed.addLast(Completed(w.d.scope,w.d.mark.asset,w.d.at,maxOf(now,w.d.at),w.features.copyOf(),w.labels.copyOf(),
             w.d.admitted,w.d.mark,w.entry,w.last,w.firstStop,w.firstTargets.copyOf(),w.observations,w.maxGap,reason,w.predictions.firstOrNull(),w.predictions.toList(),w.d.signalAt9059,w.d.signal,w.d.objective,w.nativeHit,w.nativeLabel,w.d.market9061,w.d.pocket9061))
@@ -205,5 +207,6 @@ internal class NativeZoneSequence9058(
         val out=ArrayList<Completed>();repeat(minOf(limit.coerceAtLeast(0),completed.size)){out.add(completed.removeFirst())};return out
     }
     @Synchronized fun hasActive9058(asset:String):Boolean = active.containsKey(asset)
-    @Synchronized fun status()="zoneWindows9058[active=$count sampled=$offered capped=$capped invalid=$invalid complete=$done censored=$censored queue=${completed.size} dropped=$dropped]"
+    @Synchronized fun status()="zoneWindows9058[active=$count sampled=$offered capped=$capped invalid=$invalid complete=$done censored=$censored queue=${completed.size} dropped=$dropped reasons9061="+
+        completionReasons9061.entries.joinToString(","){it.key+":"+it.value}+"]"
 }
