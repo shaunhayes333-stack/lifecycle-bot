@@ -3885,6 +3885,12 @@ object CryptoAltTrader {
             if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot,
                 liveDecision8870 = !paper7803) else null
         if (wantsFreshBasis7275 && basis7275 == null) {
+            // A live Solana price gap can occur before canonical admission reaches
+            // LiveEdgeGate's chain verification. Use the same coalesced queue here.
+            if (!paper7803) try {
+                com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(
+                    cryptoAssetKey(signal, isSpot), listOf("PRICE"), "DECISION")
+            } catch (_: Exception) {}
             val reason8870 = if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275" else "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870"
             terminalDisposition6613(reason8870, "PRE_SUBMIT")
             try {

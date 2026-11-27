@@ -4924,10 +4924,10 @@ class Executor(
                     // written from proofEntryUsd in completeVerifiedLiveBuyWithProof).
                     // Preferring entryPriceSol here produced a ~1/solPrice
                     // (≈1/150) units divergence between journal rows and the
-                    // Pilly-style position card. Always take USD first; only
-                    // fall back to SOL/token if USD is missing (early boot
-                    // before SOL/USD is known).
-                    val canonicalEntryPx = fill6320.entryPriceUsd.takeIf { it > 0.0 } ?: fill6320.entryPriceSol
+                    // Pilly-style position card. Missing historical USD evidence must
+                    // not be replaced by SOL/token or converted at today's rate.
+                    // Keep the row's existing USD snapshot when it is unavailable.
+                    val canonicalEntryPx = fill6320.entryUsdForJournal9062() ?: 0.0
                     val stalePx = tradeWithMint.entryPriceSnapshot
                     val staleQty = tradeWithMint.entryQtyToken
                     val entryPxMismatch = canonicalEntryPx > 0.0 && stalePx > 0.0 &&

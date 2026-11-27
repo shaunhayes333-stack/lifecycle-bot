@@ -56,6 +56,14 @@ class Aate9062PriceEvidenceTest {
         assertEquals(corrected, NativePriceEvidence9062.markFor("mint9062", now))
     }
 
+    @Test fun verificationAsksOnlyForTheMissingChainInputs() {
+        assertEquals(listOf("PRICE"), NativePriceEvidence9062.missingInputs9062(chain(), 6))
+        assertEquals(listOf("PRICE"), NativePriceEvidence9062.missingInputs9062(null, 9))
+        assertEquals(listOf("PRICE", "DECIMALS"), NativePriceEvidence9062.missingInputs9062(null, null))
+        assertEquals(listOf("PRICE", "DECIMALS"), NativePriceEvidence9062.missingInputs9062(chain(), 9))
+        assertEquals(listOf("PRICE", "DECIMALS"), NativePriceEvidence9062.missingInputs9062(chain().copy(decimals = 99), 99))
+    }
+
     @Test fun existingCollectorPublishesBeforeLegacySelectionAndNativeReadsUseIt() {
         val base = "src/main/kotlin/com/lifecyclebot/engine/truth/"
         val collector = File(base + "ForwardReturnLabeler7731.kt").readText()

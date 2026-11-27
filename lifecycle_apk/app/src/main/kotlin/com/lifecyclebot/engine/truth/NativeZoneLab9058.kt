@@ -73,8 +73,14 @@ internal object NativeZoneLab9058 {
         } ?: run{
             missingSignal9059.incrementAndGet();return
         }
+        val mode=(nativeSignal9059?.mode ?: observationMode9059)?.uppercase()?.takeIf{it=="PAPER"||it=="LIVE"} ?:
+            if(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
         val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: cachedProof9062(ts.mint,at)
-            ?: run{noProof.incrementAndGet();return}
+            ?: run{
+                noProof.incrementAndGet()
+                if(mode=="LIVE" && admitted) requestProof9062(ts,basis,at)
+                return
+            }
         if(!reserved9059&&!tracker.reserve(ts.mint,lane,at,signal.channel()))return
         val shared=if(crypto)com.lifecyclebot.engine.BotService.status.tokens[ts.mint]?.takeIf{it.mint==ts.mint} else null
         fun fact(field:TokenFacts.Field,age:Long):Double {
@@ -98,7 +104,12 @@ internal object NativeZoneLab9058 {
             })
         val trip=FieldManual7715.labelCostPct8534(ForwardReturnLabeler7731.COST_SIZE_USD_7731,
             if(depth.isFinite())depth else 0.0,ts.mint)
-        if(!trip.second || !trip.first.isFinite() || trip.first !in 0.0..100.0){noCost.incrementAndGet();return}
+        if(!trip.second || !trip.first.isFinite() || trip.first !in 0.0..100.0){
+            noCost.incrementAndGet()
+            if(mode=="LIVE" && !depth.isFinite() && admitted)
+                try { ChainConfirm8950.confirm8950(ts,listOf("LIQUIDITY"),"EVIDENCE",at) } catch (_: Exception) {}
+            return
+        }
         val mandate=FieldManual7715.mandateFor(lane)
         var stop=FieldManual7715.stopPctQuiet8830(lane,trip.first)
         var gross=mandate.expectedGrossPct
@@ -127,8 +138,6 @@ internal object NativeZoneLab9058 {
             else -> "SPOT_POOL"
         }
         val market=(if(crypto)"CRYPTO_SOLANA_" else "SOLANA_")+venue
-        val mode=(nativeSignal9059?.mode ?: observationMode9059)?.uppercase()?.takeIf{it=="PAPER"||it=="LIVE"} ?:
-            if(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
         val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+
             (if(measured>0L)".MEASURED" else ".PROXY15S")+"."+mode+"."+signal.origin+"."+policy
         val scope=NativeZoneSequence9058.Scope(lane,signal.primary(),market,source,"LONG")
@@ -152,8 +161,17 @@ internal object NativeZoneLab9058 {
         }
     }
 
+    /** Request through the existing coalesced queue; a fresh answer reassesses the coin.
+     * The rejected observation is never backfilled with future evidence. */
+    private fun requestProof9062(ts:TokenState,mark:LabelMark8386?,at:Long) {
+        try {
+            val supply=MintSupply8418.of8418(ts.mint)?.takeIf{it.observedAtMs in 1L..at}?.decimals
+            ChainConfirm8950.confirm8950(ts,NativePriceEvidence9062.missingInputs9062(mark?.takeIf{it.mint==ts.mint},supply),"EVIDENCE",at)
+        } catch (_: Exception) {}
+    }
+
     /** Observe classic crypto before desk arbitration, not only at canonical submission.
-     * No extra provider call; if an exact chain mark is not in cache, count it as unavailable. */
+     * An actionable LIVE gap uses the same deduplicated chain verification as other decisions. */
     fun observeClassic9059(ts:TokenState,strategy:String,actionable:Boolean,score:Int,confidence:Int,signalAt:Long){
         val now=System.currentTimeMillis()
         val key=com.lifecyclebot.engine.NativeDecisionEnrollment8372.learningIdentity(ts.mint,ts.symbol,null)
@@ -161,8 +179,13 @@ internal object NativeZoneLab9058 {
         val frame=NativeZoneContract9059.signal("DESK",signalAt,if(actionable)strategy else null,emptyList(),
             if(actionable)"NATIVE" else "UNOBSERVED",score.toDouble(),100.0,confidence.toDouble(),now) ?: return
         if(!tracker.reserve(key,"CRYPTO_ALT",now,frame.channel()))return
-        val mark=ForwardReturnLabeler7731.typedMark8386(key,{null},now) ?: run{noProof.incrementAndGet();return}
-        capture(if(key==ts.mint)ts else ts.copy(mint=key),"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
+        val local=if(key==ts.mint)ts else ts.copy(mint=key)
+        val mark=ForwardReturnLabeler7731.typedMark8386(key,{null},now) ?: run{
+            noProof.incrementAndGet()
+            if(actionable && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())requestProof9062(local,null,now)
+            return
+        }
+        capture(local,"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
     }
 
     fun acceptedMark(mark:LabelMark8386,now:Long){

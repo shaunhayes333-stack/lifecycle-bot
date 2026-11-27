@@ -11,6 +11,15 @@ internal object NativePriceEvidence9062 {
     internal fun knownVenue(venue: String): Boolean = venue.equals("pump.curve", true) ||
         (venue.length in 32..44 && venue.all { it in "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz" })
 
+    /** Only missing/conflicting mint units need a mint read in addition to pool price/depth. */
+    internal fun missingInputs9062(mark: LabelMark8386?, supplyDecimals: Int?): List<String> {
+        val mintKnown = supplyDecimals != null && supplyDecimals in 0..30
+        val markKnown = mark != null && mark.decimals in 0..30
+        return if ((!mintKnown && !markKnown) ||
+            (mintKnown && markKnown && mark!!.decimals != supplyDecimals)) listOf("PRICE", "DECIMALS")
+        else listOf("PRICE")
+    }
+
     internal fun select(mint: String, candidates: List<LabelMark8386>, now: Long,
                         supplyDecimals: Int?): LabelMark8386? = candidates.asSequence()
         .filter { it.mint == mint && it.known() && it.independentBasis &&

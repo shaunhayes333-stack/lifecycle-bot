@@ -2,6 +2,13 @@
 
 ## Price and data repairs included
 
+The legacy sell-journal canonical-fill override substituted SOL/token directly
+when USD/token was missing. It now accepts only finite positive historical USD
+evidence from the fill and otherwise retains the row's existing USD snapshot.
+No present-day exchange rate is used to invent a historical price. Confirmed SOL
+cost/proceeds accounting is unchanged. `Aate9062JournalUnitsTest` covers a fill
+with a valid SOL price but missing/invalid USD and its actual journal consumer.
+
 The label collector's legacy endpoint view treats OFFWATCH as a market read and
 then selects the newest candidate. A newer provider snapshot can therefore hide
 a still-fresh independent chain mark. Native research subsequently rejects the
@@ -14,9 +21,22 @@ existing mint observation only if that evidence was available by decision time.
 Conflicts, unknowns and marks older than five seconds remain unusable. The cache
 is capped at 2,048 assets and never refreshes a mark's event time on lookup.
 Native decision/path capture can recover this candidate when its supplied mark
-fails proof. No new request, subscription, worker or live-order authority is added;
-the legacy endpoint price choice is unchanged. `recoveredProof9062` counts uses,
+fails proof. The legacy endpoint price choice is unchanged. `recoveredProof9062` counts uses,
 not unique observations or demonstrated profitability.
+
+If an actionable LIVE observation still lacks proof, the existing ChainConfirm8950
+queue verifies price/depth from the curve or pool and reads the mint only when
+decimals are unknown or conflicting. Missing depth that prevents cost assessment
+uses that same mechanism. Requests share the existing mint/input coalescing and
+dispatch budgets across lanes; no polling worker or new RPC client is added.
+The price answer wakes the existing pipeline callback, rather than waiting for
+the normal scan. Reassessment creates a fresh decision: later evidence never
+retroactively fills the rejected observation. Passive and PAPER research do not
+request these additional reads. Classic crypto's actionable Solana observations
+use this same verification path when the mark is absent.
+The crypto trader's live pre-submit price wait also requests this shared chain
+verification, since that early return occurs before LiveEdgeGate. Non-Solana
+identities remain with their own providers; the Solana queue rejects them.
 
 The prior native venue check accepted any string at least 32 characters long,
 including `MINT_ROUTE:<mint>`. Native enrollment, witnessed-trade capture and
