@@ -24035,16 +24035,16 @@ if (hotExitHandledSweep) {
         SlotInventory9065.subTraderMints(isPaper).toList()
 
     /** V5.9.1567 — keep forced-open ghost eviction out of botLoop/reaper transform bulk. */
-    private fun evictSubTraderGhost(mint: String) {
-        val paper7858 = RuntimeModeAuthority.isPaper()
+    private fun evictSubTraderGhost(mint: String, isPaper: Boolean) {
+        val paper7858 = isPaper
         try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
         try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(mint) } catch (_: Throwable) {}
-        try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint, isPaper = paper7858) } catch (_: Throwable) {}
     }
 
     private fun isCapCountableLiveToken(mint: String, ts: com.lifecyclebot.data.TokenState? = null): Boolean {
@@ -24088,7 +24088,7 @@ if (hotExitHandledSweep) {
                 // a closed mint is reaped (lease released) but immediately re-added
                 // from the store on the very next cycle → ghost>0 forever → every
                 // buy defers (the 6h-dead park). Pure map removal, no PnL/learning.
-                evictSubTraderGhost(m)
+                evictSubTraderGhost(m, isPaper = false)
             }
         }
         // Stash the clean list + live set so publishSlotHealth counts the SAME truth.

@@ -146,6 +146,10 @@ object DipHunterAI {
      */
     fun evictGhost(mint: String): Boolean =
         synchronized(activeDips) { activeDips.remove(mint) != null }
+
+    /** Account-scoped cleanup must not remove the other account or a replacement. */
+    fun evictGhost(mint: String, isPaper: Boolean): Boolean =
+        com.lifecyclebot.engine.ModeScopedRemoval9066.remove(activeDips, mint, isPaper) { it.isPaper }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES

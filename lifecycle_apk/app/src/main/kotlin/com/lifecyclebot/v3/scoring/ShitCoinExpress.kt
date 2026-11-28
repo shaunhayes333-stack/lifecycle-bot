@@ -1001,6 +1001,10 @@ object ShitCoinExpress {
      */
     fun evictGhost(mint: String): Boolean =
         synchronized(activeRides) { activeRides.remove(mint) != null }
+
+    /** Account-scoped cleanup must not remove the other account or a replacement. */
+    fun evictGhost(mint: String, isPaper: Boolean): Boolean =
+        com.lifecyclebot.engine.ModeScopedRemoval9066.remove(activeRides, mint, isPaper) { it.isPaper }
     
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.

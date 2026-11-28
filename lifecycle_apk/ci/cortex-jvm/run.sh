@@ -61,6 +61,7 @@ classpath="$deps_dir/kotlin-stdlib-1.9.24.jar:$deps_dir/annotations-13.0.jar:$de
 python3 "$script_dir/extract_field_manual.py" "$sources/truth/FieldManual7715.kt" "$output_dir/FieldManual7715.kt"
 python3 "$script_dir/extract_strategy_rank.py" "$sources/truth/StrategyRank8153.kt" "$output_dir/StrategyRank8153.kt"
 production=(
+  "$sources/ModeScopedRemoval9066.kt"
   "$sources/market/BuyerFlow8666.kt"
   "$sources/market/BuyerFlowEvidence9056.kt"
   "$sources/truth/RunnerBarrierLearning9051.kt"
@@ -144,6 +145,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   "$tests/Aate9062PriceEvidenceTest.kt" \
   "$tests/Aate9063RecoveryTest.kt" \
   "$tests/Aate9064NativeWarmupTest.kt" \
+  "$tests/Aate9066ModeScopedRemovalTest.kt" \
   "$tests/Aate9060NativeObjectiveTest.kt" "$tests/Aate9061LanePopulationAndCompoundTest.kt" \
   "$tests/Aate9052EvidenceReadQueueTest.kt" "$tests/Aate9058NativeZoneTest.kt" "$tests/Aate9059NativeZoneFeedbackTest.kt" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
@@ -169,6 +171,7 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate9062PriceEvidenceTest \
   com.lifecyclebot.engine.Aate9063RecoveryTest \
   com.lifecyclebot.engine.Aate9064NativeWarmupTest \
+  com.lifecyclebot.engine.Aate9066ModeScopedRemovalTest \
   com.lifecyclebot.engine.Aate9052EvidenceReadQueueTest \
   com.lifecyclebot.engine.Aate9058NativeZoneTest \
   com.lifecyclebot.engine.Aate9059NativeZoneFeedbackTest \
