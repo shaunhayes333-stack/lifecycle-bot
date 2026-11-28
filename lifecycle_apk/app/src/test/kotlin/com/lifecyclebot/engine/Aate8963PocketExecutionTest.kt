@@ -30,7 +30,7 @@ class Aate8963PocketExecutionTest {
         assertTrue(curve.indexOf("priceFromCurve8963(m, vSol, vTok, atMs)") in 0 until curve.indexOf("ChainConfirm8950.marketObserved8959(m, atMs)"))
         assertTrue(curve.contains("ChainPrice8963.publish8963(mint, priceSol7951(vSol, vTok) * solUsd, ChainPrice8963.CURVE_SOURCE_8963, atMs)"))
         val depth = src("engine/truth/OnChainDepth8038.kt").substringAfter("internal fun accept8418(").substringBefore("private fun recordStatePrice8418")
-        val publish = depth.indexOf("ChainPrice8963.publish8963(mint, priceUsd8038(read.quoteSol, read.baseTokens, solUsd()),")
+        val publish = depth.indexOf("ChainPrice8963.publish8963(mint, priceUsd8038(read.quoteSol, read.baseTokens, priceConversion9067()),")
         assertTrue(publish > depth.indexOf("reads[mint] = read"))
         assertTrue("the rerun reads the new price", publish < depth.lastIndexOf("ChainConfirm8950.marketObserved8959(mint, observedAt)"))
         assertTrue("a concentrated vault ratio is depth: never a price",

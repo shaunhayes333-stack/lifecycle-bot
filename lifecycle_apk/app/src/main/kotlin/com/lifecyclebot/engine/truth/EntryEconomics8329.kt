@@ -265,7 +265,7 @@ object EntryEconomics8329 {
         val book = chase8329.computeIfAbsent(lane) { ChaseBook8329() }
         // V5.0.9019 — the decision's own price reference: the ticket's mark, else (a ticket may be sealed without one, 7096)
         // the price its admission read; a stamp seen after this clock was read is fresh, never "stale" (PriceAge8549).
-        val ref9019 = decisionRef9019(intent.executableMarkPriceUsd6613, intent.executableMarkTimestampMs6613, admissionPrice9019[intent.mint], nowMs)
+        val ref9019 = decisionRef9019(intent.executableMarkPriceUsd6613, intent.executableMarkTimestampMs6613, boundAdmissionPrice9067(intent), nowMs)
         val decisionPx = ref9019?.first ?: intent.executableMarkPriceUsd6613
         val observedAt = ref9019?.second ?: intent.executableMarkTimestampMs6613
         if (ref9019 != null && !(intent.executableMarkPriceUsd6613 > 0.0 && intent.executableMarkTimestampMs6613 > 0L)) admissionPriceUsed9019.incrementAndGet()
@@ -338,16 +338,20 @@ object EntryEconomics8329 {
     }
 
     // ── V5.0.9019 — the decision's reference at the send (see PriceAge8549.ageMs9019) ──
-    private val admissionPrice9019 = ConcurrentHashMap<String, Pair<Double, Long>>()
     private val staleByCause9019 = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
     private val admissionPriceUsed9019 = java.util.concurrent.atomic.AtomicLong()
 
-    /** CandidateAdmission8136 (LIVE, admitted): the price the admission read for [mint] and when it was observed. */
-    fun noteAdmissionPrice9019(mint: String, priceUsd: Double, observedAtMs: Long, nowMs: Long) {
-        if (mint.isBlank() || !priceUsd.isFinite() || priceUsd <= 0.0 || observedAtMs <= 0L) return
-        if (admissionPrice9019.size > 2_000) admissionPrice9019.entries.removeIf { nowMs - it.value.second > DECISION_MAX_AGE_MS_8329 }
-        if (admissionPrice9019.size > 2_000) admissionPrice9019.clear()
-        admissionPrice9019[mint] = priceUsd to observedAtMs
+    /** A decision price qualifies only on the original LIVE candidate's own sealed proof. */
+    fun boundAdmissionPrice9067(intent: ExecutionIntent): Pair<Double, Long>? {
+        val proof = intent.admissionProof ?: return null
+        val price = proof.admissionPrice9067 ?: return null
+        if (intent.mode != "LIVE" || proof.mode != intent.mode || proof.mint != intent.mint ||
+            proof.candidateVersion <= 0L || proof.candidateVersion != intent.candidateVersion ||
+            CanonicalLaneIdentity6506.canonical(proof.lane) != CanonicalLaneIdentity6506.canonical(intent.canonicalLane) ||
+            price.rank != TokenFacts.Rank.CHAIN || !ChainPrice8963.isAccountPrice9067(price.source) || !TokenFacts.isReading(price.value) ||
+            price.observedAtMs <= 0L || proof.atMs - price.observedAtMs !in 0L..5_000L ||
+            intent.createdAt - proof.atMs !in 0L..AdmissionEdge8180.TTL_MS_8180) return null
+        return price.value to price.observedAtMs
     }
 
     /**

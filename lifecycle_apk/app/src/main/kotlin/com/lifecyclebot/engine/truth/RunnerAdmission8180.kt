@@ -66,6 +66,7 @@ object AdmissionEdge8180 {
         val specificEdge: Boolean = true,
         val reason: String = "",
         val evaluatedStage: String = "", val evaluatedEntryWait: String? = null,
+        val admissionPrice9067: TokenFacts.Fact? = null,
     ) {
         /** The admission's expected GROSS (%) — net plus the round trip it was charged; NaN when either is unknown. */
         val expectedGrossPct: Double get() =
@@ -86,13 +87,14 @@ object AdmissionEdge8180 {
      * NET_EV_NONPOSITIVE_AT_SIZE_8153 (8233 forensic: 50 of 144 sized). Every ADMIT now carries its basis; only a
      * specific-edge ADMIT carries promotion rights ([admitted8180]).
      */
-    fun note8180(mode: String, mint: String, lane: String, candidateVersion: Long, d: CandidateAdmission8136.Decision8136, nowMs: Long) {
+    fun note8180(mode: String, mint: String, lane: String, candidateVersion: Long, d: CandidateAdmission8136.Decision8136, nowMs: Long,
+                 admissionPrice9067: TokenFacts.Fact? = null) {
         if (mint.isBlank() || lane.isBlank()) return
         val k = key8198(mode, mint, lane)
         if (d.terminal != CandidateAdmission8136.Terminal8136.ADMIT) { admitted.remove(k); return }
         admitted[k] = Proof8198(mode.trim().uppercase(), mint, k.substringAfterLast('|'), candidateVersion, d.basis, d.chosenSetup, nowMs,
             d.expectedNetPct, d.costPct, d.costSizeSol, specificEdge = carriesEdge8180(d), reason = d.reason,
-            evaluatedStage = d.evaluatedStage, evaluatedEntryWait = d.evaluatedEntryWait)
+            evaluatedStage = d.evaluatedStage, evaluatedEntryWait = d.evaluatedEntryWait, admissionPrice9067 = admissionPrice9067)
         if (admitted.size > MAX_8180) admitted.entries.removeIf { nowMs - it.value.atMs > TTL_MS_8180 }
     }
 

@@ -86,7 +86,7 @@ class Aate8986ChainRepriceTest {
 
     @Test fun wired() {
         val d = File("src/main/kotlin/com/lifecyclebot/engine/truth/OnChainDepth8038.kt").readText()
-        assertTrue(d.contains("ChainPrice8963.publish8963(mint, it.solPerCoin * solUsd(), ChainPrice8963.STATE_SOURCE_8986 + venueName8418(owner8418), observedAt, pool = p)"))
+        assertTrue(d.contains("ChainPrice8963.publish8963(mint, it.solPerCoin * priceConversion9067(), ChainPrice8963.STATE_SOURCE_8986 + venueName8418(owner8418), observedAt, pool = p)"))
         assertTrue(d.contains("com.lifecyclebot.network.PoolVirtualQuote8952.note8952(p, it.toDouble(), observedAt)"))
         assertEquals("CHAIN_STATE_READ_8986_", ChainPrice8963.STATE_SOURCE_8986)
         assertTrue(File("src/main/kotlin/com/lifecyclebot/engine/truth/ChainConfirm8950.kt").readText().contains("val due = synchronized(lastAsk) { due8950(lastAsk[key] ?: 0L, nowMs, gapFor8986(input, normalized)) }"))

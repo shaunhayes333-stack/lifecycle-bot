@@ -64,7 +64,7 @@ class Aate8198AdmissionProofScopeTest {
 
     @Test fun theLiveAdmissionAdapterStampsItsOwnLaneAndGeneration() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/truth/CandidateAdmission8136.kt").readText()
-        assertTrue(src.contains("AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs)"))
+        assertTrue(src.contains("AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs, candidate.admissionPrice9067)"))
         assertFalse(src.contains("note8180(mint, AdmissionEdge8180.carriesEdge8180(d), nowMs)"))
     }
 

@@ -213,7 +213,7 @@ object CurveReserves7951 {
     private fun priceFromCurve8963(mint: String, vSol: Double, vTok: Double, atMs: Long) {
         if (!(vSol > 0.0 && vTok > 0.0)) return
         if (try { com.lifecyclebot.network.PumpCurveKeys7269.isGraduated7392(mint) } catch (_: Throwable) { false }) return
-        val solUsd = try { com.lifecyclebot.engine.WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+        val solUsd = try { com.lifecyclebot.engine.WalletManager.freshSolPrice8163(System.currentTimeMillis()) } catch (_: Throwable) { 0.0 }
         if (!(solUsd > 0.0)) return
         ChainPrice8963.publish8963(mint, priceSol7951(vSol, vTok) * solUsd, ChainPrice8963.CURVE_SOURCE_8963, atMs)
     }

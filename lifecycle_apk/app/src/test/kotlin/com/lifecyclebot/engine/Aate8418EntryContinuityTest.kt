@@ -76,6 +76,24 @@ class Aate8418EntryContinuityTest {
             check(approved = intent().copy(executableMarkPriceUsd6613 = 0.0), current = intent().copy(executableMarkPriceUsd6613 = 0.0)))
     }
 
+    @Test fun chainPriceStaysBoundToItsOriginalLiveDecision() {
+        val fact = com.lifecyclebot.engine.truth.TokenFacts.Fact(.001, "CURVE_ACCOUNT_7951_PRICE_8963", 3, now - 500)
+        val proof = com.lifecyclebot.engine.truth.AdmissionEdge8180.Proof8198(
+            "LIVE", mint, "QUALITY", 8418L, "setup", null, now - 200, admissionPrice9067 = fact)
+        val ticket = intent().copy(executableMarkPriceUsd6613 = 0.0, admissionProof = proof)
+        assertNull(check(ticket, ticket))
+        assertEquals("ENTRY_CONTINUITY_8418_PRICE", check(ticket, ticket, px = .00116))
+        for (invalid in listOf(proof.copy(candidateVersion = 8419L), proof.copy(lane = "CORE"),
+            proof.copy(mode = "PAPER"), proof.copy(mint = "another"),
+            proof.copy(admissionPrice9067 = fact.copy(rank = 1)),
+            proof.copy(admissionPrice9067 = fact.copy(source = "EXEC_QUOTE_8237")),
+            proof.copy(admissionPrice9067 = fact.copy(observedAtMs = now - 30_000)))) {
+            val other = ticket.copy(admissionProof = invalid)
+            assertEquals("ENTRY_CONTINUITY_8418_PRICE_UNAPPROVED", check(other, other))
+        }
+        assertEquals("ENTRY_CONTINUITY_8418_STRATEGY", check(ticket, ticket.copy(admissionProof = null)))
+    }
+
     @Test fun bothBuyRoutesAreWired() {
         val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val recheck = ex.indexOf("SizingQuoteRecheck8153.preBroadcastQuoteRefusal8167(ts, sol, executionQuote7688, intent8198 = intent8198)")

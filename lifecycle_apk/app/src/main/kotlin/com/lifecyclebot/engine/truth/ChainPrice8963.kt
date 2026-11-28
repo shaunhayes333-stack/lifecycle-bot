@@ -30,6 +30,9 @@ object ChainPrice8963 {
     const val VAULT_SOURCE_8963 = "CHAIN_VAULT_READ_8963_"
     /** V5.0.8986 — a concentrated pool's decoded state price (Raydium CLMM / Orca Whirlpool sqrt price, Meteora DLMM active bin). */
     const val STATE_SOURCE_8986 = "CHAIN_STATE_READ_8986_"
+    internal fun isAccountPrice9067(source: String): Boolean =
+        source == CURVE_SOURCE_8963 || source.startsWith(VAULT_SOURCE_8963) || source.startsWith(STATE_SOURCE_8986)
+
     private val written = ConcurrentHashMap<String, AtomicLong>()
     private val woke = AtomicLong(0L)
     private val notNewer = AtomicLong(0L)
@@ -53,6 +56,8 @@ object ChainPrice8963 {
             synchronized(ts) { TokenFacts.writePrice(ts, usd, source, TokenFacts.Rank.CHAIN, observedAtMs, nowMs, pool = pool) }
         } catch (_: Throwable) { false }
         if (!ok) { refused.incrementAndGet(); return false }
+        try { NativeZoneLab9058.chainRead9067(mint, pool, source, usd, observedAtMs, nowMs) }
+        catch (_: Exception) { /* Research cannot interrupt delivery to the live decision. */ }
         val key = if (source.startsWith(VAULT_SOURCE_8963)) "VAULT" else if (source.startsWith(STATE_SOURCE_8986)) "STATE" else "CURVE"
         written.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
         if (wasStale8963(heldAt, nowMs)) {
