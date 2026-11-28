@@ -191,6 +191,22 @@ internal object NativeZoneLab9058 {
         capture(local,"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
     }
 
+    /** Deliver the original chain observation directly to tracked windows between label polls. */
+    fun chainRead9067(mint: String, pool: String?, source: String, usd: Double, event: Long, receipt: Long) {
+        if (!tracker.hasActive9058(mint)) return
+        val labelSource = when {
+            source == ChainPrice8963.CURVE_SOURCE_8963 -> "CURVE_ACCOUNT"
+            source.startsWith(ChainPrice8963.VAULT_SOURCE_8963) -> ForwardReturnLabeler7731.VAULT_MARK_SOURCE_8571
+            source.startsWith(ChainPrice8963.STATE_SOURCE_8986) -> ForwardReturnLabeler7731.STATE_MARK_SOURCE_8989
+            else -> return
+        }
+        val curve = source == ChainPrice8963.CURVE_SOURCE_8963
+        val venue = if (curve) "pump.curve" else pool ?: return
+        val mark = LabelMark8386(mint, venue, usd, event, receipt, labelSource,
+            decimals = if (curve) 6 else -1, independentBasis = true)
+        proof(mark, receipt)?.let { tracker.mark(it, receipt) }
+    }
+
     fun acceptedMark(mark:LabelMark8386,now:Long){
         if(tracker.hasActive9058(mark.mint)) (proof(mark,now) ?: cachedProof9062(mark.mint,now))?.let{tracker.mark(it,now)}
     }

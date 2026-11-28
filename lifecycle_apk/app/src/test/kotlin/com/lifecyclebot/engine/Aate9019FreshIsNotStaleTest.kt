@@ -56,9 +56,9 @@ class Aate9019FreshIsNotStaleTest {
         assertTrue(e.staleLine9019().startsWith("decisionStale9019[byCause{"))
         assertTrue(e.line8918().contains("decisionStale9019["))
         val s = src("engine/truth/EntryEconomics8329.kt")
-        assertTrue(s.contains("val ref9019 = decisionRef9019(intent.executableMarkPriceUsd6613, intent.executableMarkTimestampMs6613, admissionPrice9019[intent.mint], nowMs)"))
+        assertTrue(s.contains("val ref9019 = decisionRef9019(intent.executableMarkPriceUsd6613, intent.executableMarkTimestampMs6613, boundAdmissionPrice9067(intent), nowMs)"))
         assertTrue(s.contains("ts.lastPriceUpdate - now > PriceAge8549.AHEAD_MAX_MS_9019"))
-        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("EntryEconomics8329.noteAdmissionPrice9019(ts.mint, ts.lastPrice, ts.lastPriceUpdate, nowMs)"))
+        assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains("admissionPrice9067 = TokenFacts.priceFact(ts)"))
     }
 
     @Test fun theHolderBlockJudgesTheLargestSingleWallet() {

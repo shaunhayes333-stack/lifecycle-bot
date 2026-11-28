@@ -80,8 +80,11 @@ object EntryContinuity8418 {
             val ai = if (approvedQuote.impactPct.isFinite()) approvedQuote.impactPct.coerceAtLeast(0.0) else 0.0
             if (executedQuote.impactPct.isFinite() && executedQuote.impactPct > ai + IMPACT_HEADROOM_PTS_8418) return PREFIX + "IMPACT"
         }
-        val mark = approved.executableMarkPriceUsd6613
-        if (!mark.isFinite() || mark <= 0.0) return PREFIX + "PRICE_UNAPPROVED"
+        val mark = approved.executableMarkPriceUsd6613.takeIf { it.isFinite() && it > 0.0 }
+            ?: com.lifecyclebot.engine.truth.EntryEconomics8329.boundAdmissionPrice9067(approved)?.first
+            ?: return PREFIX + "PRICE_UNAPPROVED"
+        if (approved.executableMarkPriceUsd6613 != current.executableMarkPriceUsd6613 ||
+            approved.admissionProof != current.admissionProof) return PREFIX + "STRATEGY"
         if (!executionPriceUsd.isFinite() || executionPriceUsd <= 0.0) return PREFIX + "PRICE_UNAVAILABLE"
         if (executionPriceUsd > mark * (1.0 + CHASE_BOUND_FRAC_8418)) return PREFIX + "PRICE"
         return null
@@ -129,7 +132,8 @@ object EntryContinuity8418 {
         val r = try { refusal8418(intent, current, mint, spentLamports, priceUsd, approvedQuote, executedQuote) } catch (_: Throwable) { PREFIX + "CHECK_FAULT" }
         if (intent != null) {
             val rec = Record8418(intent.attemptId, mint, intent.canonicalLane, intent.resolvedSize, spentLamports / 1_000_000_000.0,
-                spentLamports, intent.executableMarkPriceUsd6613, priceUsd,
+                spentLamports, intent.executableMarkPriceUsd6613.takeIf { it.isFinite() && it > 0.0 }
+                    ?: com.lifecyclebot.engine.truth.EntryEconomics8329.boundAdmissionPrice9067(intent)?.first ?: 0.0, priceUsd,
                 approvedQuote?.router.orEmpty(), executedQuote?.router.orEmpty(), approvedQuote?.outRaw ?: 0L, executedQuote?.outRaw ?: 0L,
                 approvedQuote?.impactPct ?: Double.NaN, executedQuote?.impactPct ?: Double.NaN, r, System.currentTimeMillis())
             if (byAttempt.size > 1_000) byAttempt.clear()

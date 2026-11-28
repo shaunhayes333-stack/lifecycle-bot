@@ -7,6 +7,11 @@ import org.junit.Test
 import java.io.File
 
 class Aate9062PriceEvidenceTest {
+    @org.junit.Test fun decodedPoolStateIsIndependentWhileAProviderQuoteIsNot() {
+        org.junit.Assert.assertTrue(com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418("POOL_STATE_PRICE_8989"))
+        org.junit.Assert.assertFalse(com.lifecyclebot.engine.truth.LabelEvidence8386.independentSource8418("POOL_STATE_PRICE_8989_QUOTE"))
+    }
+
     private val now = 100_000L
     private fun chain(at: Long = now - 1_000L) = LabelMark8386(
         "mint9062", "pump.curve", 0.002, at, now, "CURVE_FRAME", decimals = 6, independentBasis = true)

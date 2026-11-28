@@ -125,7 +125,7 @@ object LabelEvidence8386 {
         // A quote or an API price is never a print, whatever its name says ("JUPITER_SWAP" is a route quote).
         if (s.contains("JUPITER") || s.contains("QUOTE") || s.contains("BIRDEYE") || s.contains("DEXSCREENER") ||
             s.contains("GECKO") || s.contains("ESTIMATE") || s.contains("DERIVED")) return false
-        if (s == "CURVE_ACCOUNT" || s == "CURVE_FRAME") return true
+        if (s == "CURVE_ACCOUNT" || s == "CURVE_FRAME" || s == "POOL_STATE_PRICE_8989") return true
         // V5.0.8571 — the chain feeds the stop path already trusts (StopFeed8327) are chain prints here too: the pump
         // curve account read (keyless or not), the PumpPortal trade print (post-trade curve reserves) and the pool vault /
         // pool state subscriptions. Missing them left most pump decisions without a chain-priced fill and every 10x+

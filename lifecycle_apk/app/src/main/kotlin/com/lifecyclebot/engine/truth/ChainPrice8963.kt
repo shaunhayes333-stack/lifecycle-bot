@@ -53,6 +53,8 @@ object ChainPrice8963 {
             synchronized(ts) { TokenFacts.writePrice(ts, usd, source, TokenFacts.Rank.CHAIN, observedAtMs, nowMs, pool = pool) }
         } catch (_: Throwable) { false }
         if (!ok) { refused.incrementAndGet(); return false }
+        try { NativeZoneLab9058.chainRead9067(mint, pool, source, usd, observedAtMs, nowMs) }
+        catch (_: Exception) { /* Research cannot interrupt delivery to the live decision. */ }
         val key = if (source.startsWith(VAULT_SOURCE_8963)) "VAULT" else if (source.startsWith(STATE_SOURCE_8986)) "STATE" else "CURVE"
         written.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
         if (wasStale8963(heldAt, nowMs)) {

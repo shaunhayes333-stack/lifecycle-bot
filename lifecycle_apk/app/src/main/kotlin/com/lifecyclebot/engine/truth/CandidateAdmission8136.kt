@@ -209,6 +209,7 @@ object CandidateAdmission8136 {
         val launchFire9043: LaunchSniper8748.Fire? = null,
         val launchSnapshotCaptured9043: Boolean = false,
         val sourceExitAt9043: Long = 0L,
+        val admissionPrice9067: TokenFacts.Fact? = null,
     ) {
         val launchOpportunity9043: Pair<String, Long>? get() = launchFire9043?.let { LaunchSniper8748.opportunity9043(it) }
         /** V5.0.9001 — what comes off a record POOLED over every age (setup, timing, Cortex cohort, runner grab) at a support test. */
@@ -1592,7 +1593,7 @@ object CandidateAdmission8136 {
         } catch (_: Throwable) {}
         try { AdmissionRunnerTrace8144.noteAdmission8144(mint, laneRaw, d.terminal.name, d.reason) } catch (_: Throwable) {}
         try { noteFunnel8283(candidate, d) } catch (_: Throwable) {}  // V5.0.8283 — unique-candidate feature funnel
-        try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
+        try { AdmissionEdge8180.note8180(mode, mint, laneRaw, candidateVersion, d, nowMs, candidate.admissionPrice9067) } catch (_: Throwable) {}  // V5.0.8180 / 8198 — this lane's own proof, sizers read it
         // V5.0.8169 — a loss refusal that decayed to neutral on its epoch, counted once per fresh decision.
         try {
             if (d.trace.any { it.startsWith(STALE_CELL_TRACE_8169) }) com.lifecyclebot.engine.ExitDoctrine8169.noteStaleDecay8169(cell = true)
@@ -1617,6 +1618,7 @@ object CandidateAdmission8136 {
 
     /** Candidate price age affects admission only at the stale/fresh boundary. */
     private fun cacheIdentity8144(c: Candidate8136): Candidate8136 = c.copy(
+        admissionPrice9067 = null,
         priceAgeMs = if (priceStale8136(c.priceAgeMs, c.hotLaunch, c.live, feedPeriodMs8855(c.lane))) Long.MAX_VALUE else 0L,
         costBreakdown = "",   // V5.0.8209 — the numbers (costPct, costSizeSol) are identity; the prose is not
     )
@@ -2073,8 +2075,6 @@ object CandidateAdmission8136 {
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
             if (mode == "LIVE") try { TuningReport8618.noteLiveVerdict8618(ts.mint, candidate.lane, it.admitted, it.reason, nowMs) } catch (_: Throwable) {}
-            // V5.0.9019 — the price this LIVE admission read is kept as the decision's reference for a ticket sealed without a mark
-            if (mode == "LIVE" && it.admitted) try { EntryEconomics8329.noteAdmissionPrice9019(ts.mint, ts.lastPrice, ts.lastPriceUpdate, nowMs) } catch (_: Throwable) {}
             // V5.0.9018 — PAPER mode: a candidate the paper decision admits is also decided the LIVE way (same coin, live's
             // inputs), so its paper close can be filed by whether live would have taken it. A what-if: nothing is bought on it.
             if (mode != "LIVE" && it.admitted && !FdgGate8365.shadowOnly8393()) try {
@@ -2266,8 +2266,10 @@ object CandidateAdmission8136 {
             else null
         val canonicalPrice = CanonicalPriceMarkRegistry6522.getFresh6734(
             ts.mint, CanonicalMarkPurpose6570.EXECUTABLE_ENTRY_QUOTE, nowMs)
+        val inputPrice9067 = ts.lastPrice
+        val inputTime9067 = ts.lastPriceUpdate
         val observedAt = com.lifecyclebot.engine.ObservedPriceIdentity8871.observedAt(
-            com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(ts.mint, ts.lastPrice, ts.lastPriceUpdate),
+            com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(ts.mint, inputPrice9067, inputTime9067),
             nowMs,
             canonicalPrice?.takeIf { it.priceUnits7424 == "USD_PER_TOKEN" }?.let {
                 com.lifecyclebot.engine.ObservedPriceIdentity8871.Observation(
@@ -2314,6 +2316,10 @@ object CandidateAdmission8136 {
             highVelocityTape8520 = try { com.lifecyclebot.engine.RunTape8293.freshHighVelocity8520(ts.mint, nowMs) } catch (_: Throwable) { false },
             tapeLowerGross8520 = try { com.lifecyclebot.engine.RunTape8293.conservativeForwardGross8520() } catch (_: Throwable) { Double.NaN },
             priceAgeMs = priceAge,
+            admissionPrice9067 = TokenFacts.priceFact(ts)?.takeIf {
+                live8290 && it.rank == TokenFacts.Rank.CHAIN && it.value == inputPrice9067 &&
+                    it.observedAtMs == inputTime9067 && inputTime9067 > 0L && nowMs - inputTime9067 in 0L..5_000L
+            },
             // V5.0.8283 — the lifecycle split (dataIncomplete8136's binding inputs; the too-young history recorded apart).
             missingInputs = resolvedMissingInputs(
                 lifecycle8283?.binding.orEmpty(),
