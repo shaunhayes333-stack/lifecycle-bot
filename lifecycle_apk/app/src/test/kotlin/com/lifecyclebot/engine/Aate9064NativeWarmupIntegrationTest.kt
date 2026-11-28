@@ -16,7 +16,7 @@ class Aate9064NativeWarmupIntegrationTest {
             signalAt9059=t,signal=signal,objective=NativeZoneContract9059.objective(20.0,2.0,300_000L,"LANE"),market9061=market)
         assertTrue(tracker.reserve("same-asset","EXPRESS",t,signal.channel()));assertTrue(tracker.enroll(d))
         tracker.mark(mark(t+1000,1.0),t+1000);tracker.mark(mark(t+2000,.8),t+2000)
-        val row=NativeZoneLab9058::class.java.getDeclaredMethod("row",NativeZoneSequence9058.Completed::class.java,java.lang.Long.TYPE)
+        val row=NativeZoneLab9058::class.java.getDeclaredMethod("encode",NativeZoneSequence9058.Completed::class.java,java.lang.Long.TYPE)
             .apply{isAccessible=true}.invoke(NativeZoneLab9058,tracker.drain().single(),t+3000) as String
         val field=NativeZoneLab9058::class.java.getDeclaredField("index9063").apply{isAccessible=true}
         val index=field.get(NativeZoneLab9058) as NativeZoneIndex9063<*>

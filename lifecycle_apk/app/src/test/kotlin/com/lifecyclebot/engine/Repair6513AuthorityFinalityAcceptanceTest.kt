@@ -73,7 +73,7 @@ class Repair6513AuthorityFinalityAcceptanceTest {
         val src = File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val begin = src.indexOf("PaperEntryFinalityAuthority6497.beginAttempt(entryFinalityId6497")
         val reserve = src.indexOf("canonicalCreated6485 = com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.mirrorBuyAttempt(", begin)
-        val debit = src.indexOf("PaperAccountLedger6430.onBuy(actualSol, fee6485)", reserve)
+        val debit = src.indexOf("PaperAccountLedger6430.onBuyPending9065(actualSol, fee6485, entryFinalityId6497)", reserve)
         val fill = src.indexOf("ExecutorCanonicalMirror6442.mirrorBuyFill(", debit)
         val journal = src.indexOf("recordTrade(ts, trade)", fill)
         val terminal = src.indexOf("PaperEntryFinalityAuthority6497.markOk(entryFinalityId6497)", journal)

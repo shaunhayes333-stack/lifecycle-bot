@@ -17181,7 +17181,7 @@ class Executor(
                 com.lifecyclebot.engine.truth.PositionStateLedger6427.abortOpen6485(abortKey6591)
             } catch (_: Throwable) {}
             if (canonicalCreated6485) try { com.lifecyclebot.engine.truth.ExecutorCanonicalMirror6442.abortBuy6485(tradeId.mint, reason) } catch (_: Throwable) {}
-            if (ledgerDebited6485) try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.rollbackBuy(actualSol, fee6485, reason) } catch (_: Throwable) {}
+            if (ledgerDebited6485) try { com.lifecyclebot.engine.truth.PaperAccountLedger6430.rollbackPendingBuy9065(entryFinalityId6497, reason) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.CanonicalMintOccupancyRegistry6464.markClosed("paper", tradeId.mint) } catch (_: Throwable) {}
             try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Throwable) {}
@@ -17299,7 +17299,7 @@ class Executor(
                 rollbackPaperEntry6485("CANONICAL_RESERVATION_REJECTED")
                 return
             }
-            if (!com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuy(actualSol, fee6485)) {
+            if (!com.lifecyclebot.engine.truth.PaperAccountLedger6430.onBuyPending9065(actualSol, fee6485, entryFinalityId6497)) {
                 rollbackPaperEntry6485("ECONOMIC_DEBIT_REJECTED")
                 return
             }
@@ -17423,6 +17423,8 @@ class Executor(
             rollbackPaperEntry6485("EXCEPTION_${t.javaClass.simpleName}")
             return
         }
+        // The receipt now owns reconciliation exclusion until its durable journal leg lands.
+        com.lifecyclebot.engine.truth.PaperAccountLedger6430.finishPendingBuy9065(entryFinalityId6497)
         persistPaperEntrySnapshot8253(ts, tradeId, layerTag, paperPolicySnapshot, identity,
             score, finalMode, effectivePrice, executionAttemptId6514)
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring

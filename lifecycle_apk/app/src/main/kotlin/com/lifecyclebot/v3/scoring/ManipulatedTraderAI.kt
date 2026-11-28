@@ -508,6 +508,11 @@ object ManipulatedTraderAI {
         }
     }
 
+    fun getActivePositionsForMode(isPaper: Boolean): List<ManipulatedPosition> {
+        val positions = if (isPaper) paperPositions else livePositions
+        return synchronized(positions) { positions.values.toList() }
+    }
+
     /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
     fun evictGhost(mint: String, isPaper: Boolean = isPaperMode): Boolean {
         val positions = if (isPaper) paperPositions else livePositions

@@ -22062,9 +22062,11 @@ try {
 // Prevent one overloaded loop from timing out the entire batch.
 // Keeps open positions first, then processes the rest in small waves.
 // ───────────────────────────────────────────────────────────────
+val paperRuntimeForSlotTruth = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
+val canonicalSlotMints9065 = SlotInventory9065.canonicalMints(paperRuntimeForSlotTruth)
 val openPositionMints = prioritizedWatchlist.filter { mint ->
     val ts = status.tokens[mint]
-    isCapCountableLiveToken(mint, ts) || GlobalTradeRegistry.hasOpenPosition(mint)
+    isCapCountableLiveToken(mint, ts) || mint in canonicalSlotMints9065
 }
 
 // V5.9.494 — UNIVERSAL OPEN-POSITION COVERAGE.
@@ -22079,7 +22081,7 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
 // Force-include every open position from sub-trader stores PLUS the
 // V3 lane (status.tokens). Any mint with a live position somewhere
 // is processed every tick, irrespective of scanner visibility.
-val subTraderOpenMints: List<String> = collectSubTraderOpenMints()
+val subTraderOpenMints: List<String> = collectSubTraderOpenMints(paperRuntimeForSlotTruth)
 
 val v3OpenMints: List<String> = synchronized(status.tokens) {
     status.tokens.values.filter { isCapCountableLiveToken(it.mint, it) }.map { it.mint }
@@ -22093,13 +22095,12 @@ val v3OpenMints: List<String> = synchronized(status.tokens) {
 // "forcedOpen must not exceed actual open position count"). Reaping here = before
 // PRE_SUPERVISOR, exactly as the spec requires. Metadata-only filter; held positions
 // are never in the close ledger so they are never reaped.
-val paperRuntimeForSlotTruth = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
 val forcedOpenRaw = if (paperRuntimeForSlotTruth) {
     // V5.0.3810 — PAPER slot truth is the simulator ledger only. Do not union
     // stale sub-trader forced rows or live wallet/tracker state into paper slots.
     rebuildPaperForcedOpenFromLedger()
 } else {
-    (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
+    (openPositionMints + subTraderOpenMints + v3OpenMints + canonicalSlotMints9065).distinct()
 }
 val forcedOpenMints = if (paperRuntimeForSlotTruth) reapPaperForcedOpen(forcedOpenRaw) else reapGhostForcedOpen(forcedOpenRaw)
 
@@ -24030,21 +24031,8 @@ if (hotExitHandledSweep) {
 
 
     /** V5.9.1567 — keep sub-trader forced-open collection out of botLoop bytecode. */
-    private fun collectSubTraderOpenMints(): List<String> {
-        return try {
-            val out = mutableSetOf<String>()
-            // V5.9.610/1565 — universal open-position coverage across all sub-trader stores.
-            try { out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().map { it.mint }) } catch (_: Throwable) {}
-            try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().map { it.mint }) } catch (_: Throwable) {}
-            out.toList()
-        } catch (_: Throwable) { emptyList() }
-    }
+    private fun collectSubTraderOpenMints(isPaper: Boolean): List<String> =
+        SlotInventory9065.subTraderMints(isPaper).toList()
 
     /** V5.9.1567 — keep forced-open ghost eviction out of botLoop/reaper transform bulk. */
     private fun evictSubTraderGhost(mint: String) {
@@ -24079,7 +24067,9 @@ if (hotExitHandledSweep) {
             synchronized(status.tokens) {
                 status.tokens.values.forEach { if (isCapCountableLiveToken(it.mint, it)) out.add(it.mint) }
             }
-            forcedOpenRaw.forEach { m -> if (com.lifecyclebot.engine.GlobalTradeRegistry.hasOpenPosition(m)) out.add(m) }
+            // The global registry has no mode field; paper records cannot prove live ownership.
+            out.addAll(SlotInventory9065.canonicalMints(isPaper = false))
+            out.addAll(collectSubTraderOpenMints(isPaper = false))
             out
         } catch (_: Throwable) { forcedOpenRaw.toSet() }
 

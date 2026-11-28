@@ -54,7 +54,7 @@ class Aate8948EvidenceWaitTest {
         assertTrue(src("engine/truth/CandidateAdmission8136.kt").contains(
             "EvidenceWait8948.note9043(ts, evidence9043?.kind.orEmpty(), it.terminal.name, it.reason, deferCauses8700(it.trace),"))
         assertTrue(src("engine/HandoffThroughput8190.kt").contains("return tasks + yields + tickets8297 + proof8310 + hydrated8343 + evidence8948"))
-        assertTrue(src("engine/BotService.kt").contains("fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), \"EVIDENCE_WAIT_8948\", onceKey = \"\$mint|8948|\$slot\")"))
+        assertTrue(src("engine/BotService.kt").contains("fastLaneEvaluate7277(mint, cfg, \"EVIDENCE_WAIT_8948\", onceKey = \"\$mint|8948|\$slot\")"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 136. A proven coin's data wait is answered directly (8948)"))
     }
 }

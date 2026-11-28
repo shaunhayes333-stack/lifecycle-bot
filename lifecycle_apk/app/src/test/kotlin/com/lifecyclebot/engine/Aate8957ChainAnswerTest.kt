@@ -83,6 +83,6 @@ class Aate8957ChainAnswerTest {
         assertTrue("only a ping actually sent re-runs (the 20 s per-input gap still binds)", c.contains("if (!due) return false"))
         val b = src("engine/BotService.kt")
         assertTrue(b.contains("com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->"))
-        assertTrue(b.contains("fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), \"CHAIN_ANSWER_8957\", onceKey = onceKey)"))
+        assertTrue(b.contains("fastLaneEvaluate7277(mint, cfg, \"CHAIN_ANSWER_8957\", onceKey = onceKey)"))
     }
 }

@@ -23,6 +23,7 @@ object CanonicalPaperTransaction6486 {
     /** Background startup reconciliation. Scalars move only after durable
      * journal and canonical raw lots agree exactly. */
     fun reconcileJournalAuthority6663(): Boolean = lock.withLock {
+        if (PaperAccountLedger6430.hasPendingBuy9065()) return@withLock false
         if (!awaitJournalBoundary6669("pre_replay")) return@withLock false
         // V5.0.6692 — repair missing journal legs from immutable canonical/typed
         // receipts before replay. Throttled so reconciliation never becomes an

@@ -91,6 +91,42 @@ object PaperAccountLedger6430 {
         com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343(),
         CanonicalPositionAuthority6441.mutationCount7387(),
     )
+    // A rollback-capable meme BUY has no final receipt yet. Keep its debit
+    // visible to reconciliation until it is compensated or handed to that receipt.
+    private data class PendingBuy9065(val cost: Double, val fee: Double)
+    private val pendingBuys9065 = mutableMapOf<String, PendingBuy9065>()
+
+    @Synchronized
+    fun hasPendingBuy9065(): Boolean = pendingBuys9065.isNotEmpty()
+
+    @Synchronized
+    fun onBuyPending9065(costSol: Double, feeSol: Double, attemptKey: String): Boolean {
+        if (attemptKey.isBlank() || pendingBuys9065.containsKey(attemptKey) ||
+            PaperEconomicAtomicCommit6632.hasLedgerStamp7407(attemptKey)) return false
+        if (!costSol.isFinite() || costSol <= 0.0 || !feeSol.isFinite() || feeSol < 0.0) return false
+        if (!onBuy(costSol, feeSol)) return false
+        pendingBuys9065[attemptKey] = PendingBuy9065(costSol, feeSol)
+        return true
+    }
+
+    @Synchronized
+    fun finishPendingBuy9065(attemptKey: String): Boolean {
+        if (!PaperEconomicAtomicCommit6632.hasLedgerStamp7407(attemptKey)) return false
+        if (pendingBuys9065.remove(attemptKey) == null) return false
+        // A replay captured during the provisional phase must not become valid
+        // merely because the final receipt has since reached both stores.
+        mutationRevision8674.incrementAndGet()
+        return true
+    }
+
+    @Synchronized
+    fun rollbackPendingBuy9065(attemptKey: String, reason: String): Boolean {
+        val pending = pendingBuys9065[attemptKey] ?: return false
+        if (!rollbackBuy(pending.cost, pending.fee, reason)) return false
+        pendingBuys9065.remove(attemptKey)
+        return true
+    }
+
     @Volatile private var prefs6487: SharedPreferences? = null
     private const val PREFS_6487 = "paper_account_ledger_6487"
     private const val STATE_6487 = "canonical_state"
@@ -188,6 +224,7 @@ object PaperAccountLedger6430 {
         feesPico.set(0L)
         treasuryPico.set(0L)
         opCount.set(0L)
+        pendingBuys9065.clear()
         mutationRevision8674.incrementAndGet()
         // 8794 — never full-journal replay while the initialized ledger lock is
         // held. The revision increments immediately; the snapshot publishes
@@ -237,6 +274,7 @@ object PaperAccountLedger6430 {
         feesPico.set(0L)
         treasuryPico.set(0L)
         opCount.set(0L)
+        pendingBuys9065.clear()
         mutationRevision8674.incrementAndGet()
         // Persist the fresh state immediately so any process restart in
         // the next second still sees the reset value.
@@ -928,7 +966,7 @@ object PaperAccountLedger6430 {
         // Validate under the SAME monitor as onBuy/onSell, and never replace a
         // ledger whose receipt is still waiting for its durable journal leg.
         // No journal/store monitor is acquired here (avoids lock inversion).
-        if (PaperEconomicAtomicCommit6632.hasUnpaired8674() ||
+        if (pendingBuys9065.isNotEmpty() || PaperEconomicAtomicCommit6632.hasUnpaired8674() ||
             expected.ledgerRevision != mutationRevision8674.get() ||
             expected.journalRevision != com.lifecyclebot.engine.TradeHistoryStore.journalRevision7343() ||
             expected.positionRevision != CanonicalPositionAuthority6441.mutationCount7387()
@@ -1036,6 +1074,7 @@ object PaperAccountLedger6430 {
 
     @Synchronized
     internal fun resetForTest() {
+        pendingBuys9065.clear()
         mutationRevision8674.incrementAndGet()
         startingCashPico.set(0); cashPico.set(0); reservedCashPico.set(0)
         openCostBasisPico.set(0); realizedPnlPico.set(0); feesPico.set(0); opCount.set(0)

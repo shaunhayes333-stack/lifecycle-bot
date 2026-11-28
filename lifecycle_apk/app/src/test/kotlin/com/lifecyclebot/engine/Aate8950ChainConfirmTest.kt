@@ -58,7 +58,7 @@ class Aate8950ChainConfirmTest {
         assertTrue(src("engine/truth/EvidenceWait8948.kt").contains("ChainConfirm8950.confirm8950(ts, causes, \"EVIDENCE\", nowMs)"))
         assertTrue(src("engine/truth/MissingMarkExitVeto6835.kt").contains("ChainConfirm8950.confirmMint8950(mintKey, listOf(\"PRICE\"), \"EXIT\")"))
         assertTrue(src("engine/sell/SellReconciler.kt").contains("ChainConfirm8950.confirmMint8950(pos.mint, listOf(\"PRICE\"), \"HOLD\")"))
-        assertTrue(src("engine/BotService.kt").contains("fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), \"STAGE_READ_8950\", onceKey = \"\$mint|8950|\$slot\")"))
+        assertTrue(src("engine/BotService.kt").contains("fastLaneEvaluate7277(mint, cfg, \"STAGE_READ_8950\", onceKey = \"\$mint|8950|\$slot\")"))
         assertTrue(File("../../docs/DATA_MAP.md").readText().contains("## 138. What a decision needs is confirmed on chain (8950)"))
     }
 }
