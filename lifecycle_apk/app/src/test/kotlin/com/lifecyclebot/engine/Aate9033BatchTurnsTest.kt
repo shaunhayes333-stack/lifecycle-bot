@@ -117,7 +117,7 @@ class Aate9033BatchTurnsTest {
         assertTrue(StrategyLab8755.deferredForMemory9033("hard", 59L * 60_000L))
         assertFalse(StrategyLab8755.deferredForMemory9033("SOFT", 0L))
         assertFalse(StrategyLab8755.deferredForMemory9033("NORMAL", 0L))
-        assertFalse("past the limit it runs", StrategyLab8755.deferredForMemory9033("CRITICAL", StrategyLab8755.DEFER_MAX_MS_9033))
+        assertTrue("elapsed time cannot authorize an OOM", StrategyLab8755.deferredForMemory9033("CRITICAL", StrategyLab8755.DEFER_MAX_MS_9033))
         val lab = src("engine/lab/StrategyLab8755.kt")
         val defer = lab.indexOf("if (deferredForMemory9033(pressure, if (since == 0L) 0L else nowMs - since))")
         assertTrue("deferred before the hour is spent", defer >= 0 && defer < lab.indexOf("lastRunMs = nowMs"))

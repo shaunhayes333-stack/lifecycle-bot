@@ -59,7 +59,10 @@ object CanonicalBuyFillRegistry {
         val buySignature: String,
         val fillIndex: Int,
         val lane: String,        // canonical (via LaneAlias.normalize)
-    )
+    ) {
+        /** Historical USD evidence only. SOL/token is not a fallback USD price. */
+        fun entryUsdForJournal9062(): Double? = entryPriceUsd.takeIf { it.isFinite() && it > 0.0 }
+    }
 
     private val fills = ConcurrentHashMap<String, CanonicalBuyFill>()
 

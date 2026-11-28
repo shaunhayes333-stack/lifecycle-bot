@@ -2654,6 +2654,13 @@ object ForwardReturnLabeler7731 {
         // print and the label read flat (8479 report: rebased flat8322=632, flatLostMarks=266). A copy is used only when no
         // market read is in age.
         val fresh = candidates.filter { it.known() && nowMs - it.observedAtMs in 0L..MARK_MAX_AGE_MS_7731 }
+        // Preserve a usable witnessed candidate even when a newer provider endpoint wins
+        // the legacy label view. Native windows require a stricter source, venue and clock.
+        try {
+            val decimals9062 = MintSupply8418.of8418(mint)?.takeIf { it.observedAtMs in 1L..nowMs }?.decimals
+            NativePriceEvidence9062.publish(mint, fresh, nowMs, decimals9062)
+            NativeZoneLab9058.acceptedCandidates9063(mint, fresh, nowMs, decimals9062)
+        } catch (_: Exception) {}
         return (fresh.filter { liveMark8454(it) }.takeIf { it.isNotEmpty() } ?: fresh)
             .maxWithOrNull(compareBy<LabelMark8386> { it.observedAtMs }.thenBy { it.independentBasis })
     }

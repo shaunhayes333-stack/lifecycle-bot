@@ -226,11 +226,13 @@ object StrategyLab8755 {
     private val deferred9033 = AtomicLong()
     @Volatile private var deferSinceMs9033 = 0L
     internal const val DEFER_MAX_MS_9033 = 60L * 60_000L
-    /** Pure (V5.0.9033): a due cycle does not start at this memory pressure, for at most [DEFER_MAX_MS_9033]. */
+    /** Elapsed time cannot make a full training/mining pass safe on an exhausted heap. */
+    @Suppress("UNUSED_PARAMETER")
     internal fun deferredForMemory9033(pressure: String, deferredForMs: Long): Boolean =
-        (pressure.equals("HARD", true) || pressure.equals("CRITICAL", true)) && deferredForMs in 0L until DEFER_MAX_MS_9033
+        pressure.equals("HARD", true) || pressure.equals("CRITICAL", true)
     private val exec = Executors.newSingleThreadExecutor { r -> Thread(r, "strategy-lab-8755").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     private val checkpoint9061 = com.lifecyclebot.engine.truth.NativeZoneCheckpoint9061()
+    private var nextNative9063=0L
 
     /** Saving already completed observations must not wait for the hourly training turn.
      * One queued task, same serial worker, bounded rows; pressure never authorizes training. */
@@ -241,6 +243,13 @@ object StrategyLab8755 {
                 try {
                     val pressure=try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name } catch (_:Exception) { "CRITICAL" }
                     com.lifecyclebot.engine.truth.NativeZoneLab9058.checkpoint9061(pressure)
+                    // Small native turns must not wait behind the unrelated hourly miner.
+                    // Same serial executor, no parallel training or increased provider work.
+                    val clock=System.nanoTime()/1_000_000L
+                    if(pressure=="NORMAL" && !running.get() && clock>=nextNative9063){
+                        nextNative9063=clock+60_000L
+                        com.lifecyclebot.engine.truth.NativeZoneLab9058.batch(System.currentTimeMillis())
+                    }
                 } catch (_:Exception) {
                     // Journal failures retain the bounded pending batch for retry.
                 } finally { checkpoint9061.release() }
@@ -254,8 +263,8 @@ object StrategyLab8755 {
     fun maybeRun8755(nowMs: Long = System.currentTimeMillis()) {
         maybeCheckpoint9061()
         // V5.0.9033 — 26 Nov 23:38: the second run took 16 minutes of wall for 28 s of its own CPU, in a heap at its limit.
-        // A cycle that is due while memory pressure is HARD or CRITICAL waits for a tick that is not, for at most
-        // [DEFER_MAX_MS_9033]; its hour is not spent (lastRunMs is not moved), so it runs as soon as there is room.
+        // Its hour is not spent while memory is HARD/CRITICAL. Small journal checkpoints
+        // continue independently; a one-hour timeout must not force a heap-exhausting pass.
         if (nowMs - lastRunMs >= RUN_EVERY_MS && !running.get()) {
             val since = deferSinceMs9033
             val pressure = try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name } catch (_: Throwable) { "NORMAL" }
@@ -275,12 +284,13 @@ object StrategyLab8755 {
     }
 
     private fun run(nowMs: Long) {
+        // Pressure can change between scheduling and worker execution.
+        val pressure9063=try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name } catch (_:Exception) { "CRITICAL" }
+        if(deferredForMemory9033(pressure9063,0L)){lastRunMs=0L;status="deferred: memory pressure $pressure9063";return}
         // Reuse this bounded batch turn; the compact ledger never trains on a
         // trading or stream thread. Under memory pressure keep the native lab path unchanged.
         if (try { com.lifecyclebot.engine.MemoryGuard7977.pressure8144().name == "NORMAL" } catch (_: Exception) { false }) {
-            val zone9058 = try { com.lifecyclebot.engine.truth.NativeZoneLab9058.batch(nowMs) }
-                catch (e: InterruptedException) { throw e } catch (_: Exception) { false }
-            if (!zone9058) try { com.lifecyclebot.engine.truth.SharedRunnerLab9051.train(nowMs) }
+            try { com.lifecyclebot.engine.truth.SharedRunnerLab9051.train(nowMs) }
                 catch (e: InterruptedException) { throw e } catch (_: Exception) {}
         }
         val file = EdgeModel8537.datasetFile8755()

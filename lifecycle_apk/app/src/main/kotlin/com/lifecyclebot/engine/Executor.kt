@@ -4924,10 +4924,10 @@ class Executor(
                     // written from proofEntryUsd in completeVerifiedLiveBuyWithProof).
                     // Preferring entryPriceSol here produced a ~1/solPrice
                     // (≈1/150) units divergence between journal rows and the
-                    // Pilly-style position card. Always take USD first; only
-                    // fall back to SOL/token if USD is missing (early boot
-                    // before SOL/USD is known).
-                    val canonicalEntryPx = fill6320.entryPriceUsd.takeIf { it > 0.0 } ?: fill6320.entryPriceSol
+                    // Pilly-style position card. Missing historical USD evidence must
+                    // not be replaced by SOL/token or converted at today's rate.
+                    // Keep the row's existing USD snapshot when it is unavailable.
+                    val canonicalEntryPx = fill6320.entryUsdForJournal9062() ?: 0.0
                     val stalePx = tradeWithMint.entryPriceSnapshot
                     val staleQty = tradeWithMint.entryQtyToken
                     val entryPxMismatch = canonicalEntryPx > 0.0 && stalePx > 0.0 &&
@@ -24262,6 +24262,7 @@ class Executor(
             com.lifecyclebot.network.SignedTxLedger8085.unresolvedFor(ts.mint, "SELL") != null ||
                 TradeVerifier.activeSellSig(ts.mint) != null
         } catch (_: Throwable) { true }
+        val rejectedStop9062 = com.lifecyclebot.engine.sell.StopSlip8327.triggerFor9062(ts.mint)
         val cancelled = com.lifecyclebot.engine.sell.CloseLease.invalidateSignal8521(ts.mint, reason, anotherOwns, lease) {
             try { PendingSellQueue.removeInvalidatedSignal8521(ts.mint, reason) } catch (_: Throwable) {}
             try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
@@ -24275,6 +24276,7 @@ class Executor(
             } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.SellRouteSpine8144.onResult8144(ts.mint, SellResult.SIGNAL_INVALIDATED.name) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.truth.ExitTelemetryStamper6732.invalidateUnbroadcastSignal8521(ts.mint, ts.position.positionId) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.StopSlip8327.invalidateUnbroadcast9062(ts.mint, rejectedStop9062) } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("EXIT_SIGNAL_INVALIDATED_QUOTE_8521") } catch (_: Throwable) {}
             com.lifecyclebot.engine.sell.SellExecutionLocks.releaseOwned7835(ts.mint, stamp)
         }

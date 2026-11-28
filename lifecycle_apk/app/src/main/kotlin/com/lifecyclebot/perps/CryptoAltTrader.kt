@@ -3711,11 +3711,26 @@ object CryptoAltTrader {
             }
             return null
         }
+        // Consume the exact-mint chain answer before asking the HTTP registry to
+        // refresh again. ChainConfirm already fetched these reserves; retaining
+        // the old registry miss here discarded the answer and repeated the wait.
+        val bareSolanaMint = DynamicAltTokenRegistry.solanaMintOf8866(identity).orEmpty()
+        if(liveDecision8870 && bareSolanaMint.isNotEmpty()) {
+            val now9063=System.currentTimeMillis()
+            try {
+                com.lifecyclebot.engine.truth.ForwardReturnLabeler7731.typedMark8386(bareSolanaMint,{null},now9063)
+                com.lifecyclebot.engine.truth.NativePriceEvidence9062.markFor(bareSolanaMint,now9063)?.let { mark ->
+                    if(mark.mint==bareSolanaMint && decisionPriceUsable8870(mark.observedAtMs,now9063)){
+                        PipelineHealthCollector.labelInc("CRYPTO_LIVE_CHAIN_BASIS_9063")
+                        return retainNewer8870(EntryBasis8870(mark.usd,mark.source,mark.observedAtMs))
+                    }
+                }
+            } catch (_:Exception) {}
+        }
         // Live decisions first consume the shared source-dated stream. Paper retains its existing contested-fanout check.
         // Only actionable candidates request a current price; metadata cannot satisfy either clock.
         if (liveDecision8870)
             registryBasis8870()?.let { return it }
-        val bareSolanaMint = identity.takeIf { it.startsWith("solana|") }?.removePrefix("solana|")?.trim().orEmpty()
         if (bareSolanaMint.isNotBlank()) {
             val fan = try {
                 withContext(Dispatchers.IO) {
@@ -3885,6 +3900,12 @@ object CryptoAltTrader {
             if (wantsFreshBasis7275) freshDynamicEntryBasis7275(signal, isSpot,
                 liveDecision8870 = !paper7803) else null
         if (wantsFreshBasis7275 && basis7275 == null) {
+            // A live Solana price gap can occur before canonical admission reaches
+            // LiveEdgeGate's chain verification. Use the same coalesced queue here.
+            if (!paper7803) try {
+                com.lifecyclebot.engine.truth.ChainConfirm8950.confirmMint8950(
+                    cryptoAssetKey(signal, isSpot), listOf("PRICE"), "DECISION")
+            } catch (_: Exception) {}
             val reason8870 = if (paper7803) "CRYPTO_PAPER_ENTRY_BASIS_UNOBSERVED_7275" else "CRYPTO_LIVE_PRICE_REFRESH_WAIT_8870"
             terminalDisposition6613(reason8870, "PRE_SUBMIT")
             try {

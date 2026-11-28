@@ -358,7 +358,7 @@ object CryptoUniverseExecutor {
         } catch (wait: com.lifecyclebot.engine.CryptoLiveQuoteBoundary8870.Wait) {
             return@runAwaited quoteWait8870(resolution, wait)
         } catch (t: Throwable) {
-            CryptoExecFailureTracker.recordFailure(symbol)
+            CryptoExecFailureTracker.recordMintFailure9063(mint)
             CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, t.message ?: "tx build threw", sizeSol)
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "${t.javaClass.simpleName}: ${t.message}")
             CryptoUniverseForensics.logPhase("CU_CONFIRM_FAILED", symbol, mint, mint, "CAPITAL_RAIL", mint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, null, job.id, "tx chain threw before confirmed signature")
@@ -382,7 +382,7 @@ object CryptoUniverseExecutor {
             return@runAwaited Outcome.VerifyPending(sig, mint, resolution, bridge.proofState)
         }
         if (!bridge.success || sig.isBlank()) {
-            CryptoExecFailureTracker.recordFailure(symbol)
+            CryptoExecFailureTracker.recordMintFailure9063(mint)
             val reason = bridge.errorMsg.ifBlank { "bridge/Jupiter returned no signature" }
             CryptoUniverseForensics.logExecutionFailure(symbol, mint, CryptoUniverseDiagCodes.TX_BUILD_FAILED, reason, sizeSol)
             CryptoUniverseForensics.logPhase("CU_TX_BUILD_FAILED", symbol, mint, mint, bridge.sourceMint, bridge.targetMint, resolution.route.name, SLIPPAGE_BPS, routeQuote.priceImpactPct, sig.takeIf { it.isNotBlank() }, job.id, reason)
@@ -475,7 +475,7 @@ object CryptoUniverseExecutor {
         try { TokenLifecycleTracker.onTokenLanded(mint, bridge.targetAmountUi) } catch (_: Throwable) {}
         try { HostWalletTokenTracker.recordBuyPending(mint, symbol, sig) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.LiveWalletReconciler.recordBuySignature(mint, sig) } catch (_: Throwable) {}
-        CryptoExecFailureTracker.recordSuccess(symbol)
+        CryptoExecFailureTracker.recordMintSuccess9063(mint)
         Outcome.Executed(sig, mint, filledRaw, bridge.targetDecimals, bridge.proofState)
     }
 

@@ -27,6 +27,7 @@ internal object NativeZoneLab9058 {
     private val missingSignal9059 = AtomicLong()
     private val scopeOverflow9059 = AtomicLong()
     private val noProof = AtomicLong()
+    private val recoveredProof9062 = AtomicLong()
     private enum class ProofReject { BASIS_UNKNOWN, DEPENDENT_BASIS, UNTRUSTED_SOURCE, VENUE_UNKNOWN, DECIMALS_CONFLICT, DECIMALS_UNKNOWN, CLOCK_OR_PRICE }
     private val proofReject9061 = Array(ProofReject.values().size){AtomicLong()}
     private val noCost = AtomicLong()
@@ -36,7 +37,10 @@ internal object NativeZoneLab9058 {
     private val writeFailed = AtomicLong()
     private val checkpointRuns9061 = AtomicLong()
     private val storageDeferred9061 = AtomicLong()
-    private var turn = 0L
+    private data class Indexed(val scope:NativeZoneSequence9058.Scope,val signal:NativeZoneContract9059.Signal,
+                               val asset:String,val decision:Long)
+    private val index9063=NativeZoneIndex9063<Indexed>(MAX_ROWS)
+    private val scopePages9063=NativeZoneScopePage9063()
     private var pendingWrite = emptyList<NativeZoneSequence9058.Completed>()
     private val lastAttempt = LinkedHashMap<String,Long>()
     private val nextHead = LinkedHashMap<String,Int>()
@@ -48,7 +52,7 @@ internal object NativeZoneLab9058 {
         if(!m.known())return reject(ProofReject.BASIS_UNKNOWN)
         if(!m.independentBasis)return reject(ProofReject.DEPENDENT_BASIS)
         if(!LabelEvidence8386.independentSource8418(m.source))return reject(ProofReject.UNTRUSTED_SOURCE)
-        if(!LabelEvidence8386.venueIdentity8787(m.venue))return reject(ProofReject.VENUE_UNKNOWN)
+        if(!NativePriceEvidence9062.knownVenue(m.venue))return reject(ProofReject.VENUE_UNKNOWN)
         val supply=MintSupply8418.of8418(m.mint)?.takeIf{it.observedAtMs in 1L..at}
         if(supply!=null&&m.decimals>=0&&m.decimals!=supply.decimals)return reject(ProofReject.DECIMALS_CONFLICT)
         val decimals=if(m.decimals>=0)m.decimals else supply?.decimals?:return reject(ProofReject.DECIMALS_UNKNOWN)
@@ -72,7 +76,14 @@ internal object NativeZoneLab9058 {
         } ?: run{
             missingSignal9059.incrementAndGet();return
         }
-        val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: run{noProof.incrementAndGet();return}
+        val mode=(nativeSignal9059?.mode ?: observationMode9059)?.uppercase()?.takeIf{it=="PAPER"||it=="LIVE"} ?:
+            if(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
+        val mark=proof(basis,at)?.takeIf{it.asset==ts.mint} ?: cachedProof9062(ts.mint,at)
+            ?: run{
+                noProof.incrementAndGet()
+                if(mode=="LIVE" && admitted) requestProof9062(ts,basis,at)
+                return
+            }
         if(!reserved9059&&!tracker.reserve(ts.mint,lane,at,signal.channel()))return
         val shared=if(crypto)com.lifecyclebot.engine.BotService.status.tokens[ts.mint]?.takeIf{it.mint==ts.mint} else null
         fun fact(field:TokenFacts.Field,age:Long):Double {
@@ -96,7 +107,12 @@ internal object NativeZoneLab9058 {
             })
         val trip=FieldManual7715.labelCostPct8534(ForwardReturnLabeler7731.COST_SIZE_USD_7731,
             if(depth.isFinite())depth else 0.0,ts.mint)
-        if(!trip.second || !trip.first.isFinite() || trip.first !in 0.0..100.0){noCost.incrementAndGet();return}
+        if(!trip.second || !trip.first.isFinite() || trip.first !in 0.0..100.0){
+            noCost.incrementAndGet()
+            if(mode=="LIVE" && !depth.isFinite() && admitted)
+                try { ChainConfirm8950.confirm8950(ts,listOf("LIQUIDITY"),"EVIDENCE",at) } catch (_: Exception) {}
+            return
+        }
         val mandate=FieldManual7715.mandateFor(lane)
         var stop=FieldManual7715.stopPctQuiet8830(lane,trip.first)
         var gross=mandate.expectedGrossPct
@@ -125,8 +141,6 @@ internal object NativeZoneLab9058 {
             else -> "SPOT_POOL"
         }
         val market=(if(crypto)"CRYPTO_SOLANA_" else "SOLANA_")+venue
-        val mode=(nativeSignal9059?.mode ?: observationMode9059)?.uppercase()?.takeIf{it=="PAPER"||it=="LIVE"} ?:
-            if(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())"PAPER" else "LIVE"
         val source=ForwardReturnLabeler7731.sourceFamily(ts.source)+
             (if(measured>0L)".MEASURED" else ".PROXY15S")+"."+mode+"."+signal.origin+"."+policy
         val scope=NativeZoneSequence9058.Scope(lane,signal.primary(),market,source,"LONG")
@@ -150,8 +164,17 @@ internal object NativeZoneLab9058 {
         }
     }
 
+    /** Request through the existing coalesced queue; a fresh answer reassesses the coin.
+     * The rejected observation is never backfilled with future evidence. */
+    private fun requestProof9062(ts:TokenState,mark:LabelMark8386?,at:Long) {
+        try {
+            val supply=MintSupply8418.of8418(ts.mint)?.takeIf{it.observedAtMs in 1L..at}?.decimals
+            ChainConfirm8950.confirm8950(ts,NativePriceEvidence9062.missingInputs9062(mark?.takeIf{it.mint==ts.mint},supply),"EVIDENCE",at)
+        } catch (_: Exception) {}
+    }
+
     /** Observe classic crypto before desk arbitration, not only at canonical submission.
-     * No extra provider call; if an exact chain mark is not in cache, count it as unavailable. */
+     * An actionable LIVE gap uses the same deduplicated chain verification as other decisions. */
     fun observeClassic9059(ts:TokenState,strategy:String,actionable:Boolean,score:Int,confidence:Int,signalAt:Long){
         val now=System.currentTimeMillis()
         val key=com.lifecyclebot.engine.NativeDecisionEnrollment8372.learningIdentity(ts.mint,ts.symbol,null)
@@ -159,13 +182,27 @@ internal object NativeZoneLab9058 {
         val frame=NativeZoneContract9059.signal("DESK",signalAt,if(actionable)strategy else null,emptyList(),
             if(actionable)"NATIVE" else "UNOBSERVED",score.toDouble(),100.0,confidence.toDouble(),now) ?: return
         if(!tracker.reserve(key,"CRYPTO_ALT",now,frame.channel()))return
-        val mark=ForwardReturnLabeler7731.typedMark8386(key,{null},now) ?: run{noProof.incrementAndGet();return}
-        capture(if(key==ts.mint)ts else ts.copy(mint=key),"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
+        val local=if(key==ts.mint)ts else ts.copy(mint=key)
+        val mark=ForwardReturnLabeler7731.typedMark8386(key,{null},now) ?: run{
+            noProof.incrementAndGet()
+            if(actionable && !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper())requestProof9062(local,null,now)
+            return
+        }
+        capture(local,"CRYPTO_ALT",actionable,mark,now,null,zoneSignal=frame,reserved9059=true)
     }
 
     fun acceptedMark(mark:LabelMark8386,now:Long){
-        if(tracker.hasActive9058(mark.mint)) proof(mark,now)?.let{tracker.mark(it,now)}
+        if(tracker.hasActive9058(mark.mint)) (proof(mark,now) ?: cachedProof9062(mark.mint,now))?.let{tracker.mark(it,now)}
     }
+
+    fun acceptedCandidates9063(mint:String,marks:List<LabelMark8386>,now:Long,decimals:Int?){
+        if(!tracker.hasActive9058(mint))return
+        for(mark in NativePriceEvidence9062.accepted9063(mint,marks,now,decimals))
+            proof(mark,now)?.let{tracker.mark(it,now)}
+    }
+
+    private fun cachedProof9062(mint:String,now:Long):NativeZoneSequence9058.Mark? =
+        NativePriceEvidence9062.markFor(mint,now)?.let{proof(it,now)}?.also{recoveredProof9062.incrementAndGet()}
 
     /** On the already witnessed executed stream, no new RPC or subscription.
      * Missing pool/decimals or SOL-rate evidence stays unknown. Receipt is actual publication time.
@@ -174,7 +211,7 @@ internal object NativeZoneLab9058 {
         if(!tracker.hasActive9058(mint))return
         val now=maxOf(trade.recvMs,System.currentTimeMillis())
         if(!trade.sourceTimeKnown8386 || trade.priceOnly || now-trade.atMs !in 0L..5_000L ||
-            !LabelEvidence8386.venueIdentity8787(trade.pool) ||
+            !NativePriceEvidence9062.knownVenue(trade.pool) ||
             !PrintWitness8750.witnessedPrint8750(mint,trade.atMs,trade.priceSol))return
         val supply=MintSupply8418.of8418(mint)?.takeIf{it.observedAtMs in 1L..now}?:return
         val rate=com.lifecyclebot.engine.WalletManager.labelSolPrice8580(now)
@@ -196,7 +233,7 @@ internal object NativeZoneLab9058 {
         val m=NativeZoneSequence9058.Mark(o.getString("asset"),o.getString("venue"),o.getInt("decimals"),
             o.getLong("event"),o.getLong("read"),o.getDouble("usd"),o.getString("source"))
         return m.takeIf{it.validAt(it.receipt)&&LabelEvidence8386.independentSource8418(it.source)&&
-            LabelEvidence8386.venueIdentity8787(it.venue)}
+            NativePriceEvidence9062.knownVenue(it.venue)}
     }
 
     private fun encode(r:NativeZoneSequence9058.Completed,available:Long):String {
@@ -314,7 +351,7 @@ internal object NativeZoneLab9058 {
                     input.channel.position((dest.length()-KEEP_BYTES).coerceAtLeast(0L))
                     input.bufferedReader().use{r->r.readLine();tmp.bufferedWriter().use{w->r.forEachLine{w.appendLine(it)}}}
                 }
-                if(!tmp.renameTo(dest))tmp.delete()
+                if(tmp.renameTo(dest))index9063.reset() else tmp.delete()
             }
             true
         }catch(_:Exception){writeFailed.incrementAndGet();false}
@@ -335,26 +372,21 @@ internal object NativeZoneLab9058 {
     }
 
     private fun round(v:Double)=Math.round(v*10000.0)/10000.0
-    /** Reuse the existing lab turn: alternate with the original shared barrier learner; train at most one scope/head. */
+    /** Incremental bounded journal read; train at most one exact scope/head on the existing lab worker. */
     fun batch(now:Long):Boolean{
         val dest=file()?:return false
         tracker.expire(now)
         if(!flush(dest)||!dest.isFile)return false
-        if(++turn%2L==0L)return false
-        val tail=java.util.ArrayDeque<Row>(MAX_ROWS);var read=0
-        dest.useLines{seq->seq.forEach{line->
-            if(++read%128==0)JobCost8813.cooperate9043()
-            decode(line,now)?.let{r->if(tail.size>=MAX_ROWS)tail.removeFirst();tail.addLast(r)}
-        }}
-        // Index identities, not duplicated feature arrays. Expand only the chosen scope this turn.
-        val counts=LinkedHashMap<String,Int>()
-        for(r in tail)for(k in NativeZoneContract9059.scopes(r.scope,r.signal)){
-            val key=k.key()
-            if(key in counts || counts.size<2048)counts[key]=(counts[key]?:0)+1
-            else scopeOverflow9059.incrementAndGet()
-        }
+        val caughtUp=index9063.advance(dest,decode={line->decode(line,now)?.let{
+            Indexed(it.scope,it.signal,it.s.asset,it.s.decision)
+        }},cooperate=JobCost8813::cooperate9043)
+        if(!caughtUp){status="indexing rows=${index9063.size}";return true}
+        val indexed=index9063.entries()
+        val counts=scopePages9063.counts(indexed.asSequence().flatMap{r->
+            NativeZoneContract9059.scopes(r.value.scope,r.value.signal).asSequence().map{it.key()}
+        })
         val eligible=counts.filterValues{it>=300}
-        if(eligible.isEmpty()){status="waiting scopes="+counts.size+" rows="+tail.size;return false}
+        if(eligible.isEmpty()){status="waiting scopePage="+counts.size+" rows="+index9063.size;return false}
         val key=eligible.keys.minWithOrNull(compareBy<String>{lastAttempt[it]?:0L}.thenBy{it})?:return false
         val selectedScope=NativeZoneSequence9058.Scope.parse(key)?:return false
         lastAttempt[key]=now
@@ -362,9 +394,10 @@ internal object NativeZoneLab9058 {
         val head=nextHead[key]?:NativeZoneContract9059.NATIVE_HEAD
         nextHead[key]=if(head==NativeZoneSequence9058.HEADS-1)NativeZoneContract9059.NATIVE_HEAD else head+1
         val modelHead=if(head==NativeZoneContract9059.NATIVE_HEAD)0 else head
-        val rows=tail.asSequence().filter{r->r.scope.copy(setup=selectedScope.setup)==selectedScope &&
-            selectedScope.setup in r.signal.names()}.distinctBy{it.s.asset to it.s.decision}
-            .sortedBy{it.s.decision}.toList().takeLast(SCOPE_ROWS).map{r->
+        val selected=indexed.asSequence().filter{e->val r=e.value
+            r.scope.copy(setup=selectedScope.setup)==selectedScope && selectedScope.setup in r.signal.names()
+        }.distinctBy{it.value.asset to it.value.decision}.sortedBy{it.value.decision}.toList().takeLast(SCOPE_ROWS)
+        val rows=index9063.read(dest,selected,{decode(it,now)},JobCost8813::cooperate9043).map{r->
                 r.copy(scope=selectedScope,s=r.s.copy(features=NativeZoneContract9059.vector(r.s.features,selectedScope,r.signal,r.objective,r.s.decision,r.market9061,r.pocket9061),
                     labels=if(head==NativeZoneContract9059.NATIVE_HEAD)NativeZoneContract9059.nativeLabels(r.nativeLabel) else r.s.labels),
                     predictions=r.predictions.filter{r.signal.selected==selectedScope.setup && it.head==head})
@@ -389,6 +422,8 @@ internal object NativeZoneLab9058 {
         " noCost="+noCost.get()+" badScope="+badScope.get()+" missingSignal9059="+missingSignal9059.get()+
         " scopeOverflow9059="+scopeOverflow9059.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
         " checkpoint9061="+checkpointRuns9061.get()+" storageDeferred9061="+storageDeferred9061.get()+
+        " indexed9063="+index9063.size+" decoded9063="+index9063.decoded+
         " proofReject9061="+ProofReject.values().joinToString(","){it.name+":"+proofReject9061[it.ordinal].get()}+
+        " recoveredProof9062="+recoveredProof9062.get()+
         " predictions="+predicted.get()+" models="+feedback9059.count()+" authority=NONE]"
 }
