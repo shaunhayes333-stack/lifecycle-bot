@@ -35,9 +35,16 @@ object CryptoExecFailureTracker {
     )
 
     private val map = ConcurrentHashMap<String, Entry>()
+    // Symbols are display labels; two unrelated tokens can both be named USDC.
+    // Base58 mint case is identity and must never be uppercased.
+    private fun key(raw:String)=if(raw.startsWith("solana:"))raw else raw.uppercase()
+    fun recordMintFailure9063(mint:String)=recordFailure("solana:$mint")
+    fun recordMintSuccess9063(mint:String)=recordSuccess("solana:$mint")
+    fun mintCooledDown9063(mint:String)=isCooledDown("solana:$mint")
+    fun mintCooldownRemaining9063(mint:String)=cooldownRemainingMs("solana:$mint")
 
     fun recordFailure(symbol: String) {
-        val sym = symbol.uppercase()
+        val sym = key(symbol)
         val now = System.currentTimeMillis()
         val e = map.computeIfAbsent(sym) { Entry() }
         if (e.firstFailMs == 0L || now - e.firstFailMs > WINDOW_MS) {
@@ -52,7 +59,7 @@ object CryptoExecFailureTracker {
     }
 
     fun recordSuccess(symbol: String) {
-        val sym = symbol.uppercase()
+        val sym = key(symbol)
         map[sym]?.let {
             it.count.set(0)
             it.firstFailMs = 0L
@@ -62,13 +69,13 @@ object CryptoExecFailureTracker {
 
     /** True when this symbol is currently in the no-liquidity cooldown. */
     fun isCooledDown(symbol: String): Boolean {
-        val sym = symbol.uppercase()
+        val sym = key(symbol)
         val e = map[sym] ?: return false
         return System.currentTimeMillis() < e.cooldownUntilMs
     }
 
     fun cooldownRemainingMs(symbol: String): Long {
-        val e = map[symbol.uppercase()] ?: return 0L
+        val e = map[key(symbol)] ?: return 0L
         return (e.cooldownUntilMs - System.currentTimeMillis()).coerceAtLeast(0L)
     }
 }

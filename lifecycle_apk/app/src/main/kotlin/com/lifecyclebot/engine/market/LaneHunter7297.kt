@@ -726,11 +726,13 @@ object LaneHunter7297 {
     internal fun claimsFor7803(mint: String, currentMcap: Double): Set<String> {
         val now = System.currentTimeMillis()
         val out = linkedSetOf<String>()
-        claims.entries.removeIf { now - it.value.atMs > CLAIM_TTL_MS }
-        claims.values.asSequence().filter { c ->
-            val key = claimKey7803(c.lane, mint)
-            claims[key] === c
-        }.forEach { c ->
+        // One lookup per native lane. Scanning every token's claims here made
+        // every candidate allocate thousands of unrelated keys (9062 CPU trace).
+        // The hunt still performs global expiry; this read removes only its stale claims.
+        for (profile in profiles) {
+            val key = claimKey7803(profile.lane, mint)
+            val c = claims[key] ?: continue
+            if (now - c.atMs > CLAIM_TTL_MS) { claims.remove(key, c); continue }
             val inBand = if (currentMcap > 0.0 && currentMcap.isFinite()) {
                 val band = fluidBandFor(c.lane)
                 band != null && currentMcap >= band.first && currentMcap <= band.second

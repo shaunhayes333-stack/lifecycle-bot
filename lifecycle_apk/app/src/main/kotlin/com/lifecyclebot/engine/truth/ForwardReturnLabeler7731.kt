@@ -2659,6 +2659,7 @@ object ForwardReturnLabeler7731 {
         try {
             val decimals9062 = MintSupply8418.of8418(mint)?.takeIf { it.observedAtMs in 1L..nowMs }?.decimals
             NativePriceEvidence9062.publish(mint, fresh, nowMs, decimals9062)
+            NativeZoneLab9058.acceptedCandidates9063(mint, fresh, nowMs, decimals9062)
         } catch (_: Exception) {}
         return (fresh.filter { liveMark8454(it) }.takeIf { it.isNotEmpty() } ?: fresh)
             .maxWithOrNull(compareBy<LabelMark8386> { it.observedAtMs }.thenBy { it.independentBasis })

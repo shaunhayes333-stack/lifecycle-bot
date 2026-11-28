@@ -12,6 +12,7 @@ internal class ShadowWrites8386(private val capacity: Int = 8192, private val by
     private val latest = LinkedHashMap<String, Version>()
     private var sequence = 0L
     private var pendingBytes = 0L
+    private var latestBytes = 0L
     private fun sizeOf(key: String, value: String?): Long = 64L + 2L * (key.length + (value?.length ?: 0))
     fun stage(key: String, epoch: Long, value: String?): Boolean = synchronized(state) {
         val prior = latest[key]
@@ -21,10 +22,14 @@ internal class ShadowWrites8386(private val capacity: Int = 8192, private val by
         val nextBytes = pendingBytes - oldBytes + sizeOf(key, value)
         if (nextBytes > byteCapacity) return@synchronized false
         val w = Write(epoch, ++sequence, value)
-        pending[key] = w; latest[key] = Version(w.epoch, w.serial, value == null); pendingBytes = nextBytes
+        pending[key] = w
+        if (latest.put(key, Version(w.epoch, w.serial, value == null)) == null) latestBytes += 64L + key.length * 2L
+        pendingBytes = nextBytes
         if (latest.size > capacity * 2) {
             val it = latest.entries.iterator()
-            while (latest.size > capacity && it.hasNext()) { val e = it.next(); if (e.key !in pending) it.remove() }
+            while (latest.size > capacity && it.hasNext()) { val e = it.next(); if (e.key !in pending) {
+                latestBytes -= 64L + e.key.length * 2L; it.remove()
+            } }
         }
         true
     }
@@ -43,5 +48,5 @@ internal class ShadowWrites8386(private val capacity: Int = 8192, private val by
         synchronized(state) { pending.values.none { it.serial <= through } }
     }
     fun size(): Int = synchronized(state) { pending.size }
-    fun bytes(): Long = synchronized(state) { pendingBytes + latest.entries.sumOf { 64L + it.key.length * 2L } }
+    fun bytes(): Long = synchronized(state) { pendingBytes + latestBytes }
 }

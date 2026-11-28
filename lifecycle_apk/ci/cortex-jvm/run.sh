@@ -67,6 +67,9 @@ production=(
   "$sources/truth/RunnerTargetPath9049.kt"
   "$sources/truth/EvidenceReadQueue9052.kt"
   "$sources/truth/NativeZoneSequence9058.kt"
+  "$sources/truth/NativeZoneIndex9063.kt"
+  "$sources/truth/ShadowWrites8386.kt"
+  "$apk_dir/app/src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoExecFailureTracker.kt"
   "$sources/truth/NativePriceEvidence9062.kt"
   "$sources/truth/NativeZoneCheckpoint9061.kt"
   "$sources/truth/NativeZoneJournal9061.kt"
@@ -139,6 +142,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   -Xfriend-paths="$output_dir/production.jar" -d "$output_dir/tests.jar" \
   "$tests/Aate9057OrderedBarrierTest.kt" \
   "$tests/Aate9062PriceEvidenceTest.kt" \
+  "$tests/Aate9063RecoveryTest.kt" \
   "$tests/Aate9060NativeObjectiveTest.kt" "$tests/Aate9061LanePopulationAndCompoundTest.kt" \
   "$tests/Aate9052EvidenceReadQueueTest.kt" "$tests/Aate9058NativeZoneTest.kt" "$tests/Aate9059NativeZoneFeedbackTest.kt" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
@@ -162,6 +166,7 @@ cd -- "$apk_dir/app"
 java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit.runner.JUnitCore \
   com.lifecyclebot.engine.Aate9057OrderedBarrierTest \
   com.lifecyclebot.engine.Aate9062PriceEvidenceTest \
+  com.lifecyclebot.engine.Aate9063RecoveryTest \
   com.lifecyclebot.engine.Aate9052EvidenceReadQueueTest \
   com.lifecyclebot.engine.Aate9058NativeZoneTest \
   com.lifecyclebot.engine.Aate9059NativeZoneFeedbackTest \

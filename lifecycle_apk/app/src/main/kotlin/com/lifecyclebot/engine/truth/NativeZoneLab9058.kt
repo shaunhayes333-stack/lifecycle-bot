@@ -37,7 +37,10 @@ internal object NativeZoneLab9058 {
     private val writeFailed = AtomicLong()
     private val checkpointRuns9061 = AtomicLong()
     private val storageDeferred9061 = AtomicLong()
-    private var turn = 0L
+    private data class Indexed(val scope:NativeZoneSequence9058.Scope,val signal:NativeZoneContract9059.Signal,
+                               val asset:String,val decision:Long)
+    private val index9063=NativeZoneIndex9063<Indexed>(MAX_ROWS)
+    private val scopePages9063=NativeZoneScopePage9063()
     private var pendingWrite = emptyList<NativeZoneSequence9058.Completed>()
     private val lastAttempt = LinkedHashMap<String,Long>()
     private val nextHead = LinkedHashMap<String,Int>()
@@ -192,6 +195,12 @@ internal object NativeZoneLab9058 {
         if(tracker.hasActive9058(mark.mint)) (proof(mark,now) ?: cachedProof9062(mark.mint,now))?.let{tracker.mark(it,now)}
     }
 
+    fun acceptedCandidates9063(mint:String,marks:List<LabelMark8386>,now:Long,decimals:Int?){
+        if(!tracker.hasActive9058(mint))return
+        for(mark in NativePriceEvidence9062.accepted9063(mint,marks,now,decimals))
+            proof(mark,now)?.let{tracker.mark(it,now)}
+    }
+
     private fun cachedProof9062(mint:String,now:Long):NativeZoneSequence9058.Mark? =
         NativePriceEvidence9062.markFor(mint,now)?.let{proof(it,now)}?.also{recoveredProof9062.incrementAndGet()}
 
@@ -342,7 +351,7 @@ internal object NativeZoneLab9058 {
                     input.channel.position((dest.length()-KEEP_BYTES).coerceAtLeast(0L))
                     input.bufferedReader().use{r->r.readLine();tmp.bufferedWriter().use{w->r.forEachLine{w.appendLine(it)}}}
                 }
-                if(!tmp.renameTo(dest))tmp.delete()
+                if(tmp.renameTo(dest))index9063.reset() else tmp.delete()
             }
             true
         }catch(_:Exception){writeFailed.incrementAndGet();false}
@@ -363,26 +372,21 @@ internal object NativeZoneLab9058 {
     }
 
     private fun round(v:Double)=Math.round(v*10000.0)/10000.0
-    /** Reuse the existing lab turn: alternate with the original shared barrier learner; train at most one scope/head. */
+    /** Incremental bounded journal read; train at most one exact scope/head on the existing lab worker. */
     fun batch(now:Long):Boolean{
         val dest=file()?:return false
         tracker.expire(now)
         if(!flush(dest)||!dest.isFile)return false
-        if(++turn%2L==0L)return false
-        val tail=java.util.ArrayDeque<Row>(MAX_ROWS);var read=0
-        dest.useLines{seq->seq.forEach{line->
-            if(++read%128==0)JobCost8813.cooperate9043()
-            decode(line,now)?.let{r->if(tail.size>=MAX_ROWS)tail.removeFirst();tail.addLast(r)}
-        }}
-        // Index identities, not duplicated feature arrays. Expand only the chosen scope this turn.
-        val counts=LinkedHashMap<String,Int>()
-        for(r in tail)for(k in NativeZoneContract9059.scopes(r.scope,r.signal)){
-            val key=k.key()
-            if(key in counts || counts.size<2048)counts[key]=(counts[key]?:0)+1
-            else scopeOverflow9059.incrementAndGet()
-        }
+        val caughtUp=index9063.advance(dest,decode={line->decode(line,now)?.let{
+            Indexed(it.scope,it.signal,it.s.asset,it.s.decision)
+        }},cooperate=JobCost8813::cooperate9043)
+        if(!caughtUp){status="indexing rows=${index9063.size}";return true}
+        val indexed=index9063.entries()
+        val counts=scopePages9063.counts(indexed.asSequence().flatMap{r->
+            NativeZoneContract9059.scopes(r.value.scope,r.value.signal).asSequence().map{it.key()}
+        })
         val eligible=counts.filterValues{it>=300}
-        if(eligible.isEmpty()){status="waiting scopes="+counts.size+" rows="+tail.size;return false}
+        if(eligible.isEmpty()){status="waiting scopePage="+counts.size+" rows="+index9063.size;return false}
         val key=eligible.keys.minWithOrNull(compareBy<String>{lastAttempt[it]?:0L}.thenBy{it})?:return false
         val selectedScope=NativeZoneSequence9058.Scope.parse(key)?:return false
         lastAttempt[key]=now
@@ -390,9 +394,10 @@ internal object NativeZoneLab9058 {
         val head=nextHead[key]?:NativeZoneContract9059.NATIVE_HEAD
         nextHead[key]=if(head==NativeZoneSequence9058.HEADS-1)NativeZoneContract9059.NATIVE_HEAD else head+1
         val modelHead=if(head==NativeZoneContract9059.NATIVE_HEAD)0 else head
-        val rows=tail.asSequence().filter{r->r.scope.copy(setup=selectedScope.setup)==selectedScope &&
-            selectedScope.setup in r.signal.names()}.distinctBy{it.s.asset to it.s.decision}
-            .sortedBy{it.s.decision}.toList().takeLast(SCOPE_ROWS).map{r->
+        val selected=indexed.asSequence().filter{e->val r=e.value
+            r.scope.copy(setup=selectedScope.setup)==selectedScope && selectedScope.setup in r.signal.names()
+        }.distinctBy{it.value.asset to it.value.decision}.sortedBy{it.value.decision}.toList().takeLast(SCOPE_ROWS)
+        val rows=index9063.read(dest,selected,{decode(it,now)},JobCost8813::cooperate9043).map{r->
                 r.copy(scope=selectedScope,s=r.s.copy(features=NativeZoneContract9059.vector(r.s.features,selectedScope,r.signal,r.objective,r.s.decision,r.market9061,r.pocket9061),
                     labels=if(head==NativeZoneContract9059.NATIVE_HEAD)NativeZoneContract9059.nativeLabels(r.nativeLabel) else r.s.labels),
                     predictions=r.predictions.filter{r.signal.selected==selectedScope.setup && it.head==head})
@@ -417,6 +422,7 @@ internal object NativeZoneLab9058 {
         " noCost="+noCost.get()+" badScope="+badScope.get()+" missingSignal9059="+missingSignal9059.get()+
         " scopeOverflow9059="+scopeOverflow9059.get()+" stored="+saved.get()+" writeFailed="+writeFailed.get()+
         " checkpoint9061="+checkpointRuns9061.get()+" storageDeferred9061="+storageDeferred9061.get()+
+        " indexed9063="+index9063.size+" decoded9063="+index9063.decoded+
         " proofReject9061="+ProofReject.values().joinToString(","){it.name+":"+proofReject9061[it.ordinal].get()}+
         " recoveredProof9062="+recoveredProof9062.get()+
         " predictions="+predicted.get()+" models="+feedback9059.count()+" authority=NONE]"

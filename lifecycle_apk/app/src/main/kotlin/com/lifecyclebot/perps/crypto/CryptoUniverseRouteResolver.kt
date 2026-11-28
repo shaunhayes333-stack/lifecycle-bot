@@ -107,8 +107,8 @@ object CryptoUniverseRouteResolver {
             CryptoWrappedAssetMapper.resolveWrappedMint(sym)
         }
         if (resolvedMint != null) {
-            if (CryptoExecFailureTracker.isCooledDown(sym)) {
-                val secs = CryptoExecFailureTracker.cooldownRemainingMs(sym) / 1000
+            if (CryptoExecFailureTracker.mintCooledDown9063(resolvedMint)) {
+                val secs = CryptoExecFailureTracker.mintCooldownRemaining9063(resolvedMint) / 1000
                 return Resolution(sym, CryptoExecutionRoute.PAPER_ONLY, resolvedMint,
                     CryptoUniverseDiagCodes.ROUTE_NO_EXECUTOR,
                     "Jupiter has returned no signature repeatedly for $sym; cooling down ${secs}s. Paper-only until liquidity returns.",

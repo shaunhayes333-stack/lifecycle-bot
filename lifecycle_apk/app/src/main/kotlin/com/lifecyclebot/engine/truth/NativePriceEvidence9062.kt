@@ -21,7 +21,12 @@ internal object NativePriceEvidence9062 {
     }
 
     internal fun select(mint: String, candidates: List<LabelMark8386>, now: Long,
-                        supplyDecimals: Int?): LabelMark8386? = candidates.asSequence()
+                        supplyDecimals: Int?): LabelMark8386? = accepted9063(mint,candidates,now,supplyDecimals).maxByOrNull { it.observedAtMs }
+
+    /** Retain each pool's evidence in event order. A newer pool B observation must
+     * not hide pool A's continuous path from windows sealed against pool A. */
+    internal fun accepted9063(mint:String,candidates:List<LabelMark8386>,now:Long,
+                              supplyDecimals:Int?):List<LabelMark8386> = candidates.asSequence()
         .filter { it.mint == mint && it.known() && it.independentBasis &&
             LabelEvidence8386.independentSource8418(it.source) && knownVenue(it.venue) }
         .mapNotNull { m ->
@@ -31,7 +36,8 @@ internal object NativePriceEvidence9062 {
                 m.copy(decimals = decimals).takeIf { valid(it, now) }
             }
         }
-        .maxByOrNull { it.observedAtMs }
+        .distinctBy { Triple(it.venue,it.observedAtMs,it.usd) }
+        .sortedBy { it.observedAtMs }.toList()
 
     private fun valid(m: LabelMark8386, now: Long): Boolean =
         NativeZoneSequence9058.Mark(m.mint, m.venue, m.decimals, m.observedAtMs,
