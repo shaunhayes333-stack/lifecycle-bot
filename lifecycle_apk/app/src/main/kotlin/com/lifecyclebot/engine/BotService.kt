@@ -22081,7 +22081,7 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
 // Force-include every open position from sub-trader stores PLUS the
 // V3 lane (status.tokens). Any mint with a live position somewhere
 // is processed every tick, irrespective of scanner visibility.
-val subTraderOpenMints: List<String> = collectSubTraderOpenMints(paperRuntimeForSlotTruth)
+        val subTraderOpenMints: List<String> = collectSubTraderOpenMints(paperRuntimeForSlotTruth)
 
 val v3OpenMints: List<String> = synchronized(status.tokens) {
     status.tokens.values.filter { isCapCountableLiveToken(it.mint, it) }.map { it.mint }
