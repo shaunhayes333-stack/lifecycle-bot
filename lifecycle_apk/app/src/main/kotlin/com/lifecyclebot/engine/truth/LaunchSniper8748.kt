@@ -150,7 +150,8 @@ object LaunchSniper8748 {
     fun noteBuyConfirmed8749(mint: String, nowMs: Long, attemptId: String = "", signature: String = "",
                              elapsedMs: Long = System.nanoTime() / 1_000_000L) {
         synchronized(lineageLock9043) {
-        val c = tickets9043[attemptId]?.let { clocks9025[it.opportunity] }
+        val binding = tickets9043[attemptId]
+        val c = binding?.let { clocks9025[it.opportunity] }
         if (attemptId.isBlank() || signature.isBlank() || c == null || c.mint != mint) {
             unmatchedLanding9043.incrementAndGet(); return
         }
@@ -159,9 +160,12 @@ object LaunchSniper8748 {
             val ms = c.elapsed(nowMs, elapsedMs)
             if (ms < 0L) { unmatchedLanding9043.incrementAndGet(); return }
             c.landMs = ms; c.signature = signature; landedCount9043.incrementAndGet()
+            c.landedOnFire9064 = binding?.fireDependent == true
             if (ms <= c.windowMs) landedInWindow9043.incrementAndGet()
-            synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
-            trace9043("LAUNCH_FILL_LINKED_9043", "opportunityId=${c.id} mint=$mint attemptId=$attemptId signature=$signature elapsedMs=$ms")
+            // A later independent setup on the same asset is a diagnostic join,
+            // not measured execution latency for the expired launch strategy.
+            if (c.landedOnFire9064) synchronized(landed) { landed.addLast(ms); while (landed.size > MAX_LANDED_8749) landed.removeFirst() }
+            trace9043("LAUNCH_FILL_LINKED_9043", "opportunityId=${c.id} mint=$mint attemptId=$attemptId signature=$signature elapsedMs=$ms fireDependent=${c.landedOnFire9064}")
         }
         try { PipelineHealthCollector.labelInc("LAUNCH_SNIPER_BUY_LANDED_8749") } catch (_: Throwable) {}
         }
@@ -408,7 +412,7 @@ object LaunchSniper8748 {
         var firstAdm: Verdict9043? = null; var lastAdm: Verdict9043? = null
         var admitMs = -1L
         var firstGate: Verdict9043? = null; var lastGate: Verdict9043? = null; var allowMs = -1L
-        var landMs = -1L; var signature = ""
+        var landMs = -1L; var signature = ""; var landedOnFire9064 = false
         fun elapsed(nowMs: Long, elapsedMs: Long): Long = if (legacyClock) nowMs - t0
             else receivedMs - t0 + elapsedMs - receivedElapsedMs
         fun ending(): String = when {
@@ -425,7 +429,7 @@ object LaunchSniper8748 {
             (firstGate?.let { " gate+${it.ms / 1000}s:${it.value.take(44)}@${it.lane}/${it.version}" } ?: "") +
             (lastGate?.takeIf { it != firstGate }?.let { " lastGate+${it.ms / 1000}s:${it.value.take(44)}@${it.lane}/${it.version}" } ?: "") +
             (if (allowMs >= 0L) " allow+${allowMs / 1000}s" else "") +
-            (if (landMs >= 0L) " land+${landMs / 1000}s sig=${signature.take(12)}" else "")
+            (if (landMs >= 0L) " land+${landMs / 1000}s sig=${signature.take(12)} support="+(if(landedOnFire9064)"LAUNCH" else "INDEPENDENT") else "")
     }
     private data class DecisionKey9043(val mint: String, val lane: String, val version: Long)
     private class DecisionLink9043(val opportunity: String) {
@@ -567,6 +571,7 @@ object LaunchSniper8748 {
         fun p50(xs: List<Long>) = if (xs.isEmpty()) "-" else "${xs.sorted()[xs.size / 2] / 1000}s"
         "fireClock9025[fires=${openedCount9043.get()} admittedInWindow=${admittedInWindow9043.get()} gateAllowInWindow=${allowedInWindow9043.get()} " +
             "landed=${landedCount9043.get()} landedInWindow=${landedInWindow9043.get()} " +
+            "retainedLandingSupport9064{launch=${all.count{it.landMs>=0L && it.landedOnFire9064}} independent=${all.count{it.landMs>=0L && !it.landedOnFire9064}}} " +
             "retained=${all.size} retired=${retiredCount9043.get()} unmatched9043{admission=${unmatchedAdmission9043.get()},gate=${unmatchedGate9043.get()},ticket=${unmatchedTicket9043.get()},landing=${unmatchedLanding9043.get()}} " +
             "retainedFirstVerdict{p50=${p50(all.mapNotNull { it.firstAdm?.ms })}} retainedAdmit{p50=${p50(all.mapNotNull { it.admitMs.takeIf { v -> v >= 0L } })}} " +
             "retainedGate{p50=${p50(all.mapNotNull { it.firstGate?.ms })}} ended{${endings.ifBlank { "-" }}} " +

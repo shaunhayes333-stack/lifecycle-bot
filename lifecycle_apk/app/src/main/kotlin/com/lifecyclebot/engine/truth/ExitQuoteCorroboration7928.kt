@@ -27,6 +27,10 @@ object ExitQuoteCorroboration7928 {
     fun applies(reason: String, triggerPnlPct: Double, live: Boolean, stopThresholdPct: Double? = null): Boolean {
         if (!live) return false
         val r = reason.uppercase()
+        // This named backstop is a price stop, not evidence of an LP pull.
+        // Direct riskCheck -> doSell callers must reach the same bounded quote
+        // validation as requestSell; the word RUG must not exempt this reason.
+        if (r.startsWith(com.lifecyclebot.engine.StopMarkConfirm8418.THIN_POOL_BACKSTOP_8996)) return true
         if (r.contains("MANUAL") || r.contains("OPERATOR") || r.contains("USER") || r.contains("SHUTDOWN") || r.contains("RUG")) return false
         // A queued price stop can outlive its trigger. Re-reading a recovered mark above -8% must not
         // bypass the very check which cancels that obsolete stop. The bound threshold, not the new

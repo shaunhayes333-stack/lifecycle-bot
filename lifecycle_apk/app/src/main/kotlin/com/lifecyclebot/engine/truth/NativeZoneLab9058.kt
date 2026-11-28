@@ -375,18 +375,23 @@ internal object NativeZoneLab9058 {
     /** Incremental bounded journal read; train at most one exact scope/head on the existing lab worker. */
     fun batch(now:Long):Boolean{
         val dest=file()?:return false
+        return batchFile9064(dest,now)
+    }
+    internal fun batchFile9064(dest:File,now:Long):Boolean{
         tracker.expire(now)
         if(!flush(dest)||!dest.isFile)return false
-        val caughtUp=index9063.advance(dest,decode={line->decode(line,now)?.let{
+        val caughtUp=index9063.advance(dest,limit=1024,decode={line->decode(line,now)?.let{
             Indexed(it.scope,it.signal,it.s.asset,it.s.decision)
         }},cooperate=JobCost8813::cooperate9043)
-        if(!caughtUp){status="indexing rows=${index9063.size}";return true}
+        // A restored journal may take many bounded turns to index. Valid rows
+        // already indexed can train with the unchanged per-scope support and
+        // chronological holdout tests; catch-up is not a training prerequisite.
         val indexed=index9063.entries()
         val counts=scopePages9063.counts(indexed.asSequence().flatMap{r->
             NativeZoneContract9059.scopes(r.value.scope,r.value.signal).asSequence().map{it.key()}
         })
         val eligible=counts.filterValues{it>=300}
-        if(eligible.isEmpty()){status="waiting scopePage="+counts.size+" rows="+index9063.size;return false}
+        if(eligible.isEmpty()){status=(if(caughtUp)"waiting" else "indexing")+" scopePage="+counts.size+" rows="+index9063.size;return !caughtUp}
         val key=eligible.keys.minWithOrNull(compareBy<String>{lastAttempt[it]?:0L}.thenBy{it})?:return false
         val selectedScope=NativeZoneSequence9058.Scope.parse(key)?:return false
         lastAttempt[key]=now

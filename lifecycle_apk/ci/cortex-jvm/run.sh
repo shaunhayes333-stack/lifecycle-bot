@@ -143,6 +143,7 @@ java -Xmx1536m -cp "$deps_dir/*" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler \
   "$tests/Aate9057OrderedBarrierTest.kt" \
   "$tests/Aate9062PriceEvidenceTest.kt" \
   "$tests/Aate9063RecoveryTest.kt" \
+  "$tests/Aate9064NativeWarmupTest.kt" \
   "$tests/Aate9060NativeObjectiveTest.kt" "$tests/Aate9061LanePopulationAndCompoundTest.kt" \
   "$tests/Aate9052EvidenceReadQueueTest.kt" "$tests/Aate9058NativeZoneTest.kt" "$tests/Aate9059NativeZoneFeedbackTest.kt" \
   "$tests/Aate8675BuyerFlowTest.kt" "$tests/Aate8528SetupTimingTest.kt" "$tests/Aate8528FluidFloorTest.kt" \
@@ -167,6 +168,7 @@ java -cp "$output_dir/tests.jar:$output_dir/production.jar:$classpath" org.junit
   com.lifecyclebot.engine.Aate9057OrderedBarrierTest \
   com.lifecyclebot.engine.Aate9062PriceEvidenceTest \
   com.lifecyclebot.engine.Aate9063RecoveryTest \
+  com.lifecyclebot.engine.Aate9064NativeWarmupTest \
   com.lifecyclebot.engine.Aate9052EvidenceReadQueueTest \
   com.lifecyclebot.engine.Aate9058NativeZoneTest \
   com.lifecyclebot.engine.Aate9059NativeZoneFeedbackTest \

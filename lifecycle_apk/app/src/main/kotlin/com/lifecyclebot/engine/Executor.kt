@@ -25388,6 +25388,10 @@ class Executor(
         val verdict = com.lifecyclebot.engine.truth.MissingMarkExitVeto6835.evaluate(
             ts.mint, ts.lastPrice, ts.lastPriceUpdate, reason)
         if (!verdict.allow) return FreshExit8521(null)
+        // The thin-pool riskCheck calls doSell directly. It must still ask the
+        // venue, using the existing bounded wait, before building its route.
+        if (reason.startsWith(StopMarkConfirm8418.THIN_POOL_BACKSTOP_8996, ignoreCase = true) &&
+            StopMarkConfirm8418.stopRefutedByVenue8489(ts, reason)) return FreshExit8521(null)
         if (!stopCorroboratedByQuote7928(ts, reason)) return FreshExit8521(null, quoteRefuted = true)
         return FreshExit8521(if (verdict.markUntrusted6882 && !reason.contains("MARK_UNTRUSTED_6882"))
             "$reason|MARK_UNTRUSTED_6882" else reason)

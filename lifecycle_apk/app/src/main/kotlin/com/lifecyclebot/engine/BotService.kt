@@ -11011,26 +11011,28 @@ class BotService : Service() {
         // safety refresh it queued runs uncached in that pass), keyed per 20 s slot; every gate stands
         com.lifecyclebot.engine.truth.EvidenceWait8948.direct8948 = { mint, slot ->
             if (status.running && status.tokens.containsKey(mint))
-                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
+                fastLaneEvaluate7277(mint, cfg, "EVIDENCE_WAIT_8948", onceKey = "$mint|8948|$slot")
         }
         // V5.0.8957 — a coin whose missing inputs were pinged on chain runs its full pipeline when the answers land
         com.lifecyclebot.engine.truth.ChainConfirm8950.answered8957 = { mint, onceKey ->
             if (status.running) recoverPocketDiscovery8961(mint, false, streamGeneration)
             if (status.running && status.tokens.containsKey(mint))
-                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "CHAIN_ANSWER_8957", onceKey = onceKey)
+                fastLaneEvaluate7277(mint, cfg, "CHAIN_ANSWER_8957", onceKey = onceKey)
         }
         // V5.0.8950 — a coin whose UNKNOWN stage was read from the chain runs its full pipeline again at once
         com.lifecyclebot.engine.truth.StageRead8950.direct8950 = { mint, slot ->
             if (status.running) recoverPocketDiscovery8961(mint, true, streamGeneration)
             if (status.running && status.tokens.containsKey(mint))
-                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), "STAGE_READ_8950", onceKey = "$mint|8950|$slot")
+                fastLaneEvaluate7277(mint, cfg, "STAGE_READ_8950", onceKey = "$mint|8950|$slot")
         }
         // V5.0.8949 — an armed fire of the launch replay's proven rule runs the coin's full pipeline at once (a coin off the
         // watchlist through the protected intake first); every gate stands
         fun dispatchArmed9054(mint: String, source: String, fireKey: String) {
+            // Stream callbacks only enqueue. The fast-lane worker's cycleCfg8779
+            // reloads current config/mode; do not block the trade feed on a duplicate load.
             if (!status.running || !BotRuntimeController.isLiveGeneration(streamGeneration)) return
             if (status.tokens.containsKey(mint))
-                fastLaneEvaluate7277(mint, ConfigStore.load(applicationContext), source, onceKey = fireKey)
+                fastLaneEvaluate7277(mint, cfg, source, onceKey = fireKey)
             else {
                 val (sym8949, name8949) = com.lifecyclebot.engine.market.LaunchTape7921.symbolName8945(mint)
                 scope.launch(Dispatchers.IO) {

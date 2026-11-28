@@ -2067,7 +2067,8 @@ object CandidateAdmission8136 {
                 if (mode == "LIVE") candidate.marketCell8723?.kind?.let { k -> try { LaunchSniper8748.noteAdmission8949(ts.mint, k, it.terminal.name, nowMs) } catch (_: Throwable) {} }
                 if (mode == "LIVE") try { LaunchSniper8748.noteAdmission9025(ts.mint, it.terminal.name, it.reason, nowMs,
                     candidate.lane, version, candidate.launchOpportunity9043?.first.orEmpty(),
-                    fireDependent = it.trace.any { t -> t.startsWith(LaneAuthority8577.FIRE_TRACE_9025) }) } catch (_: Throwable) {}   // V5.0.9043 — exact candidate/fire identity
+                    fireDependent = candidate.marketCell8723?.kind == LaunchSniper8748.KIND_8748 ||
+                        it.trace.any { t -> t.startsWith(LaneAuthority8577.FIRE_TRACE_9025) }) } catch (_: Throwable) {}   // Launch evidence itself binds the dispatch deadline, even when another branch already admitted.
             }
             // V5.0.8544 — a LIVE meme candidate is also decided the PAPER way for the separate paper book beside live
             // V5.0.8618 — the tuning report files the paper close under what LIVE decided on this same candidate.
