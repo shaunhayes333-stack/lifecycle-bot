@@ -348,7 +348,7 @@ object EntryEconomics8329 {
         if (intent.mode != "LIVE" || proof.mode != intent.mode || proof.mint != intent.mint ||
             proof.candidateVersion <= 0L || proof.candidateVersion != intent.candidateVersion ||
             CanonicalLaneIdentity6506.canonical(proof.lane) != CanonicalLaneIdentity6506.canonical(intent.canonicalLane) ||
-            price.rank != TokenFacts.Rank.CHAIN || price.source.isBlank() || !TokenFacts.isReading(price.value) ||
+            price.rank != TokenFacts.Rank.CHAIN || !ChainPrice8963.isAccountPrice9067(price.source) || !TokenFacts.isReading(price.value) ||
             price.observedAtMs <= 0L || proof.atMs - price.observedAtMs !in 0L..5_000L ||
             intent.createdAt - proof.atMs !in 0L..AdmissionEdge8180.TTL_MS_8180) return null
         return price.value to price.observedAtMs

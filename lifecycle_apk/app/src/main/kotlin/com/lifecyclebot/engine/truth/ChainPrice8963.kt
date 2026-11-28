@@ -30,6 +30,9 @@ object ChainPrice8963 {
     const val VAULT_SOURCE_8963 = "CHAIN_VAULT_READ_8963_"
     /** V5.0.8986 — a concentrated pool's decoded state price (Raydium CLMM / Orca Whirlpool sqrt price, Meteora DLMM active bin). */
     const val STATE_SOURCE_8986 = "CHAIN_STATE_READ_8986_"
+    internal fun isAccountPrice9067(source: String): Boolean =
+        source == CURVE_SOURCE_8963 || source.startsWith(VAULT_SOURCE_8963) || source.startsWith(STATE_SOURCE_8986)
+
     private val written = ConcurrentHashMap<String, AtomicLong>()
     private val woke = AtomicLong(0L)
     private val notNewer = AtomicLong(0L)

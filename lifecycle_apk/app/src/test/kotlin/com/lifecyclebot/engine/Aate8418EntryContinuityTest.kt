@@ -86,6 +86,7 @@ class Aate8418EntryContinuityTest {
         for (invalid in listOf(proof.copy(candidateVersion = 8419L), proof.copy(lane = "CORE"),
             proof.copy(mode = "PAPER"), proof.copy(mint = "another"),
             proof.copy(admissionPrice9067 = fact.copy(rank = 1)),
+            proof.copy(admissionPrice9067 = fact.copy(source = "EXEC_QUOTE_8237")),
             proof.copy(admissionPrice9067 = fact.copy(observedAtMs = now - 30_000)))) {
             val other = ticket.copy(admissionProof = invalid)
             assertEquals("ENTRY_CONTINUITY_8418_PRICE_UNAPPROVED", check(other, other))
